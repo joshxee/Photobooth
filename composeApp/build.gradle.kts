@@ -44,6 +44,10 @@ kotlin {
         androidMain.dependencies {
             implementation(compose.preview)
             implementation(libs.androidx.activity.compose)
+            // CameraX dependencies
+            implementation("androidx.camera:camera-camera2:1.3.1")
+            implementation("androidx.camera:camera-lifecycle:1.3.1")
+            implementation("androidx.camera:camera-view:1.3.1")
         }
         commonMain.dependencies {
             implementation(compose.runtime)
@@ -57,6 +61,7 @@ kotlin {
         }
         commonTest.dependencies {
             implementation(libs.kotlin.test)
+            implementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.7.3")
         }
         jvmMain.dependencies {
             implementation(compose.desktop.currentOs)

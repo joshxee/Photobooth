@@ -21,9 +21,23 @@ class ComposeAppCommonTest {
     }
 
     @Test
-    fun testScreenEnumHasTwoValues() {
+    fun testScreenEnumHasPhotoboothScreen() {
+        val screen = Screen.PHOTOBOOTH
+        assertNotNull(screen)
+        assertEquals("PHOTOBOOTH", screen.name)
+    }
+
+    @Test
+    fun testScreenEnumHasPhotoStripScreen() {
+        val screen = Screen.PHOTO_STRIP
+        assertNotNull(screen)
+        assertEquals("PHOTO_STRIP", screen.name)
+    }
+
+    @Test
+    fun testScreenEnumHasFourValues() {
         val screens = Screen.values()
-        assertEquals(2, screens.size)
+        assertEquals(4, screens.size)
     }
 
     @Test
@@ -31,5 +45,7 @@ class ComposeAppCommonTest {
         val screens = Screen.values()
         assertEquals(Screen.WELCOME, screens[0])
         assertEquals(Screen.UNDER_CONSTRUCTION, screens[1])
+        assertEquals(Screen.PHOTOBOOTH, screens[2])
+        assertEquals(Screen.PHOTO_STRIP, screens[3])
     }
 }

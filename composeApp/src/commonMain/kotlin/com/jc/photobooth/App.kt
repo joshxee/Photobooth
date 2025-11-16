@@ -11,11 +11,15 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.jc.photobooth.model.PhotoData
+import com.jc.photobooth.ui.photostrip.PhotoStripScreen
 import org.jetbrains.compose.ui.tooling.preview.Preview
 
 enum class Screen {
     WELCOME,
-    UNDER_CONSTRUCTION
+    UNDER_CONSTRUCTION,
+    PHOTOBOOTH,
+    PHOTO_STRIP
 }
 
 @Composable
@@ -23,13 +27,27 @@ enum class Screen {
 fun App() {
     MaterialTheme {
         var currentScreen by remember { mutableStateOf(Screen.WELCOME) }
+        var capturedPhotos by remember { mutableStateOf<List<PhotoData>>(emptyList()) }
 
         when (currentScreen) {
             Screen.WELCOME -> WelcomeScreen(
-                onEnterBooth = { currentScreen = Screen.UNDER_CONSTRUCTION }
+                onEnterBooth = { currentScreen = Screen.PHOTOBOOTH }
             )
             Screen.UNDER_CONSTRUCTION -> UnderConstructionScreen(
                 onReturnHome = { currentScreen = Screen.WELCOME }
+            )
+            Screen.PHOTOBOOTH -> {
+                PhotoboothScreenWrapper(
+                    onNavigateToPhotoStrip = { photos ->
+                        capturedPhotos = photos
+                        currentScreen = Screen.PHOTO_STRIP
+                    },
+                    onNavigateHome = { currentScreen = Screen.WELCOME }
+                )
+            }
+            Screen.PHOTO_STRIP -> PhotoStripScreen(
+                photos = capturedPhotos,
+                onReturnToPhotobooth = { currentScreen = Screen.PHOTOBOOTH }
             )
         }
     }
