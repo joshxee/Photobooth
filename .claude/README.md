@@ -14,6 +14,17 @@ See [TDD_GUIDELINES.md](../TDD_GUIDELINES.md) for comprehensive TDD practices.
 
 ## Structure
 
+### Subagents
+Located in `.claude/subagents/`, these are specialized AI assistants with domain expertise:
+
+- **kotlin-multiplatform.md** - Kotlin Multiplatform specialist
+  - Expert in KMP architecture and best practices
+  - Deep knowledge of expect/actual patterns
+  - Platform-specific implementation guidance
+  - Compose Multiplatform UI development
+  - Cross-platform testing strategies
+  - Gradle configuration for multi-target projects
+
 ### Hooks
 Located in `.claude/hooks/`, these run automatically in response to events:
 
@@ -117,9 +128,23 @@ The session start hook runs automatically and executes all tests to ensure you s
 ./gradlew :composeApp:wasmJsTest     # Web Wasm
 ```
 
+## Kotlin Multiplatform Subagent
+
+A specialized subagent is available to help with Kotlin Multiplatform development. The subagent provides:
+
+- Guidance on expect/actual patterns for platform-specific code
+- Best practices for source set organization (commonMain, androidMain, iosMain, etc.)
+- Help with Compose Multiplatform UI development
+- Gradle configuration assistance for multi-target projects
+- Cross-platform testing strategies
+- Common KMP patterns and solutions to typical issues
+
+The subagent is automatically available when working on KMP-specific tasks and can help ensure code is properly structured for maximum code sharing across platforms.
+
 ## Learn More
 
 - [TDD Guidelines](../TDD_GUIDELINES.md) - **Start here for TDD practices!**
+- [Kotlin Multiplatform Subagent](subagents/kotlin-multiplatform.md) - **KMP specialist guide**
 - [Claude Code Documentation](https://docs.claude.com/claude-code)
 - [Kotlin Multiplatform](https://www.jetbrains.com/help/kotlin-multiplatform-dev/get-started.html)
 - [Kotlin Multiplatform Testing](https://kotlinlang.org/docs/multiplatform-run-tests.html)
