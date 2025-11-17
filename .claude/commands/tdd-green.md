@@ -1,46 +1,167 @@
 ---
-description: TDD Green Phase - Make tests pass
+description: Write tests for implemented components
 ---
 
-# TDD Green Phase 🟢
+# Testing Phase - Verify Component Behavior
 
-In the **Green** phase of Test-Driven Development, you write the minimal code needed to make the failing test pass.
+In this phase, you write comprehensive tests for a completed component to ensure it works correctly.
 
 ## Instructions
 
 I will help you:
 
-1. **Review the failing test** - Understand what needs to be implemented
-2. **Write minimal implementation** - Just enough to make the test pass (no more!)
-3. **Run the tests** - Verify all tests pass
-4. **Confirm success** - Ensure the new test passes along with all existing tests
+1. **Review the implementation** - Understand the component's behavior and responsibilities
+2. **Identify test cases** - What scenarios should be tested?
+   - Happy path (normal usage)
+   - Edge cases (boundary conditions)
+   - Error cases (invalid inputs, exceptional conditions)
+   - State transitions (if applicable)
+3. **Write comprehensive tests** - Cover all identified scenarios
+4. **Run the tests** - Verify all tests pass
+5. **Review coverage** - Ensure critical behaviors are tested
 
-## Run Tests
+## Test Writing Best Practices
+
+### Structure
+- **Arrange**: Set up test data and preconditions
+- **Act**: Execute the behavior being tested
+- **Assert**: Verify the expected outcome
+
+### Naming
+Use descriptive test names that explain the behavior:
+- `shouldReturnEmptyListWhenNoPhotosExist()`
+- `shouldIncrementCountWhenPhotoTaken()`
+- `shouldThrowExceptionWhenInputIsNull()`
+
+### Coverage
+Test these categories:
+- **Happy Path**: Normal, expected usage
+- **Edge Cases**: Boundary values (0, max, negative)
+- **Error Cases**: Invalid inputs, null values
+- **State**: Different initial states leading to different outcomes
+
+## Test Location
+
+- **Cross-platform tests**: `composeApp/src/commonTest/kotlin/`
+- **Android-specific**: `composeApp/src/androidUnitTest/kotlin/`
+- **Desktop/JVM**: `composeApp/src/jvmTest/kotlin/`
+- **Web**: `composeApp/src/jsTest/kotlin/` or `wasmJsTest/kotlin/`
+
+**Prefer commonTest** to test code that runs on all platforms!
+
+## Example
+
+```kotlin
+// composeApp/src/commonTest/kotlin/domain/PhotoCounterTest.kt
+package domain
+
+import kotlin.test.Test
+import kotlin.test.assertEquals
+import kotlin.test.BeforeTest
+
+class PhotoCounterTest {
+    private lateinit var counter: PhotoCounter
+
+    @BeforeTest
+    fun setup() {
+        counter = PhotoCounter()
+    }
+
+    @Test
+    fun shouldStartWithZeroCount() {
+        assertEquals(0, counter.count)
+    }
+
+    @Test
+    fun shouldIncrementCountWhenPhotoTaken() {
+        counter.takePhoto()
+
+        assertEquals(1, counter.count)
+    }
+
+    @Test
+    fun shouldIncrementMultipleTimes() {
+        counter.takePhoto()
+        counter.takePhoto()
+        counter.takePhoto()
+
+        assertEquals(3, counter.count)
+    }
+
+    @Test
+    fun shouldResetCountToZero() {
+        counter.takePhoto()
+        counter.takePhoto()
+
+        counter.reset()
+
+        assertEquals(0, counter.count)
+    }
+
+    @Test
+    fun shouldMaintainCountAfterMultipleResets() {
+        counter.takePhoto()
+        counter.reset()
+        counter.takePhoto()
+        counter.takePhoto()
+
+        assertEquals(2, counter.count)
+    }
+}
+```
+
+## Running Tests
 
 ```bash
-# Run all tests
+# Run all tests (recommended)
 ./gradlew allTests --console=plain
 
-# Run tests continuously (auto-run on file changes)
+# Run tests continuously (great during development)
 ./gradlew allTests --continuous
 
 # Run specific platform tests
 ./gradlew :composeApp:jvmTest        # Desktop/JVM
 ./gradlew :composeApp:jsTest         # Web JS
 ./gradlew :composeApp:wasmJsTest     # Web Wasm
+./gradlew :composeApp:testDebugUnitTest  # Android
 ```
 
-## Best Practices
+## kotlin.test Assertions
 
-- Write the **simplest** code that makes the test pass
-- Don't add features that aren't tested yet
-- Keep the implementation in `composeApp/src/commonMain/kotlin/` for cross-platform code
-- Resist the urge to refactor now - that's the next phase!
+```kotlin
+import kotlin.test.*
 
-## After Running This Command
+// Equality
+assertEquals(expected, actual)
+assertNotEquals(unexpected, actual)
 
-Once all tests are passing (green), use `/tdd-refactor` to improve the code quality.
+// Boolean
+assertTrue(condition)
+assertFalse(condition)
+
+// Nullability
+assertNull(value)
+assertNotNull(value)
+
+// Exceptions
+assertFailsWith<IllegalArgumentException> {
+    // Code that should throw
+}
+
+// Collections
+assertContains(collection, element)
+assertContentEquals(expected, actual)  // Deep equality
+
+// Custom message
+assertEquals(expected, actual, "Custom failure message")
+```
+
+## After Testing
+
+Once all tests pass:
+- If code needs improvement, use `/tdd-refactor` to clean it up safely
+- If ready to move on, implement the next feature with `/tdd-red`
 
 ---
 
-**Let's make those tests pass!** I'll implement the minimal code needed.
+**Ready to write tests?** I'll help you write comprehensive tests for your implemented components!

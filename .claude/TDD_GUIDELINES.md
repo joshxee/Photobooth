@@ -1,17 +1,48 @@
-# Test-Driven Development (TDD) Guidelines
+# Pragmatic Testing Guidelines
 
-This project follows **Test-Driven Development** practices for all feature development.
+This project follows a **pragmatic testing approach** that prioritizes clean, modular, and testable code with comprehensive test coverage.
 
-## The TDD Cycle
+## Development Cycle
 
-### 🔴 RED - Write a Failing Test
+### 1. Implement - Build Clean, Testable Components
 
 1. **Understand the requirement** - What feature needs to be built?
-2. **Write the test FIRST** - Before any implementation code
-3. **Run the test** - It should FAIL (that's good!)
-4. **Verify the failure** - Make sure it fails for the right reason
+2. **Design for testability** - Plan components that are modular and easy to test
+3. **Write clean implementation** - Focus on:
+   - Single responsibility principle
+   - Clear, descriptive naming
+   - Minimal dependencies
+   - Pure functions where possible
+   - Proper separation of concerns
 
-**Command**: `/tdd-red`
+**Command**: `/tdd-red` (repurposed for implementation)
+
+```kotlin
+// Example: composeApp/src/commonMain/kotlin/PhotoCounter.kt
+class PhotoCounter {
+    private var photoCount = 0
+
+    val count: Int
+        get() = photoCount
+
+    fun takePhoto() {
+        photoCount++
+    }
+
+    fun reset() {
+        photoCount = 0
+    }
+}
+```
+
+### 2. Test - Verify Component Behavior
+
+1. **Component is complete** - Ensure the component is fully implemented
+2. **Write comprehensive tests** - Cover all behaviors and edge cases
+3. **Run tests** - Verify all tests pass
+4. **Achieve good coverage** - Test happy paths, edge cases, and error conditions
+
+**Command**: `/tdd-green` (repurposed for testing)
 
 ```kotlin
 // Example: composeApp/src/commonTest/kotlin/PhotoCounterTest.kt
@@ -20,6 +51,13 @@ import kotlin.test.assertEquals
 
 class PhotoCounterTest {
     @Test
+    fun shouldStartWithZeroCount() {
+        val counter = PhotoCounter()
+
+        assertEquals(0, counter.count)
+    }
+
+    @Test
     fun shouldIncrementCountWhenPhotoTaken() {
         val counter = PhotoCounter()
 
@@ -27,56 +65,78 @@ class PhotoCounterTest {
 
         assertEquals(1, counter.count)
     }
-}
-```
 
-### 🟢 GREEN - Make It Pass
+    @Test
+    fun shouldIncrementMultipleTimes() {
+        val counter = PhotoCounter()
 
-1. **Write minimal code** - Just enough to make the test pass
-2. **No extra features** - Don't add things that aren't tested
-3. **Run tests** - All tests should pass
-4. **Verify success** - Confirm the new test passes
+        counter.takePhoto()
+        counter.takePhoto()
+        counter.takePhoto()
 
-**Command**: `/tdd-green`
+        assertEquals(3, counter.count)
+    }
 
-```kotlin
-// Example: composeApp/src/commonMain/kotlin/PhotoCounter.kt
-class PhotoCounter {
-    var count = 0
-        private set
+    @Test
+    fun shouldResetCountToZero() {
+        val counter = PhotoCounter()
+        counter.takePhoto()
+        counter.takePhoto()
 
-    fun takePhoto() {
-        count++  // Simplest implementation!
+        counter.reset()
+
+        assertEquals(0, counter.count)
     }
 }
 ```
 
-### 🔵 REFACTOR - Improve Quality
+### 3. Refactor - Improve Quality
 
 1. **All tests green?** - Don't refactor with failing tests!
-2. **Make small changes** - One refactoring at a time
-3. **Run tests after each change** - Immediate feedback
-4. **Stop when clean** - Don't over-engineer
+2. **Identify improvements** - Look for code smells, duplication, complexity
+3. **Make incremental changes** - One refactoring at a time
+4. **Run tests after each change** - Immediate feedback on safety
+5. **Stop when clean** - Don't over-engineer
 
 **Command**: `/tdd-refactor`
 
 ```kotlin
-// Example: Refactored version with better naming
+// Example: Refactored version with better encapsulation
 class PhotoCounter {
-    private var photoCount = 0
+    private var _count = 0
 
     val count: Int
-        get() = photoCount
+        get() = _count
 
     fun takePhoto() {
         incrementCount()
     }
 
+    fun reset() {
+        _count = 0
+    }
+
     private fun incrementCount() {
-        photoCount++
+        _count++
     }
 }
 ```
+
+## Why This Approach?
+
+### Efficiency Benefits
+
+- **No wasted test runs** - Tests only run against complete components
+- **Fewer iterations** - No back-and-forth between test and implementation
+- **Lower token usage** - Streamlined development process
+- **Faster development** - Direct path from design to implementation to testing
+
+### Quality Benefits
+
+- **Clean code first** - Focus on good design from the start
+- **Comprehensive testing** - Test all behaviors at once with full context
+- **Testability by design** - Code is designed to be testable from the ground up
+- **Strong test coverage** - Tests are written while implementation is fresh in mind
 
 ## Kotlin Multiplatform Test Structure
 
@@ -170,8 +230,7 @@ fail("This should never be reached")
 ```
 
 Runs tests on ALL platforms. Use this for:
-- Before starting work (green baseline)
-- After implementing features
+- After implementing and testing features
 - Before committing code
 - In CI/CD pipelines
 
@@ -181,7 +240,7 @@ Runs tests on ALL platforms. Use this for:
 ./gradlew allTests --continuous
 ```
 
-**Best for TDD!** Tests auto-run whenever you save a file.
+**Great for development!** Tests auto-run whenever you save a file.
 
 **Command**: `/test-watch`
 
@@ -206,81 +265,49 @@ Runs tests on ALL platforms. Use this for:
 
 **Command**: `/test-platform`
 
-## TDD Best Practices
+## Best Practices
 
 ### ✅ DO
 
-- **Write tests first** - Before any implementation code
-- **One test at a time** - Focus on one behavior
-- **Small steps** - Baby steps lead to success
-- **Run tests frequently** - After every change
-- **Test behavior, not implementation** - Test what, not how
+- **Design for testability** - Think about how you'll test while implementing
+- **Write clean, modular code** - Single responsibility, clear naming
+- **Test immediately after implementing** - While the code is fresh
+- **Test all behaviors** - Happy paths, edge cases, error conditions
+- **Run tests frequently** - After writing tests and during refactoring
 - **Use descriptive names** - `shouldReturnErrorWhenInputIsEmpty()`
 - **Keep tests simple** - Tests should be easy to understand
-- **Test the happy path first** - Then edge cases
+- **Test behavior, not implementation** - Test what, not how
 - **Commit when green** - Only commit passing tests
 
 ### ❌ DON'T
 
-- **Don't skip the test** - No implementation without a test
-- **Don't write multiple tests at once** - One at a time
-- **Don't write production code without a failing test** - Red first!
+- **Don't skip tests** - Every component should have tests
+- **Don't write untestable code** - If it's hard to test, redesign it
+- **Don't write complex code** - Keep implementations simple and clear
 - **Don't refactor with failing tests** - Always start from green
 - **Don't test implementation details** - Test public behavior
 - **Don't write complex tests** - If the test is complex, simplify it
 - **Don't ignore failing tests** - Fix them immediately
 - **Don't commit broken code** - Keep main branch green
 
-## Example TDD Workflow
+## Example Workflow
 
-Let's implement a photo filter feature using TDD:
+Let's implement a photo filter feature:
 
-### 1. Red Phase 🔴
+### 1. Implement Phase
 
-```kotlin
-// composeApp/src/commonTest/kotlin/filters/PhotoFilterTest.kt
-import kotlin.test.Test
-import kotlin.test.assertEquals
-
-class PhotoFilterTest {
-    @Test
-    fun shouldApplyGrayscaleFilter() {
-        val filter = GrayscaleFilter()
-        val colorPhoto = Photo(r = 255, g = 100, b = 50)
-
-        val filtered = filter.apply(colorPhoto)
-
-        // Grayscale average: (255 + 100 + 50) / 3 = 135
-        assertEquals(Photo(r = 135, g = 135, b = 135), filtered)
-    }
-}
-```
-
-Run: `./gradlew allTests` → ❌ FAILS (no GrayscaleFilter class exists)
-
-### 2. Green Phase 🟢
+**Design the component:**
+- Think about the interface
+- Plan for testability (pure functions, dependency injection, etc.)
+- Consider edge cases
 
 ```kotlin
-// composeApp/src/commonMain/kotlin/filters/GrayscaleFilter.kt
-data class Photo(val r: Int, val g: Int, val b: Int)
-
-class GrayscaleFilter {
-    fun apply(photo: Photo): Photo {
-        val gray = (photo.r + photo.g + photo.b) / 3
-        return Photo(r = gray, g = gray, b = gray)
-    }
-}
-```
-
-Run: `./gradlew allTests` → ✅ PASSES
-
-### 3. Refactor Phase 🔵
-
-```kotlin
-// Refactored with better abstraction
+// composeApp/src/commonMain/kotlin/filters/PhotoFilter.kt
 interface PhotoFilter {
     fun apply(photo: Photo): Photo
 }
+
+data class Photo(val r: Int, val g: Int, val b: Int)
 
 class GrayscaleFilter : PhotoFilter {
     override fun apply(photo: Photo): Photo {
@@ -294,11 +321,94 @@ class GrayscaleFilter : PhotoFilter {
 }
 ```
 
+### 2. Test Phase
+
+**Write comprehensive tests:**
+
+```kotlin
+// composeApp/src/commonTest/kotlin/filters/GrayscaleFilterTest.kt
+import kotlin.test.Test
+import kotlin.test.assertEquals
+
+class GrayscaleFilterTest {
+    @Test
+    fun shouldApplyGrayscaleToColorPhoto() {
+        val filter = GrayscaleFilter()
+        val colorPhoto = Photo(r = 255, g = 100, b = 50)
+
+        val filtered = filter.apply(colorPhoto)
+
+        // Grayscale average: (255 + 100 + 50) / 3 = 135
+        assertEquals(Photo(r = 135, g = 135, b = 135), filtered)
+    }
+
+    @Test
+    fun shouldHandleBlackPhoto() {
+        val filter = GrayscaleFilter()
+        val blackPhoto = Photo(r = 0, g = 0, b = 0)
+
+        val filtered = filter.apply(blackPhoto)
+
+        assertEquals(Photo(r = 0, g = 0, b = 0), filtered)
+    }
+
+    @Test
+    fun shouldHandleWhitePhoto() {
+        val filter = GrayscaleFilter()
+        val whitePhoto = Photo(r = 255, g = 255, b = 255)
+
+        val filtered = filter.apply(whitePhoto)
+
+        assertEquals(Photo(r = 255, g = 255, b = 255), filtered)
+    }
+
+    @Test
+    fun shouldHandleAlreadyGrayscalePhoto() {
+        val filter = GrayscaleFilter()
+        val grayPhoto = Photo(r = 128, g = 128, b = 128)
+
+        val filtered = filter.apply(grayPhoto)
+
+        assertEquals(Photo(r = 128, g = 128, b = 128), filtered)
+    }
+}
+```
+
+**Run tests:** `./gradlew allTests` → ✅ ALL PASS
+
+### 3. Refactor Phase (if needed)
+
+**Improve code quality while keeping tests green:**
+
+```kotlin
+// Example: Extract weighted grayscale for better accuracy
+class GrayscaleFilter : PhotoFilter {
+    companion object {
+        private const val RED_WEIGHT = 0.299
+        private const val GREEN_WEIGHT = 0.587
+        private const val BLUE_WEIGHT = 0.114
+    }
+
+    override fun apply(photo: Photo): Photo {
+        val grayscale = calculateWeightedGrayscale(photo)
+        return Photo(r = grayscale, g = grayscale, b = grayscale)
+    }
+
+    private fun calculateWeightedGrayscale(photo: Photo): Int {
+        return (photo.r * RED_WEIGHT +
+                photo.g * GREEN_WEIGHT +
+                photo.b * BLUE_WEIGHT).toInt()
+    }
+}
+```
+
+**Update tests if behavior changed, or verify existing tests still pass.**
+
 Run: `./gradlew allTests` → ✅ STILL PASSES
 
 ### 4. Repeat!
 
-Next feature: Add sepia filter → Start at Red phase again!
+Next feature: Implement sepia filter → Start at Implement phase again!
 
 ## Testing UI with Compose Multiplatform
 
@@ -336,17 +446,17 @@ This ensures:
 - [kotlin.test API Reference](https://kotlinlang.org/api/latest/kotlin.test/)
 - [Compose Multiplatform UI Testing](https://kotlinlang.org/docs/compose-test.html)
 
-## TDD Slash Commands
+## Development Slash Commands
 
-Use these commands to guide your TDD workflow:
+Use these commands to guide your workflow:
 
-- `/tdd-red` - Start with a failing test
-- `/tdd-green` - Implement to make tests pass
-- `/tdd-refactor` - Clean up code safely
+- `/tdd-red` - Implement clean, testable components
+- `/tdd-green` - Write tests for implemented components
+- `/tdd-refactor` - Refactor code with test safety net
 - `/test` - Run all tests
 - `/test-watch` - Run tests continuously
 - `/test-platform` - Run platform-specific tests
 
 ---
 
-**Remember**: Red → Green → Refactor → Repeat! 🔴🟢🔵🔁
+**Remember**: Implement → Test → Refactor → Repeat!

@@ -1,16 +1,16 @@
 # Claude Code Configuration
 
-This directory contains configuration for Claude Code to help with **Test-Driven Development (TDD)** of the Photobooth Kotlin Multiplatform app.
+This directory contains configuration for Claude Code to help with the development and testing of the Photobooth Kotlin Multiplatform app.
 
-## 🧪 TDD Philosophy
+## 🧪 Pragmatic Testing Philosophy
 
-This project follows **Test-Driven Development**. All features should follow the Red-Green-Refactor cycle:
+This project follows a **pragmatic testing approach** that prioritizes clean, modular, and testable code with comprehensive test coverage:
 
-1. **🔴 RED** - Write a failing test first
-2. **🟢 GREEN** - Write minimal code to pass the test
-3. **🔵 REFACTOR** - Improve code quality while keeping tests green
+1. **Implement** - Build clean, testable components
+2. **Test** - Write comprehensive tests for completed components
+3. **Refactor** - Improve code quality while keeping tests green
 
-See [TDD_GUIDELINES.md](../TDD_GUIDELINES.md) for comprehensive TDD practices.
+See [TDD_GUIDELINES.md](../TDD_GUIDELINES.md) for comprehensive testing practices.
 
 ## Structure
 
@@ -30,17 +30,17 @@ Located in `.claude/hooks/`, these run automatically in response to events:
 
 - **SessionStart.md** - Runs when a Claude Code session starts
   - Validates Gradle wrapper
-  - **Runs all tests** to ensure green baseline (critical for TDD!)
-  - Displays TDD quick reference guide
+  - **Runs all tests** to ensure green baseline (ensures nothing is broken)
+  - Displays testing quick reference guide
   - Shows available build targets and test commands
 
 ### Commands
 Located in `.claude/commands/`, these can be invoked with `/command-name`:
 
-#### TDD Workflow Commands
-- **/tdd-red** - 🔴 Start Red phase: Write a failing test
-- **/tdd-green** - 🟢 Start Green phase: Make tests pass
-- **/tdd-refactor** - 🔵 Start Refactor phase: Improve code safely
+#### Development Workflow Commands
+- **/tdd-red** - Implement clean, testable components
+- **/tdd-green** - Write tests for implemented components
+- **/tdd-refactor** - Refactor code with test safety net
 
 #### Testing Commands
 - **/test** - Run all tests across all platforms
@@ -56,17 +56,16 @@ Located in `.claude/commands/`, these can be invoked with `/command-name`:
 
 ## Usage
 
-### TDD Workflow
+### Development Workflow
 The recommended workflow for new features:
 
 ```
-1. /tdd-red       → Write a failing test
-2. /test          → Verify it fails
-3. /tdd-green     → Implement minimal code
-4. /test          → Verify it passes
-5. /tdd-refactor  → Clean up code
-6. /test          → Verify still passes
-7. Repeat!
+1. /tdd-red       → Implement clean, testable component
+2. /tdd-green     → Write comprehensive tests
+3. /test          → Verify all tests pass
+4. /tdd-refactor  → Improve code quality (if needed)
+5. /test          → Verify tests still pass
+6. Repeat for next component!
 ```
 
 ### Running Commands
@@ -78,11 +77,11 @@ Type `/` in Claude Code to see available commands, or use them directly:
 ```
 
 ### Continuous Testing
-For the best TDD experience, run tests in watch mode:
+For the best development experience, run tests in watch mode:
 ```
 /test-watch
 ```
-This auto-runs tests whenever you save a file!
+This auto-runs tests whenever you save a file, providing immediate feedback!
 
 ### Session Start Hook
 The session start hook runs automatically and executes all tests to ensure you start with a green baseline. This can be disabled in settings if needed.
@@ -143,7 +142,7 @@ The subagent is automatically available when working on KMP-specific tasks and c
 
 ## Learn More
 
-- [TDD Guidelines](../TDD_GUIDELINES.md) - **Start here for TDD practices!**
+- [Testing Guidelines](../TDD_GUIDELINES.md) - **Start here for testing practices!**
 - [Kotlin Multiplatform Subagent](subagents/kotlin-multiplatform.md) - **KMP specialist guide**
 - [Claude Code Documentation](https://docs.claude.com/claude-code)
 - [Kotlin Multiplatform](https://www.jetbrains.com/help/kotlin-multiplatform-dev/get-started.html)

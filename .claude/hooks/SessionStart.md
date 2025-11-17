@@ -1,6 +1,6 @@
 # Session Start Hook - Kotlin Multiplatform Photobooth
 
-This hook runs when a Claude Code session starts to validate the development environment for this Kotlin Multiplatform project with a **Test-Driven Development (TDD)** focus.
+This hook runs when a Claude Code session starts to validate the development environment for this Kotlin Multiplatform project.
 
 ## Project Overview
 - **Type**: Kotlin Multiplatform with Compose Multiplatform
@@ -8,15 +8,15 @@ This hook runs when a Claude Code session starts to validate the development env
 - **Build System**: Gradle with Kotlin DSL
 - **Main Module**: composeApp
 - **Testing Framework**: kotlin.test (multiplatform testing library)
-- **Development Approach**: Test-Driven Development (TDD)
+- **Development Approach**: Pragmatic testing with clean, modular code
 
-## TDD Red-Green-Refactor Cycle
+## Development Cycle
 
-This project follows Test-Driven Development practices:
+This project follows a pragmatic testing approach:
 
-1. **🔴 RED**: Write a failing test first
-2. **🟢 GREEN**: Write minimal code to make the test pass
-3. **🔵 REFACTOR**: Improve code quality while keeping tests green
+1. **Implement**: Build clean, testable components
+2. **Test**: Write comprehensive tests for completed components
+3. **Refactor**: Improve code quality while keeping tests green
 
 ## Test Structure
 
@@ -31,7 +31,7 @@ This project follows Test-Driven Development practices:
 
 1. Check Gradle wrapper availability
 2. Verify project structure
-3. **Run all tests** to ensure baseline passes (TDD requires a green baseline)
+3. **Run all tests** to ensure baseline passes (ensures nothing is broken)
 4. Validate test coverage
 
 ---
@@ -50,17 +50,17 @@ if [ -f "./gradlew" ]; then
     echo "✓ Gradle is working"
     echo ""
     echo "================================================"
-    echo "🧪 TDD MODE: Running all tests..."
+    echo "🧪 Running all tests..."
     echo "================================================"
 
-    # Run ALL tests across all platforms (critical for TDD)
+    # Run ALL tests across all platforms
     ./gradlew allTests --console=plain 2>&1 | tail -20
 
     TEST_RESULT=${PIPESTATUS[0]}
 
     if [ $TEST_RESULT -eq 0 ]; then
       echo ""
-      echo "✅ All tests PASSED - Ready for TDD workflow"
+      echo "✅ All tests PASSED - Ready for development"
     else
       echo ""
       echo "❌ Some tests FAILED - Fix failing tests before starting new work"
@@ -69,7 +69,7 @@ if [ -f "./gradlew" ]; then
 
     echo ""
     echo "================================================"
-    echo "📊 TDD Quick Reference"
+    echo "📊 Testing Quick Reference"
     echo "================================================"
     echo "Test commands by target:"
     echo "  • All platforms:    ./gradlew allTests"
@@ -82,11 +82,11 @@ if [ -f "./gradlew" ]; then
     echo "Continuous testing (auto-run on changes):"
     echo "  • ./gradlew allTests --continuous"
     echo ""
-    echo "TDD Workflow slash commands:"
-    echo "  • /tdd-red     - Create a failing test"
-    echo "  • /tdd-green   - Run tests (expect them to pass)"
+    echo "Development workflow slash commands:"
+    echo "  • /tdd-red      - Implement clean, testable component"
+    echo "  • /tdd-green    - Write tests for implemented component"
     echo "  • /tdd-refactor - Refactor with test safety net"
-    echo "  • /test-watch  - Run tests continuously"
+    echo "  • /test-watch   - Run tests continuously"
   else
     echo "⚠ Gradle requires network access for first-time setup"
     echo "  Run: ./gradlew --version (when network is available)"
