@@ -4,9 +4,27 @@ This document describes the Sony A7 III camera integration for the Photobooth ap
 
 ## Overview
 
-The app now supports two camera modes:
-1. **Device Camera** - Built-in camera (stub implementation, ready for platform-specific camera APIs)
+The app now supports **dual camera modes** with a unified camera selection interface:
+1. **Native Device Camera** - Built-in camera using CameraX (Android), AVFoundation (iOS), etc.
+   - Full photobooth experience with countdown timer
+   - 4-photo strip generation
+   - Complete implementation from main branch
 2. **Sony A7 III** - External mirrorless camera via WiFi using Sony's Camera Remote API
+   - Professional camera quality
+   - Live view preview
+   - Single photo capture
+   - WiFi-based remote control
+
+## Integration Approach
+
+This implementation **extends** the existing native camera functionality rather than replacing it:
+
+- **Preserved**: All native camera code from main branch (PhotoboothScreen, CameraController, PhotoStripScreen)
+- **Added**: Sony camera support as an alternative option
+- **Integrated**: Unified camera selection screen that routes to the appropriate implementation
+- **Coexistence**: Both camera implementations work side-by-side
+
+Users can choose their preferred camera mode at runtime, and the selection persists across app launches.
 
 ## Architecture
 
@@ -51,19 +69,38 @@ The app now supports two camera modes:
   - Persists user preferences (DataStore)
   - Handles camera switching
 
-### UI Components
+### UI Components & User Flow
+
+#### App Flow
+```
+Welcome Screen
+    ↓
+Camera Selection
+    ├─→ Native Camera → PhotoboothScreen (4 photos) → Photo Strip
+    └─→ Sony A7 III → CameraPreviewScreen (single photo)
+```
 
 #### 1. Camera Selection Screen
 - **`CameraSelectionScreen`** (`camera/ui/CameraSelectionScreen.kt`)
-  - Choose between Device Camera and Sony A7 III
-  - Displays available cameras
-  - Persists selection
+  - Choose between Native Device Camera and Sony A7 III
+  - Displays both available cameras
+  - Persists selection via DataStore
+  - Routes to appropriate camera implementation
 
-#### 2. Camera Preview Screen
+#### 2. Native Camera Flow (from main branch)
+- **`PhotoboothScreenWrapper`** - Platform-specific camera wrapper
+- **`PhotoboothScreen`** - Full photobooth experience
+  - 4-photo countdown capture sequence
+  - Permission handling
+  - Photo strip generation
+- **`PhotoStripScreen`** - Display and share photo strip
+
+#### 3. Sony Camera Flow (this PR)
 - **`CameraPreviewScreen`** (`camera/ui/CameraPreviewScreen.kt`)
-  - Live view display
+  - Live view display from Sony camera
   - Connection status indicator
-  - Capture button with progress feedback
+  - WiFi connection guidance
+  - Single photo capture button with progress feedback
   - Photo preview with retake/save options
 
 ## Sony A7 III Connection Guide
