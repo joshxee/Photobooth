@@ -108,9 +108,20 @@ actual fun getPlatform(): Platform = JVMPlatform()
 
 The app uses a simple navigation pattern with a `Screen` enum:
 - `WELCOME` - Welcome screen with "Enter the Booth" button
+- `PHOTOBOOTH` - Camera capture screen with countdown and photo capture
+- `PHOTO_STRIP` - Display screen showing captured photos
 - `UNDER_CONSTRUCTION` - Placeholder screen
 
 Main composable: `App()` in `composeApp/src/commonMain/kotlin/com/jc/photobooth/App.kt`
+
+**Key Features:**
+- Camera permission handling with proper state management
+- CameraX integration (Android) with YUV to JPEG conversion
+- Photo booth with countdown timer and multi-photo capture
+- Photo strip display with captured photos
+- ViewModel-based state management with coroutines
+
+See `wiki/` directory for detailed architecture and implementation documentation.
 
 ## Test-Driven Development (TDD)
 
@@ -163,7 +174,70 @@ fun shouldDoSomething() {
 
 A Kotlin Multiplatform specialist subagent is available at `.claude/subagents/kotlin-multiplatform.md` with deep expertise in KMP patterns, best practices, and troubleshooting.
 
+## Technical Wiki
+
+**Location:** `wiki/` directory
+
+The wiki contains technical documentation about architecture, design decisions, and implementation details.
+
+### Wiki Structure
+
+- `wiki/README.md` - Wiki overview and navigation
+- `wiki/Architecture.md` - System design and architectural decisions
+- `wiki/Camera-System.md` - Camera implementation details and trade-offs
+- `wiki/State-Management.md` - State handling patterns and ViewModel architecture
+- `wiki/Testing-Strategy.md` - Test organization and coverage approach
+- `wiki/Platform-Support.md` - Cross-platform implementation details
+
+### Wiki Maintenance (IMPORTANT)
+
+**You MUST update the wiki whenever you:**
+
+1. **Add a new feature** - Document:
+   - Design decisions and reasoning
+   - Trade-offs considered
+   - Implementation approach
+   - Platform-specific details (if any)
+
+2. **Refactor existing code** - Update:
+   - Architecture docs if structure changes
+   - Implementation details if approach changes
+   - Add notes about why refactoring was needed
+
+3. **Remove features** - Document:
+   - What was removed and why
+   - Any migration notes
+   - Alternative approaches chosen
+
+4. **Make architectural decisions** - Document:
+   - The decision made
+   - Alternatives considered
+   - Reasoning for the choice
+   - Known limitations or trade-offs
+
+### What to Document
+
+Focus on the **why**, not just the **what**:
+- ✅ "We use suspend functions for camera capture to avoid main thread deadlock"
+- ❌ "The camera uses CameraX"
+
+Emphasize **trade-offs and decisions**:
+- ✅ "We chose MINIMIZE_LATENCY over MAXIMIZE_QUALITY because photobooth users expect fast capture"
+- ❌ "CameraX is configured with MINIMIZE_LATENCY mode"
+
+Include **known limitations**:
+- ✅ "Photos are not persisted to storage - intentional for initial MVP"
+- ❌ "Photos are stored in memory"
+
+### When NOT to Update Wiki
+
+- Trivial bug fixes (typos, minor corrections)
+- Dependency version bumps (unless behavior changes)
+- Test additions that don't change architecture
+- Documentation improvements (unless adding new patterns)
+
 ## Additional Documentation
 
 - **TDD Guidelines**: `.claude/TDD_GUIDELINES.md` - Comprehensive TDD practices and examples
 - **Project README**: `README.md` - Build and run instructions for each platform
+- **Technical Wiki**: `wiki/` - Architecture, design decisions, and implementation details
