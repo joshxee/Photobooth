@@ -1,32 +1,80 @@
 ---
-description: TDD Red Phase - Write a failing test
+description: Implement clean, testable components
 ---
 
-# TDD Red Phase 🔴
+# Implementation Phase - Build Clean, Testable Code
 
-In the **Red** phase of Test-Driven Development, you write a failing test BEFORE implementing the feature.
+In this phase, you write clean, modular, and testable implementation code for a feature or component.
 
 ## Instructions
 
 I will help you:
 
 1. **Understand the requirement** - What feature are you implementing?
-2. **Write a test in commonTest** - Start with common code that works on all platforms
-3. **Run the test** - Verify it fails (as expected, since the code doesn't exist yet)
-4. **Confirm the failure** - Make sure it fails for the RIGHT reason (missing implementation, not syntax error)
+2. **Design for testability** - Plan the component structure
+   - Identify inputs, outputs, and dependencies
+   - Consider pure functions and minimal side effects
+   - Plan for dependency injection if needed
+3. **Implement the component** - Write clean, production-ready code
+   - Follow single responsibility principle
+   - Use clear, descriptive naming
+   - Keep functions small and focused
+   - Separate concerns appropriately
+4. **Prepare for testing** - Ensure the component is complete and ready to be tested
 
-## Best Practices
+## Design Principles
 
-- Write tests in `composeApp/src/commonTest/kotlin/` for cross-platform features
-- Use descriptive test names: `fun shouldCalculateTotalWhenItemsAdded()`
-- Test ONE thing per test function
-- Use kotlin.test annotations: `@Test`, `@BeforeTest`, `@AfterTest`
-- Use assertions: `assertEquals()`, `assertTrue()`, `assertFailsWith()`
+### Clean Code
+- Single Responsibility: Each class/function should do one thing well
+- Clear Naming: Names should reveal intent
+- Small Functions: Functions should be short and focused
+- Minimal Dependencies: Reduce coupling where possible
 
-## After Running This Command
+### Testability
+- Pure Functions: Same input → same output (no side effects)
+- Dependency Injection: Pass dependencies as parameters
+- Interface Segregation: Depend on abstractions, not concrete implementations
+- Avoid Global State: Make dependencies explicit
 
-Once we have a failing test, use `/tdd-green` to implement the minimal code to make it pass.
+## Location
+
+- **Cross-platform code**: `composeApp/src/commonMain/kotlin/`
+- **Android-specific**: `composeApp/src/androidMain/kotlin/`
+- **Desktop/JVM**: `composeApp/src/jvmMain/kotlin/`
+- **Web**: `composeApp/src/jsMain/kotlin/` or `wasmJsMain/kotlin/`
+
+**Prefer commonMain** for maximum code sharing!
+
+## Example
+
+```kotlin
+// composeApp/src/commonMain/kotlin/domain/PhotoCounter.kt
+package domain
+
+/**
+ * Tracks the number of photos taken in a session.
+ * This is a simple, testable component with clear behavior.
+ */
+class PhotoCounter {
+    private var _count = 0
+
+    val count: Int
+        get() = _count
+
+    fun takePhoto() {
+        _count++
+    }
+
+    fun reset() {
+        _count = 0
+    }
+}
+```
+
+## After Implementation
+
+Once the component is implemented, use `/tdd-green` to write comprehensive tests for it.
 
 ---
 
-**Ready to write your first failing test?** Tell me what feature you want to implement!
+**Ready to implement?** Tell me what feature you want to build and I'll help you create a clean, testable component!
