@@ -8,6 +8,7 @@ plugins {
     alias(libs.plugins.composeMultiplatform)
     alias(libs.plugins.composeCompiler)
     alias(libs.plugins.composeHotReload)
+    alias(libs.plugins.kotlinxSerialization)
 }
 
 kotlin {
@@ -41,31 +42,58 @@ kotlin {
     }
     
     sourceSets {
-        androidMain.dependencies {
-            implementation(compose.preview)
-            implementation(libs.androidx.activity.compose)
-            // CameraX dependencies
-            implementation("androidx.camera:camera-camera2:1.3.1")
-            implementation("androidx.camera:camera-lifecycle:1.3.1")
-            implementation("androidx.camera:camera-view:1.3.1")
-        }
         commonMain.dependencies {
             implementation(compose.runtime)
             implementation(compose.foundation)
             implementation(compose.material3)
+            implementation(compose.materialIconsExtended)
             implementation(compose.ui)
             implementation(compose.components.resources)
             implementation(compose.components.uiToolingPreview)
             implementation(libs.androidx.lifecycle.viewmodelCompose)
             implementation(libs.androidx.lifecycle.runtimeCompose)
+
+            // Ktor HTTP Client
+            implementation(libs.ktor.client.core)
+            implementation(libs.ktor.client.content.negotiation)
+            implementation(libs.ktor.serialization.kotlinx.json)
+
+            // Kotlinx Serialization
+            implementation(libs.kotlinx.serialization.json)
         }
         commonTest.dependencies {
             implementation(libs.kotlin.test)
-            implementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.7.3")
+            implementation(libs.kotlinx.coroutinesTest)
+        }
+        androidMain.dependencies {
+            implementation(compose.preview)
+            implementation(libs.androidx.activity.compose)
+            // CameraX dependencies for native camera
+            implementation("androidx.camera:camera-camera2:1.3.1")
+            implementation("androidx.camera:camera-lifecycle:1.3.1")
+            implementation("androidx.camera:camera-view:1.3.1")
+            // Ktor for Sony camera API
+            implementation(libs.ktor.client.okhttp)
+            // DataStore for settings persistence (Android support with extensions)
+            implementation(libs.androidx.datastore.preferences)
+        }
+        iosMain.dependencies {
+            implementation(libs.ktor.client.darwin)
+            // DataStore for settings persistence (iOS support)
+            implementation(libs.androidx.datastore.preferences.core)
         }
         jvmMain.dependencies {
             implementation(compose.desktop.currentOs)
             implementation(libs.kotlinx.coroutinesSwing)
+            implementation(libs.ktor.client.java)
+            // DataStore for settings persistence (JVM support)
+            implementation(libs.androidx.datastore.preferences.core)
+        }
+        jsMain.dependencies {
+            implementation(libs.ktor.client.js)
+        }
+        wasmJsMain.dependencies {
+            implementation(libs.ktor.client.js)
         }
     }
 }

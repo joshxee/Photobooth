@@ -108,18 +108,23 @@ actual fun getPlatform(): Platform = JVMPlatform()
 
 The app uses a simple navigation pattern with a `Screen` enum:
 - `WELCOME` - Welcome screen with "Enter the Booth" button
-- `PHOTOBOOTH` - Camera capture screen with countdown and photo capture
+- `CAMERA_SELECTION` - Choose between native device camera or Sony A7 III
+- `PHOTOBOOTH` - Camera capture screen with countdown and photo capture (native camera)
+- `CAMERA_PREVIEW` - Sony A7 III camera with live view (Mark 1.0 - SD card workflow)
 - `PHOTO_STRIP` - Display screen showing captured photos
 - `UNDER_CONSTRUCTION` - Placeholder screen
 
 Main composable: `App()` in `composeApp/src/commonMain/kotlin/com/jc/photobooth/App.kt`
 
 **Key Features:**
+- Dual camera support: Native device camera + Sony A7 III via WiFi
 - Camera permission handling with proper state management
 - CameraX integration (Android) with YUV to JPEG conversion
+- Sony Camera Remote API integration with live view streaming
 - Photo booth with countdown timer and multi-photo capture
 - Photo strip display with captured photos
 - ViewModel-based state management with coroutines
+- DataStore for persistent camera selection
 
 See `wiki/` directory for detailed architecture and implementation documentation.
 
@@ -184,10 +189,16 @@ The wiki contains technical documentation about architecture, design decisions, 
 
 - `wiki/README.md` - Wiki overview and navigation
 - `wiki/Architecture.md` - System design and architectural decisions
-- `wiki/Camera-System.md` - Camera implementation details and trade-offs
+- **`wiki/Camera-System.md`** - **Camera implementation details** (Native device camera + Sony A7 III)
+  - Native camera: CameraX (Android), AVFoundation (iOS), etc.
+  - Sony A7 III: WiFi Remote API, live view, Mark 1.0 SD card workflow
+  - Connection setup, API methods, troubleshooting
+  - Known limitations and future enhancements (Mark 2.0)
 - `wiki/State-Management.md` - State handling patterns and ViewModel architecture
 - `wiki/Testing-Strategy.md` - Test organization and coverage approach
 - `wiki/Platform-Support.md` - Cross-platform implementation details
+
+**For camera-related work, always consult `wiki/Camera-System.md` first.**
 
 ### Wiki Maintenance (IMPORTANT)
 

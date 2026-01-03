@@ -4,5 +4,17 @@
 <dict>
 	<key>CADisableMinimumFrameDurationOnPhone</key>
 	<true/>
+
+	<!-- Camera permissions -->
+	<key>NSCameraUsageDescription</key>
+	<string>This app needs access to your camera to take photos in the photobooth.</string>
+
+	<!-- Local network permission for Sony camera WiFi connection -->
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>This app needs access to your local network to connect to Sony cameras via WiFi.</string>
+
+	<!-- WiFi information permission -->
+	<key>com.apple.developer.networking.wifi-info</key>
+	<true/>
 </dict>
 </plist>
