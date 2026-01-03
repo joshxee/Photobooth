@@ -2,7 +2,11 @@ package com.jc.photobooth
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Button
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
@@ -16,8 +20,10 @@ import com.jc.photobooth.camera.domain.CameraType
 import com.jc.photobooth.camera.ui.CameraPreviewScreen
 import com.jc.photobooth.camera.ui.CameraSelectionScreen
 import com.jc.photobooth.data.createDataStore
+import com.jc.photobooth.data.SettingsRepository
 import com.jc.photobooth.model.PhotoData
 import com.jc.photobooth.ui.photostrip.PhotoStripScreen
+import com.jc.photobooth.ui.settings.SettingsScreen
 import org.jetbrains.compose.ui.tooling.preview.Preview
 
 enum class Screen {
@@ -26,6 +32,7 @@ enum class Screen {
     PHOTOBOOTH_NATIVE,      // Native device camera (existing implementation)
     PHOTOBOOTH_SONY,        // Sony A7 III camera
     PHOTO_STRIP,
+    SETTINGS,
     UNDER_CONSTRUCTION
 }
 
@@ -35,11 +42,14 @@ fun App() {
     MaterialTheme {
         var currentScreen by remember { mutableStateOf(Screen.WELCOME) }
         var capturedPhotos by remember { mutableStateOf<List<PhotoData>>(emptyList()) }
-        val cameraRepository = remember { CameraRepository(createDataStore()) }
+        val dataStore = remember { createDataStore() }
+        val cameraRepository = remember { CameraRepository(dataStore) }
+        val settingsRepository = remember { SettingsRepository(dataStore) }
 
         when (currentScreen) {
             Screen.WELCOME -> WelcomeScreen(
-                onEnterBooth = { currentScreen = Screen.CAMERA_SELECTION }
+                onEnterBooth = { currentScreen = Screen.CAMERA_SELECTION },
+                onOpenSettings = { currentScreen = Screen.SETTINGS }
             )
 
             Screen.CAMERA_SELECTION -> CameraSelectionScreen(
@@ -50,17 +60,20 @@ fun App() {
                         CameraType.SONY_A7III -> Screen.PHOTOBOOTH_SONY
                     }
                 },
-                onBack = { currentScreen = Screen.WELCOME }
+                onBack = { currentScreen = Screen.WELCOME },
+                onOpenSettings = { currentScreen = Screen.SETTINGS }
             )
 
             Screen.PHOTOBOOTH_NATIVE -> {
                 // Native camera using existing implementation
                 PhotoboothScreenWrapper(
+                    settingsRepository = settingsRepository,
                     onNavigateToPhotoStrip = { photos ->
                         capturedPhotos = photos
                         currentScreen = Screen.PHOTO_STRIP
                     },
-                    onNavigateHome = { currentScreen = Screen.WELCOME }
+                    onNavigateHome = { currentScreen = Screen.WELCOME },
+                    onOpenSettings = { currentScreen = Screen.SETTINGS }
                 )
             }
 
@@ -77,6 +90,11 @@ fun App() {
                 onReturnToPhotobooth = { currentScreen = Screen.CAMERA_SELECTION }
             )
 
+            Screen.SETTINGS -> SettingsScreen(
+                repository = settingsRepository,
+                onBack = { currentScreen = Screen.WELCOME }
+            )
+
             Screen.UNDER_CONSTRUCTION -> UnderConstructionScreen(
                 onReturnHome = { currentScreen = Screen.WELCOME }
             )
@@ -85,17 +103,35 @@ fun App() {
 }
 
 @Composable
-fun WelcomeScreen(onEnterBooth: () -> Unit) {
-    Column(
-        modifier = Modifier
-            .background(MaterialTheme.colorScheme.background)
-            .fillMaxSize()
-            .safeContentPadding()
-            .padding(24.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.SpaceBetween
-    ) {
-        Spacer(modifier = Modifier.weight(1f))
+fun WelcomeScreen(
+    onEnterBooth: () -> Unit,
+    onOpenSettings: () -> Unit
+) {
+    Box(modifier = Modifier.fillMaxSize()) {
+        // Settings icon in top right
+        IconButton(
+            onClick = onOpenSettings,
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .padding(16.dp)
+        ) {
+            Icon(
+                imageVector = Icons.Filled.Settings,
+                contentDescription = "Settings",
+                tint = MaterialTheme.colorScheme.onBackground
+            )
+        }
+
+        Column(
+            modifier = Modifier
+                .background(MaterialTheme.colorScheme.background)
+                .fillMaxSize()
+                .safeContentPadding()
+                .padding(24.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.SpaceBetween
+        ) {
+            Spacer(modifier = Modifier.weight(1f))
 
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,
@@ -116,16 +152,17 @@ fun WelcomeScreen(onEnterBooth: () -> Unit) {
             )
         }
 
-        Button(
-            onClick = onEnterBooth,
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(bottom = 32.dp)
-        ) {
-            Text(
-                text = "Enter the Booth",
-                style = MaterialTheme.typography.titleMedium
-            )
+            Button(
+                onClick = onEnterBooth,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 32.dp)
+            ) {
+                Text(
+                    text = "Enter the Booth",
+                    style = MaterialTheme.typography.titleMedium
+                )
+            }
         }
     }
 }

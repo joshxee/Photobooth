@@ -4,6 +4,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -18,7 +20,8 @@ import kotlinx.coroutines.launch
 fun CameraSelectionScreen(
     repository: CameraRepository,
     onCameraSelected: (CameraType) -> Unit,
-    onBack: () -> Unit
+    onBack: () -> Unit,
+    onOpenSettings: () -> Unit
 ) {
     val scope = rememberCoroutineScope()
     var availableCameras by remember { mutableStateOf<List<CameraType>>(emptyList()) }
@@ -34,20 +37,35 @@ fun CameraSelectionScreen(
         }
     }
 
-    Column(
-        modifier = Modifier
-            .background(MaterialTheme.colorScheme.background)
-            .fillMaxSize()
-            .safeContentPadding()
-            .padding(24.dp),
-        horizontalAlignment = Alignment.CenterHorizontally
-    ) {
-        // Header
-        Text(
-            text = "Select Camera",
-            style = MaterialTheme.typography.headlineMedium,
-            color = MaterialTheme.colorScheme.onBackground
-        )
+    Box(modifier = Modifier.fillMaxSize()) {
+        // Settings icon in top right
+        IconButton(
+            onClick = onOpenSettings,
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .padding(16.dp)
+        ) {
+            Icon(
+                imageVector = Icons.Filled.Settings,
+                contentDescription = "Settings",
+                tint = MaterialTheme.colorScheme.onBackground
+            )
+        }
+
+        Column(
+            modifier = Modifier
+                .background(MaterialTheme.colorScheme.background)
+                .fillMaxSize()
+                .safeContentPadding()
+                .padding(24.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            // Header
+            Text(
+                text = "Select Camera",
+                style = MaterialTheme.typography.headlineMedium,
+                color = MaterialTheme.colorScheme.onBackground
+            )
 
         Spacer(modifier = Modifier.height(32.dp))
 
@@ -103,6 +121,7 @@ fun CameraSelectionScreen(
             }
         }
     }
+    }
 }
 
 @Composable
@@ -147,7 +166,7 @@ fun CameraOptionCard(
                 Text(
                     text = when (cameraType) {
                         CameraType.DEVICE_CAMERA -> "Use your device's built-in camera"
-                        CameraType.SONY_A7III -> "Connect via WiFi to Sony A7 III camera"
+                        CameraType.SONY_A7III -> "WiFi remote control • Photos saved to SD card • Manual transfer required"
                     },
                     style = MaterialTheme.typography.bodyMedium,
                     color = if (isSelected) {

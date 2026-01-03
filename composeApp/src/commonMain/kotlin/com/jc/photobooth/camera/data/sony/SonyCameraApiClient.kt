@@ -10,9 +10,7 @@ import io.ktor.serialization.kotlinx.json.*
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.Serializable
-import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.JsonArray
-import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.*
 
 /**
  * HTTP client for Sony Camera Remote API.
@@ -22,7 +20,7 @@ import kotlinx.serialization.json.JsonElement
  */
 class SonyCameraApiClient(
     private val cameraIp: String = "192.168.122.1",
-    private val cameraPort: Int = 8080
+    private val cameraPort: Int = 10000
 ) {
     private val baseUrl = "http://$cameraIp:$cameraPort/sony/camera"
     private val liveviewBaseUrl = "http://$cameraIp:$cameraPort"
@@ -42,10 +40,14 @@ class SonyCameraApiClient(
 
     /**
      * Get list of available API methods from the camera
+     * Response format: [["api1", "api2", ...]]
      */
     suspend fun getAvailableApiList(): Result<List<String>> {
         return callMethod<JsonArray>("getAvailableApiList").map { jsonArray ->
-            jsonArray.mapNotNull { it.toString().removeSurrounding("\"") }
+            // Response is nested: [["api1", "api2", ...]]
+            // Extract the inner array
+            val innerArray = jsonArray.firstOrNull() as? JsonArray
+            innerArray?.map { it.toString().removeSurrounding("\"") } ?: emptyList()
         }
     }
 
@@ -116,6 +118,31 @@ class SonyCameraApiClient(
     }
 
     /**
+     * Get list of temporarily unavailable APIs and reasons
+     */
+    suspend fun getTemporarilyUnavailableApiList(): Result<JsonArray> {
+        return callMethod<JsonArray>("getTemporarilyUnavailableApiList")
+    }
+
+    /**
+     * Start continuous shooting (alternative to actTakePicture)
+     */
+    suspend fun startContShooting(): Result<List<String>> {
+        return callMethod<JsonArray>("startContShooting").map { result ->
+            // Response is [[url1, url2, ...]]
+            val innerArray = result.firstOrNull() as? JsonArray
+            innerArray?.mapNotNull { it.toString().removeSurrounding("\"") } ?: emptyList()
+        }
+    }
+
+    /**
+     * Stop continuous shooting
+     */
+    suspend fun stopContShooting(): Result<Unit> {
+        return callMethod<JsonArray>("stopContShooting").map { }
+    }
+
+    /**
      * Set shoot mode (e.g., "still", "movie", "audio", "intervalstill")
      */
     suspend fun setShootMode(mode: String): Result<Unit> {
@@ -183,7 +210,15 @@ class SonyCameraApiClient(
             withTimeout(10000) { // 10 second timeout for API calls
                 val request = JsonRpcRequest(
                     method = method,
-                    params = params,
+                    params = params.map { param ->
+                        when (param) {
+                            is String -> JsonPrimitive(param)
+                            is Boolean -> JsonPrimitive(param)
+                            is Number -> JsonPrimitive(param)
+                            is JsonElement -> param
+                            else -> JsonPrimitive(param.toString())
+                        }
+                    },
                     id = requestId++,
                     version = version
                 )
@@ -223,7 +258,7 @@ class SonyCameraApiClient(
 @Serializable
 data class JsonRpcRequest(
     val method: String,
-    val params: List<Any>,
+    val params: List<JsonElement>,
     val id: Int,
     val version: String
 )
@@ -234,18 +269,38 @@ data class JsonRpcRequest(
 @Serializable
 data class JsonRpcResponse<T>(
     val result: T? = null,
+    @Serializable(with = JsonRpcErrorSerializer::class)
     val error: JsonRpcError? = null,
     val id: Int
 )
 
 /**
  * JSON-RPC error format
+ * Sony Camera API returns errors as: [errorCode, methodName]
  */
 @Serializable
 data class JsonRpcError(
     val code: Int,
     val message: String
 )
+
+/**
+ * Custom serializer for Sony Camera API error format
+ * Handles array format: [errorCode, methodName]
+ */
+object JsonRpcErrorSerializer : JsonTransformingSerializer<JsonRpcError>(JsonRpcError.serializer()) {
+    override fun transformDeserialize(element: JsonElement): JsonElement {
+        // Sony API returns error as array: [code, message]
+        if (element is JsonArray && element.size >= 2) {
+            return buildJsonObject {
+                put("code", element[0])
+                put("message", element[1])
+            }
+        }
+        // Already in object format (fallback for other implementations)
+        return element
+    }
+}
 
 /**
  * Camera event data

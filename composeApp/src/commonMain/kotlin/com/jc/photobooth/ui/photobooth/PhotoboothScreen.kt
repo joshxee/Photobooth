@@ -2,6 +2,8 @@ package com.jc.photobooth.ui.photobooth
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -19,7 +21,8 @@ fun PhotoboothScreen(
     cameraController: CameraController,
     onNavigateToPhotoStrip: (List<PhotoData>) -> Unit,
     onNavigateHome: () -> Unit,
-    onRequestPermission: () -> Unit
+    onRequestPermission: () -> Unit,
+    onOpenSettings: () -> Unit
 ) {
     val uiState by viewModel.uiState.collectAsState()
 
@@ -49,7 +52,8 @@ fun PhotoboothScreen(
                     cameraController = cameraController,
                     captureState = uiState.captureState,
                     onCaptureClick = { viewModel.startCaptureSequence() },
-                    onHomeClick = onNavigateHome
+                    onHomeClick = onNavigateHome,
+                    onSettingsClick = onOpenSettings
                 )
             }
         }
@@ -116,7 +120,8 @@ private fun CameraPreviewContent(
     cameraController: CameraController,
     captureState: CaptureState,
     onCaptureClick: () -> Unit,
-    onHomeClick: () -> Unit
+    onHomeClick: () -> Unit,
+    onSettingsClick: () -> Unit
 ) {
     Box(modifier = Modifier.fillMaxSize()) {
         // Camera preview
@@ -142,6 +147,20 @@ private fun CameraPreviewContent(
                 .padding(16.dp)
         ) {
             Text("🏠", fontSize = 32.sp)
+        }
+
+        // Settings button
+        IconButton(
+            onClick = onSettingsClick,
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .padding(16.dp)
+        ) {
+            Icon(
+                imageVector = Icons.Filled.Settings,
+                contentDescription = "Settings",
+                tint = MaterialTheme.colorScheme.onSurface
+            )
         }
 
         // Capture button

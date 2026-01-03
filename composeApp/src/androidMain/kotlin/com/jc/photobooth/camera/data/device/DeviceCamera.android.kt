@@ -13,43 +13,43 @@ import kotlinx.coroutines.flow.asStateFlow
  * TODO: Implement using CameraX API
  */
 actual class DeviceCamera : PhotoboothCamera {
-    override val cameraId: String = "device_camera"
-    override val displayName: String = "Device Camera"
+    actual override val cameraId: String = "device_camera"
+    actual override val displayName: String = "Device Camera"
 
     private val _connectionState = MutableStateFlow<ConnectionState>(ConnectionState.Disconnected)
-    override val connectionState: StateFlow<ConnectionState> = _connectionState.asStateFlow()
+    actual override val connectionState: StateFlow<ConnectionState> = _connectionState.asStateFlow()
 
     private val _liveViewFrame = MutableStateFlow<ImageBitmap?>(null)
-    override val liveViewFrame: StateFlow<ImageBitmap?> = _liveViewFrame.asStateFlow()
+    actual override val liveViewFrame: StateFlow<ImageBitmap?> = _liveViewFrame.asStateFlow()
 
-    override suspend fun connect(): Result<Unit> {
+    actual override suspend fun connect(): Result<Unit> {
         // TODO: Initialize CameraX
         _connectionState.value = ConnectionState.Connected
         return Result.success(Unit)
     }
 
-    override suspend fun disconnect() {
+    actual override suspend fun disconnect() {
         // TODO: Release camera resources
         _connectionState.value = ConnectionState.Disconnected
         _liveViewFrame.value = null
     }
 
-    override suspend fun startLiveView(): Result<Unit> {
+    actual override suspend fun startLiveView(): Result<Unit> {
         // TODO: Start CameraX preview
         return Result.success(Unit)
     }
 
-    override suspend fun stopLiveView() {
+    actual override suspend fun stopLiveView() {
         // TODO: Stop CameraX preview
         _liveViewFrame.value = null
     }
 
-    override suspend fun capture(): Result<CapturedPhoto> {
+    actual override suspend fun capture(): Result<CapturedPhoto> {
         // TODO: Capture image using CameraX
         return Result.failure(Exception("Device camera not yet implemented"))
     }
 
-    override suspend fun isAvailable(): Boolean {
+    actual override suspend fun isAvailable(): Boolean {
         // TODO: Check if camera hardware is available
         return true
     }

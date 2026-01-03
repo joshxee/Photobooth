@@ -60,7 +60,11 @@ fun CameraPreviewScreen(
             if (connectionState is ConnectionState.Disconnected) {
                 val result = cam.connect()
                 if (result.isSuccess) {
-                    cam.startLiveView()
+                    // Auto-start live view
+                    val liveViewResult = cam.startLiveView()
+                    if (liveViewResult.isFailure) {
+                        errorMessage = "Live view start failed: ${liveViewResult.exceptionOrNull()?.message}"
+                    }
                 } else {
                     errorMessage = result.exceptionOrNull()?.message
                 }
@@ -150,13 +154,17 @@ fun CameraPreviewScreen(
                             errorMessage = null
 
                             camera?.let { cam ->
+                                println("DEBUG UI: Capture button pressed")
                                 // Stop live view before capture
                                 cam.stopLiveView()
+                                println("DEBUG UI: Live view stopped, starting capture")
 
                                 val result = cam.capture()
                                 if (result.isSuccess) {
+                                    println("DEBUG UI: Capture SUCCESS")
                                     capturedPhoto = result.getOrNull()?.image
                                 } else {
+                                    println("DEBUG UI: Capture FAILED: ${result.exceptionOrNull()}")
                                     errorMessage = result.exceptionOrNull()?.message
                                     // Restart live view on error
                                     cam.startLiveView()
