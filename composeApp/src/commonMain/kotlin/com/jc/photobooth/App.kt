@@ -24,6 +24,7 @@ import com.jc.photobooth.data.SettingsRepository
 import com.jc.photobooth.model.PhotoData
 import com.jc.photobooth.ui.photostrip.PhotoStripScreen
 import com.jc.photobooth.ui.settings.SettingsScreen
+import com.jc.photobooth.ui.BluetoothTestScreenWrapper
 import org.jetbrains.compose.ui.tooling.preview.Preview
 
 enum class Screen {
@@ -33,6 +34,7 @@ enum class Screen {
     PHOTOBOOTH_SONY,        // Sony A7 III camera
     PHOTO_STRIP,
     SETTINGS,
+    BLUETOOTH_TEST,         // Bluetooth camera test POC
     UNDER_CONSTRUCTION
 }
 
@@ -49,7 +51,8 @@ fun App() {
         when (currentScreen) {
             Screen.WELCOME -> WelcomeScreen(
                 onEnterBooth = { currentScreen = Screen.CAMERA_SELECTION },
-                onOpenSettings = { currentScreen = Screen.SETTINGS }
+                onOpenSettings = { currentScreen = Screen.SETTINGS },
+                onOpenBluetoothTest = { currentScreen = Screen.BLUETOOTH_TEST }
             )
 
             Screen.CAMERA_SELECTION -> CameraSelectionScreen(
@@ -95,6 +98,10 @@ fun App() {
                 onBack = { currentScreen = Screen.WELCOME }
             )
 
+            Screen.BLUETOOTH_TEST -> BluetoothTestScreenWrapper(
+                onBack = { currentScreen = Screen.WELCOME }
+            )
+
             Screen.UNDER_CONSTRUCTION -> UnderConstructionScreen(
                 onReturnHome = { currentScreen = Screen.WELCOME }
             )
@@ -105,7 +112,8 @@ fun App() {
 @Composable
 fun WelcomeScreen(
     onEnterBooth: () -> Unit,
-    onOpenSettings: () -> Unit
+    onOpenSettings: () -> Unit,
+    onOpenBluetoothTest: () -> Unit = {}
 ) {
     Box(modifier = Modifier.fillMaxSize()) {
         // Settings icon in top right
@@ -152,17 +160,33 @@ fun WelcomeScreen(
             )
         }
 
-            Button(
-                onClick = onEnterBooth,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(bottom = 32.dp)
+            Column(
+                modifier = Modifier.fillMaxWidth()
             ) {
-                Text(
-                    text = "Enter the Booth",
-                    style = MaterialTheme.typography.titleMedium
-                )
+                Button(
+                    onClick = onEnterBooth,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(
+                        text = "Enter the Booth",
+                        style = MaterialTheme.typography.titleMedium
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                Button(
+                    onClick = onOpenBluetoothTest,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(
+                        text = "Test Bluetooth Camera",
+                        style = MaterialTheme.typography.titleMedium
+                    )
+                }
             }
+
+            Spacer(modifier = Modifier.height(32.dp))
         }
     }
 }

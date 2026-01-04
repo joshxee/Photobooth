@@ -360,6 +360,192 @@ All dependencies managed via Gradle:
 
 ---
 
+## Sony Camera Bluetooth Control (POC)
+
+### Overview
+
+**Status:** 🧪 Proof of Concept (Android Only)
+**Last Updated:** January 4, 2026
+
+This POC investigates using **Bluetooth Low Energy (BLE)** as an alternative method for controlling Sony cameras remotely, specifically for shutter control. Bluetooth may offer advantages over WiFi for certain use cases.
+
+### Why Bluetooth?
+
+**Potential Advantages:**
+- Faster connection setup (no WiFi network configuration)
+- Lower power consumption compared to WiFi
+- More reliable pairing experience
+- Can work alongside WiFi (camera connected to both simultaneously)
+- Simpler user experience (pair once via Bluetooth settings)
+
+**Limitations:**
+- **Android-only** (iOS BLE APIs different, not yet implemented)
+- **Control-only protocol** - cannot transfer images
+- Limited to button press commands (shutter, focus, record)
+- No live view over Bluetooth
+- Cannot change camera settings (ISO, aperture, shutter speed)
+
+### Architecture
+
+#### Core Components
+
+**`BluetoothCameraController`** (`camera/BluetoothCameraController.kt`)
+- Common interface for Bluetooth camera control
+- State flow for connection status and camera feedback
+- Methods: connect, disconnect, trigger shutter, focus, record
+
+**`AndroidBluetoothCameraController`** (`camera/BluetoothCameraController.android.kt`)
+- Android BLE implementation using Bluetooth GATT
+- Implements Sony's proprietary BLE remote control protocol
+- Operation queue for sequential command execution
+
+**`BluetoothTestScreen`** (`ui/BluetoothTestScreen.kt`)
+- POC test UI for validating Bluetooth shutter control
+- Connection management and manual shutter testing
+- Status feedback display
+
+### Sony BLE Protocol
+
+Based on reverse engineering by the community ([alpharemote](https://github.com/Staacks/alpharemote), [freemote](https://github.com/coral/freemote), [Greg Leeds](https://gregleeds.com/reverse-engineering-sony-camera-bluetooth/)):
+
+**Service UUID:** `8000ff00-ff00-ffff-ffff-ffffffffffff`
+
+**Characteristics:**
+- Command: `0000ff01-0000-1000-8000-00805f9b34fb` (write commands)
+- Status: `0000ff02-0000-1000-8000-00805f9b34fb` (notifications)
+
+**Supported Cameras:**
+- Sony α7 III, α7 IV, α7R III, α7R IV
+- Sony α6400, α6600, α6700
+- Sony α9, ZV-E10
+- Other Sony cameras with Bluetooth remote support
+
+### Command Structure
+
+Commands are 2-byte arrays: `[length, code]`
+
+**Button Codes:**
+```kotlin
+SHUTTER_HALF:  0x06  // Focus (half-press)
+SHUTTER_FULL:  0x08  // Capture (full-press)
+RECORD:        0x0e  // Start/stop recording
+AF_ON:         0x14  // Autofocus trigger
+```
+
+**Shutter Sequence:**
+```
+1. Half-press down:   [0x01, 0x07]  // Trigger autofocus
+2. Full-press down:   [0x01, 0x09]  // Trigger shutter
+3. Full-press up:     [0x01, 0x08]  // Release shutter
+4. Half-press up:     [0x01, 0x06]  // Release focus
+```
+
+**Status Notifications:**
+
+The camera sends status updates via BLE notifications:
+- Focus acquired: `0x3f` with bit `0x20` set
+- Shutter ready: `0xa0` with bit `0x20` set
+- Recording: `0xd5` with bit `0x20` set
+
+### Setup Instructions
+
+**1. Enable Bluetooth on Camera:**
+- Menu → Network → Bluetooth → Bluetooth Function → On
+- Menu → Network → Bluetooth → Ctrl w/ Smartphone → On
+
+**2. Pair Camera with Android Device:**
+- Android Settings → Bluetooth → Scan for devices
+- Select camera (e.g., "ILCE-7M3" for α7 III)
+- Pair and confirm on camera screen
+
+**3. Find Camera MAC Address:**
+- Android Settings → Bluetooth → Paired devices
+- Tap camera name → Show MAC address
+- Note address (e.g., `AA:BB:CC:DD:EE:FF`)
+
+**4. Test in App:**
+- Launch app → "Test Bluetooth Camera" button
+- Enter camera MAC address
+- Connect and test shutter control
+
+### Permissions Required
+
+**Android Manifest:**
+```xml
+<!-- Bluetooth BLE permissions -->
+<uses-permission android:name="android.permission.BLUETOOTH" android:maxSdkVersion="30" />
+<uses-permission android:name="android.permission.BLUETOOTH_ADMIN" android:maxSdkVersion="30" />
+<uses-permission android:name="android.permission.BLUETOOTH_SCAN" android:usesPermissionFlags="neverForLocation" />
+<uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
+<uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" android:maxSdkVersion="30" />
+<uses-feature android:name="android.hardware.bluetooth_le" android:required="false" />
+```
+
+### Known Issues
+
+**Connection Issues:**
+- **"Remote Disabled"** error: Bluetooth remote control not enabled in camera settings
+- **"Not Paired"** error: Camera not bonded in Android Bluetooth settings
+- **Scan fails:** Location services must be enabled on some Android devices
+
+**Protocol Limitations:**
+- Cannot transfer images (use WiFi or SD card)
+- No live view over Bluetooth
+- Cannot read/modify camera settings
+- Cannot enable geotagging and remote control simultaneously (Sony limitation)
+
+### Performance
+
+**Connection Time:** ~2-3 seconds after pairing
+**Command Latency:** ~50-100ms for button press
+**Range:** ~10 meters (Bluetooth Class 2)
+**Power:** Minimal battery impact on both camera and phone
+
+### Use Cases
+
+**When to Use Bluetooth:**
+1. **Remote shutter only** - No need for live view or image transfer
+2. **Quick setup** - Users already paired camera once
+3. **Photobooth scenarios** - Camera on tripod, triggering from distance
+4. **Power efficiency** - Long photobooth sessions
+
+**When to Use WiFi Instead:**
+1. Need live view preview
+2. Need image transfer over network
+3. Want to adjust camera settings remotely
+4. Desktop/iOS platforms (Bluetooth not yet implemented)
+
+### Future Enhancements
+
+**Immediate Improvements:**
+1. Auto-discover paired cameras (avoid manual MAC address entry)
+2. Remember last connected camera (DataStore persistence)
+3. Add to camera selection screen as third option
+
+**Platform Support:**
+1. iOS implementation (CoreBluetooth API)
+2. Desktop support (JavaBluetooth or similar)
+
+**Hybrid Workflow:**
+1. Bluetooth for shutter control
+2. WiFi for live view and image transfer
+3. Best of both protocols
+
+**Integration:**
+1. Replace WiFi actTakePicture with Bluetooth shutter trigger
+2. Keep WiFi for live view streaming
+3. Reduce latency and improve reliability
+
+### References
+
+**Protocol Documentation:**
+- [alpharemote - Android BLE Remote](https://github.com/Staacks/alpharemote)
+- [freemote - NRF52840 Implementation](https://github.com/coral/freemote)
+- [Sony BLE Protocol - Greg Leeds](https://gregleeds.com/reverse-engineering-sony-camera-bluetooth/)
+- [HYPOXIC - Technical Spec](https://gethypoxic.com/blogs/technical/sony-camera-ble-control-protocol-di-remote-control)
+
+---
+
 ## Platform-Specific Implementations
 
 ### WiFi Connection Management
