@@ -393,6 +393,25 @@ class SonyA7IIICamera(
     }
 
     /**
+     * Helper methods for photobooth short burst capture
+     */
+    suspend fun actHalfPressShutter(): Result<Unit> {
+        return apiClient.actHalfPressShutter()
+    }
+
+    suspend fun cancelHalfPressShutter(): Result<Unit> {
+        return apiClient.cancelHalfPressShutter()
+    }
+
+    suspend fun startContShooting(): Result<List<String>> {
+        return apiClient.startContShooting()
+    }
+
+    suspend fun stopContShooting(): Result<Unit> {
+        return apiClient.stopContShooting()
+    }
+
+    /**
      * Clean up resources
      */
     fun close() {

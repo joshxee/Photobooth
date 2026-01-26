@@ -15,13 +15,17 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.jc.photobooth.camera.data.sony.SonyA7IIICamera
 import com.jc.photobooth.camera.domain.CameraRepository
 import com.jc.photobooth.camera.domain.CameraType
 import com.jc.photobooth.camera.ui.CameraPreviewScreen
 import com.jc.photobooth.camera.ui.CameraSelectionScreen
+import com.jc.photobooth.camera.ui.discovery.SonyApiDiscoveryScreen
 import com.jc.photobooth.data.createDataStore
 import com.jc.photobooth.data.SettingsRepository
 import com.jc.photobooth.model.PhotoData
+import com.jc.photobooth.ui.photobooth.sony.SonyPhotoboothScreen
+import com.jc.photobooth.ui.photobooth.sony.mark2.SonyMark2Screen
 import com.jc.photobooth.ui.photostrip.PhotoStripScreen
 import com.jc.photobooth.ui.settings.SettingsScreen
 import org.jetbrains.compose.ui.tooling.preview.Preview
@@ -30,9 +34,11 @@ enum class Screen {
     WELCOME,
     CAMERA_SELECTION,
     PHOTOBOOTH_NATIVE,      // Native device camera (existing implementation)
-    PHOTOBOOTH_SONY,        // Sony A7 III camera
+    PHOTOBOOTH_SONY,        // Sony A7 III camera (Mark 1.1 - Screenshot)
+    PHOTOBOOTH_SONY_MARK2,  // Sony A7 III camera (Mark 2.0 - WiFi Transfer)
     PHOTO_STRIP,
     SETTINGS,
+    SONY_API_DISCOVERY,     // Sony API discovery tool
     UNDER_CONSTRUCTION
 }
 
@@ -58,10 +64,12 @@ fun App() {
                     currentScreen = when (cameraType) {
                         CameraType.DEVICE_CAMERA -> Screen.PHOTOBOOTH_NATIVE
                         CameraType.SONY_A7III -> Screen.PHOTOBOOTH_SONY
+                        CameraType.SONY_A7III_MARK2 -> Screen.PHOTOBOOTH_SONY_MARK2
                     }
                 },
                 onBack = { currentScreen = Screen.WELCOME },
-                onOpenSettings = { currentScreen = Screen.SETTINGS }
+                onOpenSettings = { currentScreen = Screen.SETTINGS },
+                onApiDiscovery = { currentScreen = Screen.SONY_API_DISCOVERY }
             )
 
             Screen.PHOTOBOOTH_NATIVE -> {
@@ -78,10 +86,57 @@ fun App() {
             }
 
             Screen.PHOTOBOOTH_SONY -> {
-                // Sony A7 III camera
-                CameraPreviewScreen(
-                    repository = cameraRepository,
-                    onBack = { currentScreen = Screen.CAMERA_SELECTION }
+                // Sony A7 III camera - Mark 1.1 Screenshot Workflow
+                println("[APP] Navigating to PHOTOBOOTH_SONY screen")
+
+                val sonyCamera = remember {
+                    println("[APP] Getting Sony camera instance from repository...")
+                    val camera = cameraRepository.getCameraInstance(CameraType.SONY_A7III) as? SonyA7IIICamera
+                    println("[APP] Camera instance: $camera")
+                    println("[APP] Camera connection state: ${camera?.connectionState?.value}")
+                    println("[APP] Camera live view active: ${camera?.liveViewFrame?.value != null}")
+                    camera
+                }
+
+                if (sonyCamera != null) {
+                    println("[APP] Rendering SonyPhotoboothScreen with camera")
+                    SonyPhotoboothScreen(
+                        camera = sonyCamera,
+                        settingsRepository = settingsRepository,
+                        onNavigateToPhotoStrip = { photos ->
+                            println("[APP] Navigating to photo strip with ${photos.size} photos")
+                            capturedPhotos = photos
+                            currentScreen = Screen.PHOTO_STRIP
+                        },
+                        onNavigateHome = {
+                            println("[APP] Navigating home from Sony photobooth")
+                            currentScreen = Screen.WELCOME
+                        }
+                    )
+                } else {
+                    // Fallback if camera not available
+                    println("[APP] ERROR: Sony camera not available! Showing under construction screen")
+                    UnderConstructionScreen(
+                        onReturnHome = { currentScreen = Screen.WELCOME }
+                    )
+                }
+            }
+
+            Screen.PHOTOBOOTH_SONY_MARK2 -> {
+                // Sony A7 III camera - Mark 2.0 WiFi Transfer
+                println("[APP] Navigating to PHOTOBOOTH_SONY_MARK2 screen")
+
+                SonyMark2Screen(
+                    settingsRepository = settingsRepository,
+                    onNavigateToPhotoStrip = { photos ->
+                        println("[APP] Mark 2.0: Navigating to photo strip with ${photos.size} photos")
+                        capturedPhotos = photos
+                        currentScreen = Screen.PHOTO_STRIP
+                    },
+                    onNavigateHome = {
+                        println("[APP] Navigating home from Sony Mark 2.0")
+                        currentScreen = Screen.WELCOME
+                    }
                 )
             }
 
@@ -93,6 +148,10 @@ fun App() {
             Screen.SETTINGS -> SettingsScreen(
                 repository = settingsRepository,
                 onBack = { currentScreen = Screen.WELCOME }
+            )
+
+            Screen.SONY_API_DISCOVERY -> SonyApiDiscoveryScreen(
+                onBack = { currentScreen = Screen.CAMERA_SELECTION }
             )
 
             Screen.UNDER_CONSTRUCTION -> UnderConstructionScreen(

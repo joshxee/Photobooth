@@ -45,8 +45,12 @@ class CameraRepository(
                 add(CameraType.DEVICE_CAMERA)
             }
 
-            // Sony A7 III is available if user has configured it
+            // Sony A7 III Mark 1.1 (Screenshot workflow - continuous shooting)
             add(CameraType.SONY_A7III)
+
+            // Sony A7 III Mark 2.0 (WiFi transfer - actTakePicture)
+            // Requires Single Shooting mode + JPEG/RAW+JPEG format
+            add(CameraType.SONY_A7III_MARK2)
         }
     }
 
@@ -68,8 +72,10 @@ class CameraRepository(
     fun getCameraInstance(type: CameraType): PhotoboothCamera {
         return when (type) {
             CameraType.DEVICE_CAMERA -> deviceCamera
-            CameraType.SONY_A7III -> {
+            CameraType.SONY_A7III, CameraType.SONY_A7III_MARK2 -> {
                 // Lazy initialization of Sony camera
+                // Mark 2.0 uses its own ViewModel with SonyCameraApiClient,
+                // but we return the same camera for compatibility
                 if (sonyCamera == null) {
                     sonyCamera = SonyA7IIICamera()
                 }

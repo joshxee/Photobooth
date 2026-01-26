@@ -2,20 +2,76 @@
 
 ## Overview
 
-The photobooth app supports **dual camera modes** with a unified camera selection interface:
+The photobooth app supports **multiple camera modes** with a unified camera selection interface:
 
 1. **Native Device Camera** - Built-in camera using CameraX (Android), AVFoundation (iOS), etc.
    - Full photobooth experience with countdown timer
    - 4-photo strip generation
    - Platform-specific implementations using expect/actual pattern
 
-2. **Sony A7 III** - External mirrorless camera via WiFi using Sony's Camera Remote API
-   - Professional camera quality
-   - Live view preview
-   - Single photo capture (Mark 1.0 - SD card workflow)
-   - WiFi-based remote control
+2. **Sony A7 III (Mark 1.1 - Screenshot)** - Screenshot-based workflow
+   - Live view screenshots for instant photo strips
+   - Works with any camera drive mode
+   - High-resolution backups saved to SD card
+
+3. **Sony A7 III (Mark 2.0 - WiFi Transfer)** - True WiFi photo transfer
+   - Downloads actual full-resolution photos
+   - Requires Single Shooting mode + JPEG/RAW+JPEG format
+   - Professional quality images in app
 
 Users can choose their preferred camera mode at runtime via the Camera Selection screen, and the selection persists across app launches using DataStore.
+
+## Logging System
+
+The Sony Camera API includes comprehensive logging for debugging and development.
+
+### Log Tag
+
+All Sony camera logs use the tag: **`SonyCameraApi`**
+
+### Filtering Logs
+
+**Android Logcat (terminal):**
+```bash
+adb logcat -s SonyCameraApi
+adb logcat SonyCameraApi:D *:S
+```
+
+**Android Studio Logcat panel:**
+- Filter by tag: `SonyCameraApi`
+
+### Log Prefixes
+
+| Prefix | Source |
+|--------|--------|
+| `API_CALL` | Low-level API requests/responses |
+| `[MARK2_VM]` | Mark 2.0 ViewModel operations |
+| `CAPTURE WORKFLOW` | Capture sequence steps |
+
+### Log Levels
+
+- **D (Debug):** API call details, countdown ticks
+- **I (Info):** Workflow steps, success messages, URLs
+- **W (Warning):** Non-critical failures, recoverable errors
+- **E (Error):** Critical failures, exceptions
+
+### Platform-Specific Loggers
+
+The logging system uses expect/actual pattern:
+- **Android:** Uses `android.util.Log` for proper logcat integration
+- **JVM/iOS/JS/Wasm:** Uses `println` as fallback
+
+### Enabling Logging
+
+Logging is enabled by default when using `createPlatformLogger()`:
+```kotlin
+val apiClient = SonyCameraApiClient(logger = createPlatformLogger())
+```
+
+To disable logging:
+```kotlin
+val apiClient = SonyCameraApiClient(logger = NoOpLogger)
+```
 
 ---
 
@@ -204,6 +260,38 @@ The Sony camera support is built as an alternative camera implementation that co
    - API Port: `10000` (A7 III uses port 10000, not 8080)
    - Endpoint: `/sony/camera`
 
+### Required Camera Settings for actTakePicture
+
+**CRITICAL:** The Sony A7 III requires specific settings for `actTakePicture` to be available via the Remote API.
+
+#### Required Settings
+
+1. **Drive Mode: Single Shooting**
+   - Menu → Camera Settings 1 → Drive Mode → Single Shooting
+   - ❌ Continuous shooting modes disable `actTakePicture`
+   - ❌ Bracketing modes disable `actTakePicture`
+
+2. **File Format: JPEG or RAW+JPEG**
+   - Menu → Camera Settings 1 → Quality → RAW+JPEG or JPEG
+   - Tested working: RAW+JPEG (Fine)
+   - ❌ RAW-only may have different behavior
+
+#### API Availability by Mode
+
+| Camera Mode | actTakePicture | startContShooting | Notes |
+|-------------|----------------|-------------------|-------|
+| Single Shooting + JPEG | ✅ Available | ❌ | Recommended for API capture |
+| Single Shooting + RAW+JPEG | ✅ Available | ❌ | Tested working |
+| Continuous Hi/Lo | ❌ Error 40400 | ✅ Available | Use cont shooting API |
+| Bracketing modes | ❌ | ❌ | Not supported |
+
+#### Error Codes Reference
+
+- **40400**: "Shooting method not available" - Camera is in wrong drive mode
+- **40403**: "Camera not ready" - Still processing or focusing
+- **5**: "Illegal argument" - Invalid parameters
+- **12**: "Method not found" - API doesn't exist on this camera
+
 ### Mark 1.0 - SD Card Workflow (Current Implementation)
 
 **Status:** ✅ Production Ready
@@ -235,6 +323,159 @@ The current implementation uses the Sony A7 III's continuous shooting mode. Phot
 - ❌ Cannot confirm specific photo was captured (only shutter sound)
 
 The app displays **"Sony A7 III (Mark 1.0 - SD Card)"** in the camera selection screen to inform users that photos will be saved to SD card and require manual transfer.
+
+## Mark 1.1 - Screenshot Workflow
+
+**Status:** ✅ Production Ready
+**Last Updated:** January 2026
+**Location:** `ui/photobooth/sony/SonyPhotoboothScreen.kt`
+
+### Overview
+
+Mark 1.1 enhances the Sony photobooth experience by capturing **live view screenshots** instead of relying on WiFi image transfer (which the A7 III doesn't support). This enables a true photobooth workflow with multi-photo sequences and countdown timers while maintaining the SD card workflow for high-resolution archival.
+
+### User Flow
+
+1. **Enter Photobooth Mode:** User selects Sony A7 III → navigates to Sony photobooth screen
+2. **Live View Active:** Live view displays continuously from camera
+3. **Start Sequence:** User clicks "Start Photo Booth" button
+4. **For Each Photo** (configurable 1-10, default 4):
+   - **Countdown:** 3...2...1 (configurable, default 3 seconds) - live view continues
+   - **Freeze:** At countdown 0, live view freezes on last frame
+   - **Screenshot:** Frozen frame captured and encoded to JPEG (quality 90)
+   - **Camera Trigger:** Camera shutter fires via continuous shooting mode (photo saved to SD card)
+   - **Unfreeze:** Live view resumes for next photo (if not last)
+5. **Photo Strip:** Navigate to photo strip showing all screenshots
+6. **Session Continues:** Camera connection stays alive for next photobooth session
+
+### Technical Implementation
+
+**Architecture:**
+- **SonyPhotoboothViewModel:** State management and capture sequence orchestration
+- **SonyPhotoboothScreen:** UI composable with live view display and countdown overlay
+- **ImageBitmapEncoder:** Platform-specific JPEG encoding (expect/actual pattern)
+- **State Classes:** `SonyCaptureState`, `LiveViewState`, `SonyPhotoboothUiState`
+
+**Capture Sequence Logic:**
+```kotlin
+repeat(numberOfPhotos) { index ->
+    // Countdown (live view active)
+    for (countdown in countdownSeconds downTo 1) {
+        updateState(Countdown(countdown, index + 1, totalPhotos))
+        delay(1000L) // Only delay for countdown timer
+    }
+
+    // Freeze frame at 0
+    val currentFrame = camera.liveViewFrame.value
+    updateState(Frozen(currentFrame))
+
+    // Screenshot frozen frame (synchronous, ~50ms)
+    val photoBytes = encodeImageBitmapToJpeg(currentFrame, quality = 90)
+    photos.add(PhotoData(photoBytes, timestamp))
+
+    // Camera capture (continuous shooting → SD card)
+    camera.capture() // Fire and forget
+
+    // Unfreeze for next photo (immediate, no delay)
+    if (index < numberOfPhotos - 1) {
+        updateState(Active(camera.liveViewFrame.value))
+    }
+}
+```
+
+**Live View Freeze Coordination:**
+- **Active State:** Continuously collect from `camera.liveViewFrame` StateFlow
+- **Freeze State:** Stop collecting, display cached `ImageBitmap`
+- **Screenshot:** Encode frozen frame to JPEG ByteArray using platform-specific encoders
+- **Unfreeze:** Resume collecting from StateFlow for next photo
+
+**Platform-Specific Encoding:**
+- **Android:** `Bitmap.compress(JPEG, quality, outputStream)` via `asAndroidBitmap()`
+- **JVM:** `ImageIO.write(bufferedImage, "JPEG", outputStream)` via `toAwtImage()`
+- **iOS/JS/Wasm:** Stub implementations (future enhancement)
+
+### Resolution & Quality
+
+| Aspect | Screenshot (Photo Strip) | SD Card Photo (Archive) |
+|--------|-------------------------|-------------------------|
+| **Resolution** | 640×360 (live view limitation) | 6000×4000 (full camera resolution) |
+| **Format** | JPEG (quality 90) | RAW + JPEG (camera setting) |
+| **File Size** | ~50-100 KB per photo | ~5-10 MB per photo (JPEG) |
+| **Purpose** | Instant photo strip preview | High-resolution archival |
+
+### Performance Characteristics
+
+**Timing Breakdown (4 photos, 3-second countdown):**
+- 4 × countdown (3 seconds each) = **12 seconds**
+- 4 × screenshot encoding (~50ms each) = **200ms**
+- Camera capture triggers = **~1 second** (concurrent with UI)
+- **Total sequence time: ~13 seconds**
+
+**Optimization:**
+- **Minimal delays:** Only countdown timer delays (1000ms/sec)
+- **No artificial waits:** Screenshot, capture, and unfreeze happen immediately
+- **Synchronous encoding:** JPEG encoding completes in ~50ms (acceptable blocking)
+- **Concurrent capture:** Camera trigger runs in background while UI transitions
+
+### Settings Integration
+
+Uses existing `SettingsRepository` (shared with native camera photobooth):
+- **Number of Photos:** 1-10 (default: 4)
+- **Countdown Seconds:** 1-10 (default: 3)
+
+Changes via Settings screen apply to both native and Sony photobooth workflows.
+
+### User Experience
+
+**Advantages:**
+- ✅ Multi-photo sequences with countdown timer
+- ✅ In-app photo strip preview (instant gratification)
+- ✅ Smooth live view throughout session
+- ✅ Configurable photo count and countdown
+- ✅ Full-resolution backups on SD card
+- ✅ No WiFi transfer delays or failures
+
+**Limitations:**
+- ⚠️ Photo strip shows 640×360 screenshots, not full-resolution photos
+- ⚠️ Screenshot timing may differ slightly from actual shutter timing (~50-100ms)
+- ⚠️ SD card photos still require manual transfer for high-resolution access
+
+**User Communication:**
+The app displays **"Sony A7 III (Mark 1.1 - Photobooth)"** to indicate the enhanced photobooth workflow with in-app photo strips.
+
+### Comparison: Mark 1.0 vs. Mark 1.1
+
+| Feature | Mark 1.0 (SD Card Only) | Mark 1.1 (Screenshot Workflow) |
+|---------|------------------------|-------------------------------|
+| **Workflow** | Single photo capture | Multi-photo photobooth sequence |
+| **Preview** | No in-app preview | Screenshot-based photo strip |
+| **Countdown** | None | Configurable (1-10 seconds) |
+| **Photo Count** | 1 | Configurable (1-10 photos) |
+| **Resolution** | SD card only (full res) | Screenshots 640×360 + SD card backups |
+| **User Experience** | Manual SD card transfer | Instant photo strip + backups |
+| **Capture Method** | Continuous shooting | Continuous shooting + screenshot |
+| **Connection Management** | Manual connect/disconnect | Persistent connection |
+
+### Future Enhancements (Mark 2.0)
+
+**Potential improvements for newer Sony camera models with full WiFi transfer support:**
+- High-resolution photo download via WiFi (if camera supports `actTakePicture` with URLs)
+- Background photo transfer while user views photo strip
+- Auto-upload to cloud storage
+- Print queue integration
+
+**Current Mark 1.1 design decisions:**
+- Screenshot approach chosen due to A7 III API limitations (no WiFi transfer)
+- Intentionally simple: no complex download/retry logic
+- Optimized for speed: minimal delays, instant photo strip
+
+### Continuous Shooting Mode
+
+**IMPORTANT:** Sony A7 III **ONLY** supports continuous shooting mode for capture:
+- `startContShooting()` + `stopContShooting()` - ✅ Available
+- `actTakePicture()` - ❌ **NOT available** on A7 III
+
+Mark 1.1 uses the existing `camera.capture()` method which internally calls continuous shooting. Photos are saved to SD card, but image URLs remain empty (Mark 1.0 behavior). The screenshot provides the in-app photo strip representation.
 
 ### Live View
 
@@ -303,31 +544,106 @@ All dependencies managed via Gradle:
 - JVM: `io.ktor:ktor-client-java`
 - JS/WASM: `io.ktor:ktor-client-js`
 
-### Future Enhancements (Mark 2.0)
+## Mark 2.0 - WiFi Transfer Workflow
 
-**Recommended Improvements:**
+**Status:** ✅ Production Ready
+**Last Updated:** January 2026
+**Location:** `ui/photobooth/sony/mark2/`
 
-1. **Target Sony A7 IV or A7R IV**
-   - These models reportedly support `actTakePicture` via Remote API
-   - May provide direct WiFi image transfer
-   - Verify API compatibility before implementation
+### Overview
 
-2. **Alternative Approaches**
-   - Investigate `awaitTakePicture` method (if available)
-   - Try single-shot mode instead of continuous shooting
-   - Check if different firmware versions expose different APIs
-   - Consider using Sony's official SDK if available
+Mark 2.0 implements **true WiFi photo transfer** using the `actTakePicture` API. Unlike Mark 1.1 (which uses screenshots of live view), Mark 2.0 downloads the **actual captured photos** from the camera.
 
-3. **Hybrid Workflow**
-   - Implement Mark 1.0 (SD card) as fallback
-   - Detect if `actTakePicture` is available at runtime
-   - Auto-select best workflow based on camera capabilities
-   - Show workflow version clearly in UI
+### Required Camera Settings
 
-4. **SD Card Access**
-   - Investigate if Remote API provides SD card browsing
-   - Check `getContentsURI` or similar methods
-   - May enable "capture to SD, then transfer via API" workflow
+**CRITICAL:** Mark 2.0 only works with specific camera settings:
+
+1. **Drive Mode: Single Shooting**
+   - Menu → Camera Settings 1 → Drive Mode → Single Shooting
+
+2. **File Format: JPEG or RAW+JPEG**
+   - Menu → Camera Settings 1 → Quality → JPEG or RAW+JPEG
+
+Without these settings, the `actTakePicture` API returns error 40400.
+
+### Capture Workflow
+
+```
+For each photo:
+1. Countdown (3...2...1) - Live view continues
+2. Start live view (if needed)
+3. Half-press shutter (autofocus)
+4. Wait for focus lock (300ms)
+5. actTakePicture → Returns image URL
+6. Download photo from URL
+7. Show preview (1.5 seconds)
+8. Continue to next photo
+```
+
+### Technical Implementation
+
+**Files:**
+- `SonyMark2ViewModel.kt` - ViewModel with capture workflow
+- `SonyMark2Screen.kt` - UI composable
+- `SonyCameraApiClient.kt` - `executeCaptureWorkflow()` method
+
+**Key Differences from Mark 1.1:**
+- Uses `actTakePicture` instead of `startContShooting`
+- Downloads actual photos via returned URLs
+- Displays real captured images (not live view screenshots)
+- Requires specific camera settings
+
+### Photo Quality
+
+| Aspect | Mark 1.1 (Screenshot) | Mark 2.0 (WiFi Transfer) |
+|--------|----------------------|-------------------------|
+| **Resolution** | 640×360 (live view) | Full camera resolution |
+| **Source** | Live view frame | Actual captured image |
+| **Format** | JPEG (encoded screenshot) | JPEG from camera |
+| **File Size** | ~50-100 KB | ~2-10 MB |
+
+### Logging
+
+Filter in logcat: `adb logcat -s SonyCameraApi`
+
+Mark 2.0 logs are prefixed with `[MARK2_VM]`:
+```
+[MARK2_VM] Starting Mark 2.0 capture sequence
+[MARK2_VM] ─── Photo 1/4 ───
+[MARK2_VM] Countdown: 3
+[MARK2_VM] Capturing photo 1...
+[MARK2_VM] Downloading from: http://...
+[MARK2_VM] Downloaded 4523891 bytes
+```
+
+### Error Handling
+
+| Error Code | Meaning | Solution |
+|------------|---------|----------|
+| 40400 | Wrong drive mode | Set camera to Single Shooting |
+| 40403 | Camera not ready | Wait and retry |
+| Timeout | Connection issue | Check WiFi connection |
+
+### User Experience
+
+**Advantages over Mark 1.1:**
+- ✅ Full-resolution photos in app
+- ✅ Actual captured images (not screenshots)
+- ✅ Professional quality photo strip
+- ✅ No manual SD card transfer needed
+
+**Limitations:**
+- ⚠️ Requires specific camera settings
+- ⚠️ Slower capture (~2-3 seconds per photo for download)
+- ⚠️ RAW files not transferred (only JPEG)
+
+### Future Enhancements
+
+- Background photo transfer while countdown continues
+- RAW file transfer support
+- Touch-to-focus on live view
+- Auto-detection of camera settings compatibility
+- Hybrid mode: Auto-select Mark 1.1 or 2.0 based on camera settings
 
 ### Troubleshooting
 
@@ -393,15 +709,23 @@ All dependencies managed via Gradle:
 - **Fixed Configuration**: Hardcoded 3 photos, 3 second countdown (good defaults for initial version)
 - **No Flash/HDR Control**: Uses default camera settings (could expose CameraX controls in future)
 
-### Sony A7 III Camera (Mark 1.0)
-- ❌ No WiFi image transfer (SD card workflow only)
-- ❌ No `actTakePicture` API method available on A7 III
-- ❌ Cannot preview captured photos in app
+### Sony A7 III Camera (Mark 1.1 - Screenshot)
+- ❌ Photos are 640×360 screenshots (not actual captured images)
 - ❌ No touch-to-focus / AF point selection
-- ❌ No RAW file transfer over WiFi
 - ❌ Live view capped at 640×360
-- ❌ No focus distance control
+- ✅ Works with any camera drive mode
 - ✅ Remote shutter via continuous shooting works
+- ✅ Remote autofocus works
+- ✅ High-res backups saved to SD card
+
+### Sony A7 III Camera (Mark 2.0 - WiFi Transfer)
+- ❌ Requires Single Shooting mode (error 40400 otherwise)
+- ❌ Requires JPEG or RAW+JPEG format
+- ❌ Slower capture (~2-3s per photo for download)
+- ❌ RAW files not transferred (only JPEG)
+- ❌ No touch-to-focus / AF point selection
+- ✅ Downloads actual full-resolution photos
+- ✅ True WiFi image transfer
 - ✅ Remote autofocus works
 - ✅ Live view streaming works
 - ✅ Photos successfully saved to SD card

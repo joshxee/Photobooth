@@ -21,7 +21,8 @@ fun CameraSelectionScreen(
     repository: CameraRepository,
     onCameraSelected: (CameraType) -> Unit,
     onBack: () -> Unit,
-    onOpenSettings: () -> Unit
+    onOpenSettings: () -> Unit,
+    onApiDiscovery: (() -> Unit)? = null
 ) {
     val scope = rememberCoroutineScope()
     var availableCameras by remember { mutableStateOf<List<CameraType>>(emptyList()) }
@@ -112,12 +113,27 @@ fun CameraSelectionScreen(
                 onClick = onBack,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(bottom = 16.dp)
+                    .padding(bottom = 8.dp)
             ) {
                 Text(
                     text = "Back",
                     style = MaterialTheme.typography.titleMedium
                 )
+            }
+
+            // API Discovery button (dev tool)
+            if (onApiDiscovery != null) {
+                TextButton(
+                    onClick = onApiDiscovery,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 16.dp)
+                ) {
+                    Text(
+                        text = "Sony API Discovery",
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                }
             }
         }
     }
@@ -166,7 +182,8 @@ fun CameraOptionCard(
                 Text(
                     text = when (cameraType) {
                         CameraType.DEVICE_CAMERA -> "Use your device's built-in camera"
-                        CameraType.SONY_A7III -> "WiFi remote control • Photos saved to SD card • Manual transfer required"
+                        CameraType.SONY_A7III -> "Screenshot workflow • Live view screenshots • High-res backups to SD"
+                        CameraType.SONY_A7III_MARK2 -> "WiFi transfer • Downloads actual photos • Requires Single Shot mode"
                     },
                     style = MaterialTheme.typography.bodyMedium,
                     color = if (isSelected) {
