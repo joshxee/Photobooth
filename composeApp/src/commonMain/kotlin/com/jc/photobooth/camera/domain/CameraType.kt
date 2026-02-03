@@ -6,7 +6,8 @@ package com.jc.photobooth.camera.domain
 enum class CameraType(val id: String, val displayName: String) {
     DEVICE_CAMERA("device_camera", "Device Camera"),
     SONY_A7III("sony_a7iii", "Sony A7 III (Mark 1.1 - Screenshot)"),
-    SONY_A7III_MARK2("sony_a7iii_mark2", "Sony A7 III (Mark 2.0 - WiFi Transfer)");
+    SONY_A7III_MARK2("sony_a7iii_mark2", "Sony A7 III (Mark 2.0 - WiFi Transfer)"),
+    MOCK_CAMERA("mock_camera", "Mock Camera (Testing)");
 
     companion object {
         fun fromId(id: String): CameraType? {

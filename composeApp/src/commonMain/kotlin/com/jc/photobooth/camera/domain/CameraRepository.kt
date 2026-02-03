@@ -51,6 +51,9 @@ class CameraRepository(
             // Sony A7 III Mark 2.0 (WiFi transfer - actTakePicture)
             // Requires Single Shooting mode + JPEG/RAW+JPEG format
             add(CameraType.SONY_A7III_MARK2)
+
+            // Mock camera is always available (no hardware required)
+            add(CameraType.MOCK_CAMERA)
         }
     }
 
@@ -80,6 +83,10 @@ class CameraRepository(
                     sonyCamera = SonyA7IIICamera()
                 }
                 sonyCamera!!
+            }
+            CameraType.MOCK_CAMERA -> {
+                // Mock camera handled separately in UI layer
+                throw IllegalStateException("Mock camera should be created directly in UI layer")
             }
         }
     }

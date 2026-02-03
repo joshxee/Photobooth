@@ -2,18 +2,17 @@ package com.jc.photobooth.ui.photobooth
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.jc.photobooth.camera.CameraController
 import com.jc.photobooth.model.PhotoData
 import com.jc.photobooth.permissions.PermissionState
+import com.jc.photobooth.ui.photobooth.common.PhotoboothLayout
+import com.jc.photobooth.ui.photobooth.strategy.NativeContentStrategy
 
 @Composable
 fun PhotoboothScreen(
@@ -48,12 +47,14 @@ fun PhotoboothScreen(
                 )
             }
             else -> {
-                CameraPreviewContent(
-                    cameraController = cameraController,
+                val strategy = remember(cameraController, onOpenSettings) {
+                    NativeContentStrategy(cameraController, onOpenSettings)
+                }
+                PhotoboothLayout(
+                    contentStrategy = strategy,
                     captureState = uiState.captureState,
-                    onCaptureClick = { viewModel.startCaptureSequence() },
                     onHomeClick = onNavigateHome,
-                    onSettingsClick = onOpenSettings
+                    onCaptureClick = { viewModel.startCaptureSequence() }
                 )
             }
         }
@@ -115,107 +116,3 @@ private fun PermissionDeniedContent(
     }
 }
 
-@Composable
-private fun CameraPreviewContent(
-    cameraController: CameraController,
-    captureState: CaptureState,
-    onCaptureClick: () -> Unit,
-    onHomeClick: () -> Unit,
-    onSettingsClick: () -> Unit
-) {
-    Box(modifier = Modifier.fillMaxSize()) {
-        // Camera preview
-        CameraPreview(
-            controller = cameraController,
-            modifier = Modifier.fillMaxSize()
-        )
-
-        // Countdown overlay
-        if (captureState is CaptureState.Countdown) {
-            CountdownOverlay(
-                remainingSeconds = captureState.remainingSeconds,
-                photoIndex = captureState.photoIndex,
-                totalPhotos = captureState.totalPhotos
-            )
-        }
-
-        // Home button
-        IconButton(
-            onClick = onHomeClick,
-            modifier = Modifier
-                .align(Alignment.TopStart)
-                .padding(16.dp)
-        ) {
-            Text("🏠", fontSize = 32.sp)
-        }
-
-        // Settings button
-        IconButton(
-            onClick = onSettingsClick,
-            modifier = Modifier
-                .align(Alignment.TopEnd)
-                .padding(16.dp)
-        ) {
-            Icon(
-                imageVector = Icons.Filled.Settings,
-                contentDescription = "Settings",
-                tint = MaterialTheme.colorScheme.onSurface
-            )
-        }
-
-        // Capture button
-        if (captureState is CaptureState.Idle) {
-            Button(
-                onClick = onCaptureClick,
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .padding(32.dp)
-                    .size(80.dp)
-            ) {
-                Text("📷", fontSize = 40.sp)
-            }
-        }
-
-        // Error display
-        if (captureState is CaptureState.Error) {
-            Text(
-                text = captureState.message,
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .padding(16.dp)
-                    .background(MaterialTheme.colorScheme.error)
-                    .padding(16.dp),
-                color = MaterialTheme.colorScheme.onError
-            )
-        }
-    }
-}
-
-@Composable
-private fun CountdownOverlay(
-    remainingSeconds: Int,
-    photoIndex: Int,
-    totalPhotos: Int
-) {
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.7f)),
-        contentAlignment = Alignment.Center
-    ) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Text(
-                text = "$remainingSeconds",
-                style = MaterialTheme.typography.displayLarge,
-                fontSize = 120.sp,
-                color = MaterialTheme.colorScheme.onSurface
-            )
-            Spacer(modifier = Modifier.height(16.dp))
-            Text(
-                text = "Photo $photoIndex of $totalPhotos",
-                style = MaterialTheme.typography.headlineMedium,
-                color = MaterialTheme.colorScheme.onSurface
-            )
-        }
-    }
-}

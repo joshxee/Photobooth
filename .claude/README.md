@@ -141,9 +141,6 @@ A specialized subagent is available to help with Kotlin Multiplatform developmen
 The subagent is automatically available when working on KMP-specific tasks and can help ensure code is properly structured for maximum code sharing across platforms.
 
 ## Learn More
-
-- [Testing Guidelines](../TDD_GUIDELINES.md) - **Start here for testing practices!**
-- [Kotlin Multiplatform Subagent](subagents/kotlin-multiplatform.md) - **KMP specialist guide**
 - [Claude Code Documentation](https://docs.claude.com/claude-code)
 - [Kotlin Multiplatform](https://www.jetbrains.com/help/kotlin-multiplatform-dev/get-started.html)
 - [Kotlin Multiplatform Testing](https://kotlinlang.org/docs/multiplatform-run-tests.html)

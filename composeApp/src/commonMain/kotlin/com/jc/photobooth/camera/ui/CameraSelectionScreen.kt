@@ -184,6 +184,7 @@ fun CameraOptionCard(
                         CameraType.DEVICE_CAMERA -> "Use your device's built-in camera"
                         CameraType.SONY_A7III -> "Screenshot workflow • Live view screenshots • High-res backups to SD"
                         CameraType.SONY_A7III_MARK2 -> "WiFi transfer • Downloads actual photos • Requires Single Shot mode"
+                        CameraType.MOCK_CAMERA -> "Test mode • Fast capture • No hardware required"
                     },
                     style = MaterialTheme.typography.bodyMedium,
                     color = if (isSelected) {

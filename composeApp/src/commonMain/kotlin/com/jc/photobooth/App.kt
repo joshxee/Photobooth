@@ -18,7 +18,6 @@ import androidx.compose.ui.unit.sp
 import com.jc.photobooth.camera.data.sony.SonyA7IIICamera
 import com.jc.photobooth.camera.domain.CameraRepository
 import com.jc.photobooth.camera.domain.CameraType
-import com.jc.photobooth.camera.ui.CameraPreviewScreen
 import com.jc.photobooth.camera.ui.CameraSelectionScreen
 import com.jc.photobooth.camera.ui.discovery.SonyApiDiscoveryScreen
 import com.jc.photobooth.data.createDataStore
@@ -36,6 +35,7 @@ enum class Screen {
     PHOTOBOOTH_NATIVE,      // Native device camera (existing implementation)
     PHOTOBOOTH_SONY,        // Sony A7 III camera (Mark 1.1 - Screenshot)
     PHOTOBOOTH_SONY_MARK2,  // Sony A7 III camera (Mark 2.0 - WiFi Transfer)
+    PHOTOBOOTH_MOCK,        // Mock camera for testing (no hardware required)
     PHOTO_STRIP,
     SETTINGS,
     SONY_API_DISCOVERY,     // Sony API discovery tool
@@ -65,6 +65,8 @@ fun App() {
                         CameraType.DEVICE_CAMERA -> Screen.PHOTOBOOTH_NATIVE
                         CameraType.SONY_A7III -> Screen.PHOTOBOOTH_SONY
                         CameraType.SONY_A7III_MARK2 -> Screen.PHOTOBOOTH_SONY_MARK2
+                        // Mock camera uses native photobooth workflow for now
+                        CameraType.MOCK_CAMERA -> Screen.PHOTOBOOTH_NATIVE
                     }
                 },
                 onBack = { currentScreen = Screen.WELCOME },
@@ -137,6 +139,20 @@ fun App() {
                         println("[APP] Navigating home from Sony Mark 2.0")
                         currentScreen = Screen.WELCOME
                     }
+                )
+            }
+
+            Screen.PHOTOBOOTH_MOCK -> {
+                // Mock camera for testing and development (no hardware required)
+                // Uses the same native photobooth workflow as device camera
+                PhotoboothScreenWrapper(
+                    settingsRepository = settingsRepository,
+                    onNavigateToPhotoStrip = { photos ->
+                        capturedPhotos = photos
+                        currentScreen = Screen.PHOTO_STRIP
+                    },
+                    onNavigateHome = { currentScreen = Screen.WELCOME },
+                    onOpenSettings = { currentScreen = Screen.SETTINGS }
                 )
             }
 

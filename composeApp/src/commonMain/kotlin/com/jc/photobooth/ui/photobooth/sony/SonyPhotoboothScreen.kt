@@ -1,23 +1,12 @@
 package com.jc.photobooth.ui.photobooth.sony
 
-import androidx.compose.foundation.Image
-import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.*
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Home
-import androidx.compose.material3.*
 import androidx.compose.runtime.*
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.ImageBitmap
-import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.jc.photobooth.camera.data.sony.SonyA7IIICamera
 import com.jc.photobooth.data.SettingsRepository
 import com.jc.photobooth.model.PhotoData
+import com.jc.photobooth.ui.photobooth.common.PhotoboothLayout
+import com.jc.photobooth.ui.photobooth.strategy.SonyMark1Strategy
 
 /**
  * Sony A7 III Photobooth Screen (Mark 1.1 - Screenshot Workflow).
@@ -96,212 +85,16 @@ fun SonyPhotoboothScreen(
         }
     }
 
-    Box(modifier = Modifier.fillMaxSize()) {
-        // Live view or frozen frame background
-        when (val lvState = uiState.liveViewState) {
-            is LiveViewState.Active -> {
-                LiveViewDisplay(frame = lvState.frame)
-            }
-            is LiveViewState.Frozen -> {
-                FrozenFrameDisplay(frame = lvState.frame)
-            }
-        }
-
-        // Countdown overlay
-        if (uiState.captureState is SonyCaptureState.Countdown) {
-            val countdown = uiState.captureState as SonyCaptureState.Countdown
-            CountdownOverlay(
-                remainingSeconds = countdown.remainingSeconds,
-                photoIndex = countdown.photoIndex,
-                totalPhotos = countdown.totalPhotos
-            )
-        }
-
-        // Home button (top-left)
-        IconButton(
-            onClick = onNavigateHome,
-            modifier = Modifier
-                .align(Alignment.TopStart)
-                .padding(16.dp)
-        ) {
-            Icon(
-                imageVector = Icons.Default.Home,
-                contentDescription = "Home",
-                tint = Color.White,
-                modifier = Modifier.size(32.dp)
-            )
-        }
-
-        // Capture button (only show when Idle)
-        if (uiState.captureState is SonyCaptureState.Idle) {
-            Button(
-                onClick = { viewModel.startCaptureSequence() },
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .padding(bottom = 48.dp)
-                    .width(200.dp),
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = MaterialTheme.colorScheme.primary
-                )
-            ) {
-                Text(
-                    text = "Start Photo Booth",
-                    style = MaterialTheme.typography.titleMedium
-                )
-            }
-        }
-
-        // Error message
-        if (uiState.captureState is SonyCaptureState.Error) {
-            val error = uiState.captureState as SonyCaptureState.Error
-            ErrorMessage(
-                message = error.message,
-                onDismiss = { viewModel.resetCapture() }
-            )
-        }
-
-        // Capturing indicator
-        if (uiState.captureState is SonyCaptureState.Capturing) {
-            val capturing = uiState.captureState as SonyCaptureState.Capturing
-            Box(
-                modifier = Modifier
-                    .align(Alignment.Center)
-                    .padding(32.dp)
-            ) {
-                Text(
-                    text = "📸 Capturing ${capturing.photoIndex}...",
-                    color = Color.White,
-                    style = MaterialTheme.typography.headlineMedium,
-                    modifier = Modifier
-                        .background(Color.Black.copy(alpha = 0.7f))
-                        .padding(16.dp)
-                )
-            }
-        }
+    val strategy = remember(uiState.liveViewState) {
+        SonyMark1Strategy(liveViewState = uiState.liveViewState)
     }
+
+    PhotoboothLayout(
+        contentStrategy = strategy,
+        captureState = uiState.captureState,
+        onHomeClick = onNavigateHome,
+        onCaptureClick = { viewModel.startCaptureSequence() },
+        onErrorDismiss = { viewModel.resetCapture() }
+    )
 }
 
-/**
- * Displays active live view from camera.
- */
-@Composable
-private fun LiveViewDisplay(frame: ImageBitmap?) {
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(Color.Black),
-        contentAlignment = Alignment.Center
-    ) {
-        if (frame != null) {
-            Image(
-                bitmap = frame,
-                contentDescription = "Live view",
-                modifier = Modifier.fillMaxSize(),
-                contentScale = ContentScale.Fit
-            )
-        } else {
-            Text(
-                text = "Waiting for live view...",
-                color = Color.White,
-                style = MaterialTheme.typography.bodyLarge
-            )
-        }
-    }
-}
-
-/**
- * Displays frozen live view frame (captured at countdown 0).
- */
-@Composable
-private fun FrozenFrameDisplay(frame: ImageBitmap) {
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(Color.Black),
-        contentAlignment = Alignment.Center
-    ) {
-        Image(
-            bitmap = frame,
-            contentDescription = "Frozen frame",
-            modifier = Modifier.fillMaxSize(),
-            contentScale = ContentScale.Fit
-        )
-    }
-}
-
-/**
- * Countdown overlay (3...2...1).
- */
-@Composable
-private fun CountdownOverlay(
-    remainingSeconds: Int,
-    photoIndex: Int,
-    totalPhotos: Int
-) {
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.7f)),
-        contentAlignment = Alignment.Center
-    ) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Text(
-                text = "$remainingSeconds",
-                style = MaterialTheme.typography.displayLarge,
-                fontSize = 120.sp,
-                color = MaterialTheme.colorScheme.onSurface
-            )
-            Spacer(modifier = Modifier.height(16.dp))
-            Text(
-                text = "Photo $photoIndex of $totalPhotos",
-                style = MaterialTheme.typography.headlineMedium,
-                color = MaterialTheme.colorScheme.onSurface
-            )
-        }
-    }
-}
-
-/**
- * Error message banner with dismiss button.
- */
-@Composable
-private fun ErrorMessage(
-    message: String,
-    onDismiss: () -> Unit
-) {
-    Box(
-        modifier = Modifier.fillMaxSize(),
-        contentAlignment = Alignment.BottomCenter
-    ) {
-        Card(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(16.dp),
-            colors = CardDefaults.cardColors(
-                containerColor = MaterialTheme.colorScheme.errorContainer
-            )
-        ) {
-            Column(
-                modifier = Modifier.padding(16.dp),
-                horizontalAlignment = Alignment.CenterHorizontally
-            ) {
-                Text(
-                    text = "⚠️ Error",
-                    style = MaterialTheme.typography.titleLarge,
-                    color = MaterialTheme.colorScheme.onErrorContainer
-                )
-                Spacer(modifier = Modifier.height(8.dp))
-                Text(
-                    text = message,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onErrorContainer,
-                    textAlign = TextAlign.Center
-                )
-                Spacer(modifier = Modifier.height(16.dp))
-                Button(onClick = onDismiss) {
-                    Text("Try Again")
-                }
-            }
-        }
-    }
-}
