@@ -44,7 +44,7 @@ fun ErrorOverlay(
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 Text(
-                    text = "⚠️ Error",
+                    text = "Error",
                     style = MaterialTheme.typography.titleLarge,
                     color = MaterialTheme.colorScheme.onErrorContainer
                 )

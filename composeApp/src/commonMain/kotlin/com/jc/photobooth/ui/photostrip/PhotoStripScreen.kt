@@ -1,5 +1,6 @@
 package com.jc.photobooth.ui.photostrip
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -12,6 +13,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -98,13 +101,15 @@ fun PhotoStripScreen(
             Spacer(modifier = Modifier.height(24.dp))
 
             // Manual "Take Another" button (secondary option)
-            Button(
+            OutlinedButton(
                 onClick = {
                     viewModel.skipCountdown()
                 },
-                modifier = Modifier.fillMaxWidth()
+                modifier = Modifier.fillMaxWidth(),
+                border = BorderStroke(1.dp, Color.White),
+                shape = RectangleShape
             ) {
-                Text("Take Another Photo Strip")
+                Text("Take Another Photo Strip", color = Color.White)
             }
         }
 

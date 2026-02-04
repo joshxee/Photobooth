@@ -67,7 +67,7 @@ class SonyMark1Strategy(
                 contentAlignment = Alignment.Center
             ) {
                 Text(
-                    text = "📸 Capturing ${state.photoIndex}...",
+                    text = "Capturing ${state.photoIndex}...",
                     color = Color.White,
                     style = MaterialTheme.typography.headlineMedium,
                     modifier = Modifier

@@ -42,7 +42,6 @@ fun CountdownOverlay(
             Text(
                 text = "$remainingSeconds",
                 style = MaterialTheme.typography.displayLarge,
-                fontSize = 120.sp,
                 color = textColor
             )
             Spacer(modifier = Modifier.height(16.dp))

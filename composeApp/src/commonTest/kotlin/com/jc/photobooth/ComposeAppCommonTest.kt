@@ -7,13 +7,6 @@ import kotlin.test.assertNotNull
 class ComposeAppCommonTest {
 
     @Test
-    fun testScreenEnumHasWelcomeScreen() {
-        val screen = Screen.WELCOME
-        assertNotNull(screen)
-        assertEquals("WELCOME", screen.name)
-    }
-
-    @Test
     fun testScreenEnumHasUnderConstructionScreen() {
         val screen = Screen.UNDER_CONSTRUCTION
         assertNotNull(screen)
@@ -56,20 +49,22 @@ class ComposeAppCommonTest {
     }
 
     @Test
-    fun testScreenEnumHasSevenValues() {
+    fun testScreenEnumHasNineValues() {
         val screens = Screen.values()
-        assertEquals(7, screens.size)
+        assertEquals(9, screens.size)
     }
 
     @Test
     fun testScreenEnumOrder() {
         val screens = Screen.values()
-        assertEquals(Screen.WELCOME, screens[0])
-        assertEquals(Screen.CAMERA_SELECTION, screens[1])
-        assertEquals(Screen.PHOTOBOOTH_NATIVE, screens[2])
-        assertEquals(Screen.PHOTOBOOTH_SONY, screens[3])
-        assertEquals(Screen.PHOTO_STRIP, screens[4])
-        assertEquals(Screen.SETTINGS, screens[5])
-        assertEquals(Screen.UNDER_CONSTRUCTION, screens[6])
+        assertEquals(Screen.CAMERA_SELECTION, screens[0])
+        assertEquals(Screen.PHOTOBOOTH_NATIVE, screens[1])
+        assertEquals(Screen.PHOTOBOOTH_SONY, screens[2])
+        assertEquals(Screen.PHOTOBOOTH_SONY_MARK2, screens[3])
+        assertEquals(Screen.PHOTOBOOTH_MOCK, screens[4])
+        assertEquals(Screen.PHOTO_STRIP, screens[5])
+        assertEquals(Screen.SETTINGS, screens[6])
+        assertEquals(Screen.SONY_API_DISCOVERY, screens[7])
+        assertEquals(Screen.UNDER_CONSTRUCTION, screens[8])
     }
 }

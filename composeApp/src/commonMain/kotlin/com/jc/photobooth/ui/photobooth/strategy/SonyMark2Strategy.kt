@@ -3,6 +3,9 @@ package com.jc.photobooth.ui.photobooth.strategy
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.CameraAlt
+import androidx.compose.material.icons.filled.Download
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -77,7 +80,7 @@ class SonyMark2Strategy(
         // Capturing indicator
         if (state is Mark2CaptureState.Capturing) {
             StatusOverlay(
-                icon = "📸",
+                icon = Icons.Default.CameraAlt,
                 message = "Capturing photo ${state.photoIndex}..."
             )
         }
@@ -85,7 +88,7 @@ class SonyMark2Strategy(
         // Downloading indicator
         if (state is Mark2CaptureState.Downloading) {
             StatusOverlay(
-                icon = "📥",
+                icon = Icons.Default.Download,
                 message = "Downloading photo ${state.photoIndex}..."
             )
         }

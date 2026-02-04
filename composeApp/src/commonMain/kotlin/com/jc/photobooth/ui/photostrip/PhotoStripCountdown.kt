@@ -42,7 +42,7 @@ fun CircularCountdownTimer(
     modifier: Modifier = Modifier,
     size: Dp = 120.dp,
     strokeWidth: Dp = 8.dp,
-    color: Color = MaterialTheme.colorScheme.primary
+    color: Color = Color.White
 ) {
     var remainingSeconds by remember { mutableIntStateOf(durationSeconds) }
 
@@ -93,8 +93,7 @@ fun CircularCountdownTimer(
         // Remaining seconds text
         Text(
             text = remainingSeconds.toString(),
-            fontSize = 32.sp,
-            fontWeight = FontWeight.Bold,
+            style = MaterialTheme.typography.displaySmall,
             color = color
         )
     }

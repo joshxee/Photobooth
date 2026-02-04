@@ -5,11 +5,13 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.jc.photobooth.camera.domain.CameraRepository
@@ -20,7 +22,7 @@ import kotlinx.coroutines.launch
 fun CameraSelectionScreen(
     repository: CameraRepository,
     onCameraSelected: (CameraType) -> Unit,
-    onBack: () -> Unit,
+    onBack: (() -> Unit)? = null,
     onOpenSettings: () -> Unit,
     onApiDiscovery: (() -> Unit)? = null
 ) {
@@ -108,17 +110,19 @@ fun CameraSelectionScreen(
                 )
             }
 
-            // Back button
-            OutlinedButton(
-                onClick = onBack,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(bottom = 8.dp)
-            ) {
-                Text(
-                    text = "Back",
-                    style = MaterialTheme.typography.titleMedium
-                )
+            // Back button (hidden if no back navigation available)
+            if (onBack != null) {
+                OutlinedButton(
+                    onClick = onBack,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 8.dp)
+                ) {
+                    Text(
+                        text = "Back",
+                        style = MaterialTheme.typography.titleMedium
+                    )
+                }
             }
 
             // API Discovery button (dev tool)
@@ -157,9 +161,9 @@ fun CameraOptionCard(
                 MaterialTheme.colorScheme.surface
             }
         ),
-        shape = RoundedCornerShape(12.dp),
+        shape = RectangleShape,
         elevation = CardDefaults.cardElevation(
-            defaultElevation = if (isSelected) 4.dp else 2.dp
+            defaultElevation = 0.dp
         )
     ) {
         Row(
@@ -196,10 +200,11 @@ fun CameraOptionCard(
             }
 
             if (isSelected) {
-                Text(
-                    text = "✓",
-                    style = MaterialTheme.typography.headlineMedium,
-                    color = MaterialTheme.colorScheme.primary
+                Icon(
+                    imageVector = Icons.Default.CheckCircle,
+                    contentDescription = "Selected",
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(28.dp)
                 )
             }
         }

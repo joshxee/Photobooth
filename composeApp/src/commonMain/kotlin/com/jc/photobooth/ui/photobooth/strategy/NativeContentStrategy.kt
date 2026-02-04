@@ -1,16 +1,20 @@
 package com.jc.photobooth.ui.photobooth.strategy
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.jc.photobooth.camera.CameraController
 import com.jc.photobooth.ui.photobooth.CameraPreview
 import com.jc.photobooth.ui.photobooth.CaptureState
@@ -78,13 +82,21 @@ class NativeContentStrategy(
 
         // Show capture button only when idle
         if (state is CaptureState.Idle) {
-            Button(
+            OutlinedButton(
                 onClick = onCaptureClick,
                 modifier = modifier
                     .padding(32.dp)
-                    .size(80.dp)
+                    .width(200.dp),
+                border = BorderStroke(1.dp, Color.White),
+                shape = RectangleShape
             ) {
-                Text("📷", fontSize = 40.sp)
+                Icon(
+                    imageVector = Icons.Default.CameraAlt,
+                    contentDescription = "Capture",
+                    tint = Color.White
+                )
+                Spacer(Modifier.width(8.dp))
+                Text("Capture", color = Color.White)
             }
         }
     }

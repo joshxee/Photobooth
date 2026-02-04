@@ -16,6 +16,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.jc.photobooth.camera.data.sony.SonyA7IIICamera
+import com.jc.photobooth.ui.theme.PhotoboothTheme
 import com.jc.photobooth.camera.domain.CameraRepository
 import com.jc.photobooth.camera.domain.CameraType
 import com.jc.photobooth.camera.ui.CameraSelectionScreen
@@ -30,7 +31,6 @@ import com.jc.photobooth.ui.settings.SettingsScreen
 import org.jetbrains.compose.ui.tooling.preview.Preview
 
 enum class Screen {
-    WELCOME,
     CAMERA_SELECTION,
     PHOTOBOOTH_NATIVE,      // Native device camera (existing implementation)
     PHOTOBOOTH_SONY,        // Sony A7 III camera (Mark 1.1 - Screenshot)
@@ -45,8 +45,8 @@ enum class Screen {
 @Composable
 @Preview
 fun App() {
-    MaterialTheme {
-        var currentScreen by remember { mutableStateOf(Screen.WELCOME) }
+    PhotoboothTheme {
+        var currentScreen by remember { mutableStateOf(Screen.CAMERA_SELECTION) }
         var previousCameraScreen by remember { mutableStateOf<Screen?>(null) }
         var capturedPhotos by remember { mutableStateOf<List<PhotoData>>(emptyList()) }
         val dataStore = remember { createDataStore() }
@@ -59,11 +59,6 @@ fun App() {
         }
 
         when (currentScreen) {
-            Screen.WELCOME -> WelcomeScreen(
-                onEnterBooth = { currentScreen = Screen.CAMERA_SELECTION },
-                onOpenSettings = { currentScreen = Screen.SETTINGS }
-            )
-
             Screen.CAMERA_SELECTION -> CameraSelectionScreen(
                 repository = cameraRepository,
                 onCameraSelected = { cameraType ->
@@ -75,7 +70,7 @@ fun App() {
                         CameraType.MOCK_CAMERA -> Screen.PHOTOBOOTH_NATIVE
                     }
                 },
-                onBack = { currentScreen = Screen.WELCOME },
+                onBack = null, // No back navigation from camera selection (it's the home screen)
                 onOpenSettings = { currentScreen = Screen.SETTINGS },
                 onApiDiscovery = { currentScreen = Screen.SONY_API_DISCOVERY }
             )
@@ -88,7 +83,7 @@ fun App() {
                         capturedPhotos = photos
                         currentScreen = Screen.PHOTO_STRIP
                     },
-                    onNavigateHome = { currentScreen = Screen.WELCOME },
+                    onNavigateHome = { currentScreen = Screen.CAMERA_SELECTION },
                     onOpenSettings = { currentScreen = Screen.SETTINGS }
                 )
             }
@@ -118,14 +113,14 @@ fun App() {
                         },
                         onNavigateHome = {
                             println("[APP] Navigating home from Sony photobooth")
-                            currentScreen = Screen.WELCOME
+                            currentScreen = Screen.CAMERA_SELECTION
                         }
                     )
                 } else {
                     // Fallback if camera not available
                     println("[APP] ERROR: Sony camera not available! Showing under construction screen")
                     UnderConstructionScreen(
-                        onReturnHome = { currentScreen = Screen.WELCOME }
+                        onReturnHome = { currentScreen = Screen.CAMERA_SELECTION }
                     )
                 }
             }
@@ -155,7 +150,7 @@ fun App() {
                     onNavigateHome = {
                         println("[APP] Navigating home from Sony Mark 2.0")
                         previousCameraScreen = null
-                        currentScreen = Screen.WELCOME
+                        currentScreen = Screen.CAMERA_SELECTION
                     }
                 )
             }
@@ -169,7 +164,7 @@ fun App() {
                         capturedPhotos = photos
                         currentScreen = Screen.PHOTO_STRIP
                     },
-                    onNavigateHome = { currentScreen = Screen.WELCOME },
+                    onNavigateHome = { currentScreen = Screen.CAMERA_SELECTION },
                     onOpenSettings = { currentScreen = Screen.SETTINGS }
                 )
             }
@@ -201,7 +196,7 @@ fun App() {
 
             Screen.SETTINGS -> SettingsScreen(
                 repository = settingsRepository,
-                onBack = { currentScreen = Screen.WELCOME }
+                onBack = { currentScreen = Screen.CAMERA_SELECTION }
             )
 
             Screen.SONY_API_DISCOVERY -> SonyApiDiscoveryScreen(
@@ -209,73 +204,8 @@ fun App() {
             )
 
             Screen.UNDER_CONSTRUCTION -> UnderConstructionScreen(
-                onReturnHome = { currentScreen = Screen.WELCOME }
+                onReturnHome = { currentScreen = Screen.CAMERA_SELECTION }
             )
-        }
-    }
-}
-
-@Composable
-fun WelcomeScreen(
-    onEnterBooth: () -> Unit,
-    onOpenSettings: () -> Unit
-) {
-    Box(modifier = Modifier.fillMaxSize()) {
-        // Settings icon in top right
-        IconButton(
-            onClick = onOpenSettings,
-            modifier = Modifier
-                .align(Alignment.TopEnd)
-                .padding(16.dp)
-        ) {
-            Icon(
-                imageVector = Icons.Filled.Settings,
-                contentDescription = "Settings",
-                tint = MaterialTheme.colorScheme.onBackground
-            )
-        }
-
-        Column(
-            modifier = Modifier
-                .background(MaterialTheme.colorScheme.background)
-                .fillMaxSize()
-                .safeContentPadding()
-                .padding(24.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.SpaceBetween
-        ) {
-            Spacer(modifier = Modifier.weight(1f))
-
-        Column(
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center,
-            modifier = Modifier.weight(2f)
-        ) {
-            Text(
-                text = "📷",
-                fontSize = 72.sp,
-                textAlign = TextAlign.Center
-            )
-            Spacer(modifier = Modifier.height(16.dp))
-            Text(
-                text = "Welcome to Photo Booth",
-                style = MaterialTheme.typography.headlineMedium,
-                textAlign = TextAlign.Center,
-                color = MaterialTheme.colorScheme.onBackground
-            )
-        }
-
-            Button(
-                onClick = onEnterBooth,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(bottom = 32.dp)
-            ) {
-                Text(
-                    text = "Enter the Booth",
-                    style = MaterialTheme.typography.titleMedium
-                )
-            }
         }
     }
 }
@@ -299,16 +229,17 @@ fun UnderConstructionScreen(onReturnHome: () -> Unit) {
             modifier = Modifier.weight(2f)
         ) {
             Text(
-                text = "🚧",
-                fontSize = 72.sp,
-                textAlign = TextAlign.Center
+                text = "Under Construction",
+                style = MaterialTheme.typography.displayMedium,
+                textAlign = TextAlign.Center,
+                color = MaterialTheme.colorScheme.onBackground
             )
             Spacer(modifier = Modifier.height(16.dp))
             Text(
-                text = "Under Construction",
-                style = MaterialTheme.typography.headlineMedium,
+                text = "This feature is coming soon",
+                style = MaterialTheme.typography.bodyLarge,
                 textAlign = TextAlign.Center,
-                color = MaterialTheme.colorScheme.onBackground
+                color = MaterialTheme.colorScheme.secondary
             )
         }
 
