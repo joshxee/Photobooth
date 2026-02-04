@@ -22,10 +22,24 @@ fun SettingsScreen(
     val scope = rememberCoroutineScope()
     var config by remember { mutableStateOf(PhotoboothConfig()) }
     var isSaving by remember { mutableStateOf(false) }
+    var kioskModeEnabled by remember { mutableStateOf(false) }
+    var photoStripCountdown by remember { mutableStateOf(10) }
 
     LaunchedEffect(Unit) {
         repository.getConfig().collect { loadedConfig ->
             config = loadedConfig
+        }
+    }
+
+    LaunchedEffect(Unit) {
+        repository.getKioskModeEnabled().collect { enabled ->
+            kioskModeEnabled = enabled
+        }
+    }
+
+    LaunchedEffect(Unit) {
+        repository.getPhotoStripCountdownSeconds().collect { seconds ->
+            photoStripCountdown = seconds
         }
     }
 
@@ -81,6 +95,39 @@ fun SettingsScreen(
                 }
             )
 
+            Divider()
+
+            // Kiosk Mode Toggle
+            SettingToggle(
+                label = "Enable Kiosk Mode",
+                description = "Hides system bars and blocks back button. Swipe from edge to temporarily show system bars.",
+                checked = kioskModeEnabled,
+                onCheckedChange = { enabled ->
+                    kioskModeEnabled = enabled
+                    scope.launch {
+                        isSaving = true
+                        repository.setKioskModeEnabled(enabled)
+                        isSaving = false
+                    }
+                }
+            )
+
+            // Photo Strip Display Time
+            SettingSlider(
+                label = "Photo Strip Display Time",
+                value = photoStripCountdown,
+                valueRange = 5f..30f,
+                steps = 24,
+                onValueChange = { newValue ->
+                    photoStripCountdown = newValue.toInt()
+                    scope.launch {
+                        isSaving = true
+                        repository.setPhotoStripCountdownSeconds(newValue.toInt())
+                        isSaving = false
+                    }
+                }
+            )
+
             if (isSaving) {
                 LinearProgressIndicator(
                     modifier = Modifier.fillMaxWidth()
@@ -115,8 +162,56 @@ fun SettingsScreen(
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSecondaryContainer
                     )
+                    Text(
+                        text = "• Kiosk mode: ${if (kioskModeEnabled) "Enabled" else "Disabled"}",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSecondaryContainer
+                    )
+                    Text(
+                        text = "• Photo strip displays for $photoStripCountdown seconds",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSecondaryContainer
+                    )
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun SettingToggle(
+    label: String,
+    description: String,
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit
+) {
+    Column(
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                Text(
+                    text = label,
+                    style = MaterialTheme.typography.titleMedium,
+                    color = MaterialTheme.colorScheme.onBackground
+                )
+                Text(
+                    text = description,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f)
+                )
+            }
+            Switch(
+                checked = checked,
+                onCheckedChange = onCheckedChange
+            )
         }
     }
 }

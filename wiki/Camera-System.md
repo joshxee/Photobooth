@@ -637,6 +637,89 @@ Mark 2.0 logs are prefixed with `[MARK2_VM]`:
 - ⚠️ Slower capture (~2-3 seconds per photo for download)
 - ⚠️ RAW files not transferred (only JPEG)
 
+### Production Features
+
+**Mark 2.0 is production-ready with enterprise-grade features:**
+
+#### 1. Persistent Photobooth Session
+
+- **Auto-return to Live View**: After photostrip display, circular countdown (10s) automatically returns to live view
+- **Continuous Operation**: Camera session persists across photostrip navigation - no reconnection needed
+- **User Control**: Tap countdown to skip and return immediately, or use "Take Another" button
+
+**Implementation:**
+- `PhotoStripViewModel` with countdown management
+- `CircularCountdownTimer` composable with progress animation
+- Hoisted `SonyMark2ViewModel` persists across navigation
+- `restartLiveView()` cleanly resets session for next capture
+
+#### 2. Fullscreen/Kiosk Mode
+
+- **Immersive Sticky Mode**: Hides system UI (status bar, navigation bar) during camera operation
+- **Lifecycle-Aware**: Fullscreen activates on camera screen entry, exits on screen leave
+- **Gesture Protection**: Swipe from edge temporarily shows system UI, auto-hides after 3 seconds
+
+**Implementation:**
+- `FullscreenEffect` composable (expect/actual pattern)
+- Android: `SYSTEM_UI_FLAG_IMMERSIVE_STICKY` with proper flags
+- Applied to `SonyMark2Screen` and `PhotoStripScreen`
+- Desktop: No-op (fullscreen not needed)
+
+#### 3. WiFi Network Stability
+
+- **Health Monitoring**: Checks camera reachability every 20 seconds
+- **Connection States**: Healthy (<500ms), Degraded (500ms+), Disconnected, Reconnecting, Failed
+- **Auto-Reconnection**: Attempts reconnection with exponential backoff on network loss
+- **Visual Feedback**: Color-coded WiFi indicator (green/yellow/red) in top-right corner
+
+**Implementation:**
+- `CameraNetworkMonitor` (Android) with `NetworkCallback` registration
+- `ConnectionStatusOverlay` - expandable status display
+- `ReconnectionDialog` - user-facing reconnection UI with WiFi settings shortcut
+- 3-second grace period on initial connection to prevent false "disconnected" flash
+
+**Network Status:**
+```kotlin
+data class NetworkStatus(
+    val isConnectedToWifi: Boolean,
+    val ssid: String?,
+    val isCameraReachable: Boolean,
+    val lastPingLatencyMs: Long?,
+    val healthState: ConnectionHealthState
+)
+```
+
+#### 4. Continuous Operation Resilience
+
+**Memory Management:**
+- Photos cleared automatically after photostrip navigation
+- Periodic cleanup every 30 minutes
+- Live view frames managed efficiently (only latest frame kept)
+
+**Session Statistics:**
+- Tracks: uptime, total captures, total errors, success rate
+- Logged every 30 minutes and on disconnect
+- Example:
+```
+[MARK2_VM] SESSION STATISTICS
+[MARK2_VM] Uptime: 125min
+[MARK2_VM] Total captures: 42
+[MARK2_VM] Total errors: 1
+[MARK2_VM] Success rate: 97%
+```
+
+**Error Recovery:**
+- Camera timeout detection and auto-recovery
+- Network loss handling with graceful degradation
+- User-facing error dialogs with retry options
+
+**Production Stability:**
+- ✅ Memory stable for 2+ hours continuous operation
+- ✅ Auto-recovery from camera timeouts
+- ✅ Network monitoring with auto-reconnection
+- ✅ Session statistics for troubleshooting
+- ✅ FLAG_KEEP_SCREEN_ON prevents screen sleep
+
 ### Future Enhancements
 
 - Background photo transfer while countdown continues

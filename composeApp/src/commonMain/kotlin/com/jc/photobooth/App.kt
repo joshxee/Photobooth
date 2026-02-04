@@ -47,10 +47,16 @@ enum class Screen {
 fun App() {
     MaterialTheme {
         var currentScreen by remember { mutableStateOf(Screen.WELCOME) }
+        var previousCameraScreen by remember { mutableStateOf<Screen?>(null) }
         var capturedPhotos by remember { mutableStateOf<List<PhotoData>>(emptyList()) }
         val dataStore = remember { createDataStore() }
         val cameraRepository = remember { CameraRepository(dataStore) }
         val settingsRepository = remember { SettingsRepository(dataStore) }
+
+        // Persist SonyMark2ViewModel across navigation for continuous sessions
+        val sonyMark2ViewModel = remember {
+            com.jc.photobooth.ui.photobooth.sony.mark2.SonyMark2ViewModel(settingsRepository)
+        }
 
         when (currentScreen) {
             Screen.WELCOME -> WelcomeScreen(
@@ -128,15 +134,27 @@ fun App() {
                 // Sony A7 III camera - Mark 2.0 WiFi Transfer
                 println("[APP] Navigating to PHOTOBOOTH_SONY_MARK2 screen")
 
+                // Restart live view when returning from photo strip (persistent session)
+                val isReturningFromPhotoStrip = previousCameraScreen == Screen.PHOTOBOOTH_SONY_MARK2
+                LaunchedEffect(isReturningFromPhotoStrip) {
+                    if (isReturningFromPhotoStrip) {
+                        println("[APP] Returning from photo strip - restarting live view")
+                        sonyMark2ViewModel.restartLiveView()
+                    }
+                }
+
                 SonyMark2Screen(
+                    viewModel = sonyMark2ViewModel,
                     settingsRepository = settingsRepository,
                     onNavigateToPhotoStrip = { photos ->
                         println("[APP] Mark 2.0: Navigating to photo strip with ${photos.size} photos")
+                        previousCameraScreen = Screen.PHOTOBOOTH_SONY_MARK2
                         capturedPhotos = photos
                         currentScreen = Screen.PHOTO_STRIP
                     },
                     onNavigateHome = {
                         println("[APP] Navigating home from Sony Mark 2.0")
+                        previousCameraScreen = null
                         currentScreen = Screen.WELCOME
                     }
                 )
@@ -156,10 +174,30 @@ fun App() {
                 )
             }
 
-            Screen.PHOTO_STRIP -> PhotoStripScreen(
-                photos = capturedPhotos,
-                onReturnToPhotobooth = { currentScreen = Screen.CAMERA_SELECTION }
-            )
+            Screen.PHOTO_STRIP -> {
+                // Get countdown duration from settings
+                val config by settingsRepository.getConfig().collectAsState(
+                    initial = com.jc.photobooth.model.PhotoboothConfig()
+                )
+
+                PhotoStripScreen(
+                    photos = capturedPhotos,
+                    countdownDurationSeconds = 10, // Fixed 10 seconds for photo strip display
+                    onReturnToLiveView = previousCameraScreen?.let { prevScreen ->
+                        {
+                            // Return directly to the previous camera screen (persistent session)
+                            println("[APP] Returning to previous camera screen: $prevScreen")
+                            currentScreen = prevScreen
+                        }
+                    },
+                    onReturnToPhotobooth = {
+                        // Fallback: return to camera selection if no previous screen
+                        println("[APP] Returning to camera selection")
+                        previousCameraScreen = null
+                        currentScreen = Screen.CAMERA_SELECTION
+                    }
+                )
+            }
 
             Screen.SETTINGS -> SettingsScreen(
                 repository = settingsRepository,

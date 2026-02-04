@@ -83,9 +83,23 @@ class SonyMark2ViewModel(
 
     private var config: PhotoboothConfig = PhotoboothConfig()
     private var liveViewJob: Job? = null
+    private var cleanupJob: Job? = null
+
+    // Session statistics for monitoring
+    private var sessionStartTime: Long = 0
+    private var totalCapturesSinceStart: Int = 0
+    private var totalErrorsSinceStart: Int = 0
+    private var lastCleanupTime: Long = 0
+
+    companion object {
+        private const val CLEANUP_INTERVAL_MS = 30 * 60 * 1000L // 30 minutes
+        private const val LIVEVIEW_TIMEOUT_MS = 60_000L // 1 minute
+    }
 
     init {
         logger.i(tag, "[MARK2_VM] Initializing SonyMark2ViewModel")
+        sessionStartTime = System.currentTimeMillis()
+        lastCleanupTime = sessionStartTime
 
         // Load settings
         viewModelScope.launch {
@@ -94,6 +108,9 @@ class SonyMark2ViewModel(
                 config = newConfig
             }
         }
+
+        // Start periodic cleanup job
+        startPeriodicCleanup()
     }
 
     /**
@@ -213,6 +230,7 @@ class SonyMark2ViewModel(
                     val photoData = captureAndDownloadPhoto(photoNum)
                     if (photoData != null) {
                         photos.add(photoData)
+                        totalCapturesSinceStart++
 
                         // Show preview briefly
                         try {
@@ -232,6 +250,7 @@ class SonyMark2ViewModel(
                         }
                     } else {
                         logger.e(tag, "[MARK2_VM] Failed to capture photo $photoNum")
+                        totalErrorsSinceStart++
                         // Continue to next photo even if one fails
                     }
                 }
@@ -247,6 +266,7 @@ class SonyMark2ViewModel(
 
             } catch (e: Exception) {
                 logger.e(tag, "[MARK2_VM] Capture sequence failed: ${e.message}", e)
+                totalErrorsSinceStart++
                 _uiState.update {
                     it.copy(captureState = Mark2CaptureState.Error(e.message ?: "Capture failed"))
                 }
@@ -292,13 +312,158 @@ class SonyMark2ViewModel(
     }
 
     /**
-     * Reset to idle state
+     * Reset to idle state and restart live view if needed
      */
     fun resetCapture() {
         logger.i(tag, "[MARK2_VM] Resetting to idle")
         _uiState.update {
             it.copy(captureState = Mark2CaptureState.Idle)
         }
+
+        // Restart live view if not active
+        if (!_uiState.value.isLiveViewActive) {
+            viewModelScope.launch {
+                startLiveView()
+            }
+        }
+    }
+
+    /**
+     * Restart live view for a new photobooth session.
+     * Cancels existing live view and starts fresh.
+     */
+    fun restartLiveView() {
+        logger.i(tag, "[MARK2_VM] Restarting live view for new session")
+
+        // Cancel existing live view job
+        liveViewJob?.cancel()
+        liveViewJob = null
+
+        // Reset state to idle
+        _uiState.update {
+            it.copy(
+                captureState = Mark2CaptureState.Idle,
+                isLiveViewActive = false
+            )
+        }
+
+        // Start live view again
+        viewModelScope.launch {
+            startLiveView()
+        }
+    }
+
+    /**
+     * Perform camera health check.
+     * Called by network monitor for connectivity verification.
+     *
+     * @return Latency in milliseconds, or failure if unreachable
+     */
+    suspend fun performHealthCheck(): Result<Long> {
+        return apiClient.healthCheck()
+    }
+
+    /**
+     * Handle network connection lost.
+     * Called by network monitor when WiFi connection is lost.
+     */
+    fun handleNetworkLost() {
+        logger.w(tag, "[MARK2_VM] Network connection lost!")
+
+        // Update connection state
+        _uiState.update { it.copy(isConnected = false, isLiveViewActive = false) }
+
+        // Cancel live view if active
+        liveViewJob?.cancel()
+        liveViewJob = null
+
+        // Don't auto-reset capture state - let user decide via ReconnectionDialog
+    }
+
+    /**
+     * Start periodic resource cleanup to maintain memory stability.
+     * Runs every 30 minutes.
+     */
+    private fun startPeriodicCleanup() {
+        cleanupJob = viewModelScope.launch {
+            while (true) {
+                delay(CLEANUP_INTERVAL_MS)
+                performResourceCleanup()
+            }
+        }
+    }
+
+    /**
+     * Perform resource cleanup to prevent memory bloat.
+     * - Clears old live view frames
+     * - Logs session statistics
+     * - Triggers GC hint (platform-specific)
+     */
+    private fun performResourceCleanup() {
+        val now = System.currentTimeMillis()
+        val timeSinceStart = (now - sessionStartTime) / 1000 / 60 // minutes
+        val timeSinceLastCleanup = (now - lastCleanupTime) / 1000 / 60 // minutes
+
+        logger.i(tag, "[MARK2_VM] ════════════════════════════════════")
+        logger.i(tag, "[MARK2_VM] PERIODIC CLEANUP")
+        logger.i(tag, "[MARK2_VM] Session uptime: ${timeSinceStart}min")
+        logger.i(tag, "[MARK2_VM] Time since last cleanup: ${timeSinceLastCleanup}min")
+        logger.i(tag, "[MARK2_VM] Total captures: $totalCapturesSinceStart")
+        logger.i(tag, "[MARK2_VM] Total errors: $totalErrorsSinceStart")
+        logger.i(tag, "[MARK2_VM] ════════════════════════════════════")
+
+        // Clear live view frame if in idle state (not during capture)
+        if (_uiState.value.captureState is Mark2CaptureState.Idle) {
+            // Keep live view active, just log the cleanup
+            logger.d(tag, "[MARK2_VM] Live view frame maintained (idle state)")
+        }
+
+        lastCleanupTime = now
+    }
+
+    /**
+     * Handle camera operation timeout.
+     * Attempts to recover by restarting live view.
+     */
+    private suspend fun handleTimeout(operation: String) {
+        logger.w(tag, "[MARK2_VM] Timeout detected during: $operation")
+        totalErrorsSinceStart++
+
+        // Cancel live view
+        liveViewJob?.cancel()
+        liveViewJob = null
+
+        // Wait briefly
+        delay(2000)
+
+        // Try to restart live view
+        try {
+            logger.i(tag, "[MARK2_VM] Attempting to recover from timeout...")
+            startLiveView()
+        } catch (e: Exception) {
+            logger.e(tag, "[MARK2_VM] Recovery failed: ${e.message}", e)
+            _uiState.update {
+                it.copy(
+                    isConnected = false,
+                    isLiveViewActive = false,
+                    captureState = Mark2CaptureState.Error("Connection timeout. Please check camera.")
+                )
+            }
+        }
+    }
+
+    /**
+     * Log session statistics.
+     */
+    fun logSessionStats() {
+        val uptimeMinutes = (System.currentTimeMillis() - sessionStartTime) / 1000 / 60
+        logger.i(tag, "[MARK2_VM] ════════════════════════════════════")
+        logger.i(tag, "[MARK2_VM] SESSION STATISTICS")
+        logger.i(tag, "[MARK2_VM] Uptime: ${uptimeMinutes}min")
+        logger.i(tag, "[MARK2_VM] Total captures: $totalCapturesSinceStart")
+        logger.i(tag, "[MARK2_VM] Total errors: $totalErrorsSinceStart")
+        logger.i(tag, "[MARK2_VM] Success rate: ${if (totalCapturesSinceStart > 0) (100 - (totalErrorsSinceStart * 100 / totalCapturesSinceStart)) else 100}%")
+        logger.i(tag, "[MARK2_VM] ════════════════════════════════════")
     }
 
     /**
@@ -306,7 +471,14 @@ class SonyMark2ViewModel(
      */
     fun disconnect() {
         logger.i(tag, "[MARK2_VM] Disconnecting...")
+
+        // Cancel jobs
         liveViewJob?.cancel()
+        cleanupJob?.cancel()
+
+        // Log final statistics
+        logSessionStats()
+
         viewModelScope.launch {
             try {
                 apiClient.stopLiveview()

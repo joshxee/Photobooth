@@ -102,6 +102,18 @@ class SonyCameraApiClient(
     }
 
     /**
+     * Health check: Ping camera to verify reachability and measure latency.
+     * Returns Result.success with latency in ms if camera responds.
+     * Returns Result.failure if camera is unreachable.
+     */
+    suspend fun healthCheck(): Result<Long> {
+        val startTime = System.currentTimeMillis()
+        return getAvailableApiList().map {
+            System.currentTimeMillis() - startTime
+        }
+    }
+
+    /**
      * Start recording mode (required before most operations)
      */
     suspend fun startRecMode(): Result<Unit> {

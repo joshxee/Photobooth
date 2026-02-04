@@ -10,6 +10,9 @@ import android.net.wifi.WifiManager
 import android.net.wifi.WifiNetworkSpecifier
 import android.os.Build
 import android.provider.Settings
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlin.coroutines.resume
 
@@ -22,6 +25,14 @@ actual class WiFiConnectionManager(private val context: Context) {
     private val wifiManager = context.applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager
 
     private var cameraNetwork: Network? = null
+    private val _isNetworkBound = MutableStateFlow(false)
+    val isNetworkBound: StateFlow<Boolean> = _isNetworkBound.asStateFlow()
+
+    /**
+     * Callback invoked when camera network is lost.
+     * Can be set by consumers to handle automatic reconnection.
+     */
+    var onNetworkLost: (() -> Unit)? = null
 
     actual suspend fun isConnectedToCameraNetwork(): Boolean {
         val currentSSID = getCurrentWifiSSID()
@@ -95,6 +106,7 @@ actual class WiFiConnectionManager(private val context: Context) {
 
                         // Bind process to this network so HTTP requests go through it
                         connectivityManager.bindProcessToNetwork(network)
+                        _isNetworkBound.value = true
 
                         if (continuation.isActive) {
                             continuation.resume(Result.success(Unit))
@@ -114,6 +126,10 @@ actual class WiFiConnectionManager(private val context: Context) {
                             cameraNetwork = null
                             // Unbind from network
                             connectivityManager.bindProcessToNetwork(null)
+                            _isNetworkBound.value = false
+
+                            // Notify consumers that network was lost
+                            onNetworkLost?.invoke()
                         }
                     }
                 }
@@ -138,6 +154,30 @@ actual class WiFiConnectionManager(private val context: Context) {
         cameraNetwork?.let {
             connectivityManager.bindProcessToNetwork(null)
             cameraNetwork = null
+            _isNetworkBound.value = false
         }
+    }
+
+    /**
+     * Check if currently bound to camera network.
+     */
+    fun isBoundToNetwork(): Boolean {
+        return cameraNetwork != null && _isNetworkBound.value
+    }
+
+    /**
+     * Rebind to camera network if available.
+     * Used to maintain connection when app returns from background.
+     */
+    fun rebindToNetwork(): Boolean {
+        return cameraNetwork?.let { network ->
+            try {
+                connectivityManager.bindProcessToNetwork(network)
+                _isNetworkBound.value = true
+                true
+            } catch (e: Exception) {
+                false
+            }
+        } ?: false
     }
 }
