@@ -16,6 +16,10 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.jc.photobooth.camera.domain.CameraRepository
 import com.jc.photobooth.camera.domain.CameraType
+import com.jc.photobooth.camera.domain.SonyCameraConfig
+import com.jc.photobooth.camera.domain.createWiFiConnectionManager
+import com.jc.photobooth.camera.domain.openWiFiSettings
+import com.jc.photobooth.ui.overlay.AutoRetryReconnectionDialog
 import kotlinx.coroutines.launch
 
 @Composable
@@ -30,6 +34,11 @@ fun CameraSelectionScreen(
     var availableCameras by remember { mutableStateOf<List<CameraType>>(emptyList()) }
     var selectedCamera by remember { mutableStateOf<CameraType?>(null) }
     var isLoading by remember { mutableStateOf(true) }
+    var showReconnectDialog by remember { mutableStateOf(false) }
+    var cameraConfig by remember { mutableStateOf<SonyCameraConfig?>(null) }
+
+    // WiFi manager for reconnection (lazy initialization)
+    val wifiManager = remember { createWiFiConnectionManager() }
 
     LaunchedEffect(Unit) {
         isLoading = true
@@ -37,6 +46,13 @@ fun CameraSelectionScreen(
         repository.selectedCameraType.collect { cameraType ->
             selectedCamera = cameraType
             isLoading = false
+        }
+    }
+
+    // Load Sony camera config when available
+    LaunchedEffect(availableCameras) {
+        if (availableCameras.any { it == CameraType.SONY_A7III || it == CameraType.SONY_A7III_MARK2 }) {
+            cameraConfig = repository.getSonyCameraConfig()
         }
     }
 
@@ -139,8 +155,58 @@ fun CameraSelectionScreen(
                     )
                 }
             }
+
+            // Reconnect WiFi button (only show if Sony cameras available)
+            val hasSonyCameras = availableCameras.any {
+                it == CameraType.SONY_A7III || it == CameraType.SONY_A7III_MARK2
+            }
+
+            if (hasSonyCameras) {
+                TextButton(
+                    onClick = {
+                        // Show reconnection dialog directly
+                        // Live view will be cleared when camera reconnects
+                        showReconnectDialog = true
+                    },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 8.dp)
+                ) {
+                    Text(
+                        text = "Reconnect WiFi",
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                }
+            }
         }
     }
+
+        // Reconnection dialog for manual WiFi reconnection
+        if (showReconnectDialog) {
+            AutoRetryReconnectionDialog(
+                isVisible = showReconnectDialog,
+                maxAttempts = 5,
+                onReconnect = {
+                    // Attempt to connect to camera WiFi
+                    val config = cameraConfig
+                    if (config != null && wifiManager != null) {
+                        val result = wifiManager.connectToCameraNetwork(
+                            ssid = config.ssid.ifEmpty { "DIRECT-wbE1:XXXX-7M3" },
+                            password = config.password
+                        )
+                        result.isSuccess
+                    } else {
+                        false
+                    }
+                },
+                onOpenWifiSettings = {
+                    openWiFiSettings()
+                },
+                onDismiss = {
+                    showReconnectDialog = false
+                }
+            )
+        }
     }
 }
 
