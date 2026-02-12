@@ -46,7 +46,7 @@ fun HandDetectionOverlay(
             color = Color.White,
             topLeft = Offset(left, top),
             size = Size(right - left, bottom - top),
-            style = Stroke(width = 4f)
+            style = Stroke(width = 6f)
         )
     }
 }

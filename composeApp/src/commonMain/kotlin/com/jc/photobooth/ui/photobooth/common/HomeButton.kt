@@ -30,13 +30,13 @@ fun HomeButton(
 ) {
     IconButton(
         onClick = onClick,
-        modifier = modifier.padding(16.dp)
+        modifier = modifier.padding(20.dp)
     ) {
         Icon(
             imageVector = Icons.Default.Home,
             contentDescription = "Home",
             tint = tint,
-            modifier = Modifier.size(32.dp)
+            modifier = Modifier.size(48.dp)
         )
     }
 }

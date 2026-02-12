@@ -14,8 +14,9 @@ import kotlinx.coroutines.flow.asStateFlow
  * Android implementation of GestureDetector using MediaPipe.
  *
  * Runs in LIVE_STREAM mode for async, non-blocking frame processing.
- * Filters for Open_Palm gesture only and calculates hand bounding box
- * from the 21 hand landmarks with 10% padding.
+ * Tracks up to 2 hands and selects the Open_Palm gesture with the largest
+ * bounding box (closest to camera). Calculates hand bounding box from the
+ * 21 hand landmarks with 10% padding.
  */
 class MediaPipeGestureDetector(
     context: Context
@@ -34,7 +35,7 @@ class MediaPipeGestureDetector(
         val options = GestureRecognizer.GestureRecognizerOptions.builder()
             .setBaseOptions(baseOptions)
             .setRunningMode(com.google.mediapipe.tasks.vision.core.RunningMode.LIVE_STREAM)
-            .setNumHands(1)
+            .setNumHands(2)  // Track 2 hands for multi-person photobooth scenarios
             .setMinHandDetectionConfidence(0.5f)
             .setMinHandPresenceConfidence(0.5f)
             .setMinTrackingConfidence(0.5f)
@@ -72,18 +73,36 @@ class MediaPipeGestureDetector(
             return
         }
 
-        val gesture = result.gestures()[0][0]
-        if (gesture.categoryName() != OPEN_PALM_GESTURE) {
+        // Find the Open_Palm gesture with the largest bounding box
+        // (assumes person closest to camera is the one posing)
+        var bestGesture: com.google.mediapipe.tasks.components.containers.Category? = null
+        var bestLandmarks: List<com.google.mediapipe.tasks.components.containers.NormalizedLandmark>? = null
+        var largestArea = 0f
+
+        for (i in result.gestures().indices) {
+            val gesture = result.gestures()[i][0]
+            if (gesture.categoryName() == OPEN_PALM_GESTURE) {
+                val landmarks = result.landmarks()[i]
+                val bbox = calculateBoundingBox(landmarks)
+                val area = (bbox.right - bbox.left) * (bbox.bottom - bbox.top)
+
+                if (area > largestArea) {
+                    bestGesture = gesture
+                    bestLandmarks = landmarks
+                    largestArea = area
+                }
+            }
+        }
+
+        if (bestGesture == null || bestLandmarks == null) {
             _results.value = null
             return
         }
 
-        val landmarks = result.landmarks()[0]
-        val boundingBox = calculateBoundingBox(landmarks)
-
+        val boundingBox = calculateBoundingBox(bestLandmarks)
         _results.value = GestureResult(
-            gestureName = gesture.categoryName(),
-            confidence = gesture.score(),
+            gestureName = bestGesture.categoryName(),
+            confidence = bestGesture.score(),
             boundingBox = boundingBox
         )
     }

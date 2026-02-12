@@ -25,7 +25,7 @@ fun BorderOverlay(
         Box(
             modifier = modifier
                 .fillMaxSize()
-                .border(width = 8.dp, color = Color.White)
+                .border(width = 12.dp, color = Color.White)
         )
     }
 }

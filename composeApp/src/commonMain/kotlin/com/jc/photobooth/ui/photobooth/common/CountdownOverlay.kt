@@ -37,22 +37,24 @@ fun CountdownOverlay(
         contentAlignment = Alignment.Center
     ) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            // Contextual message
-            Text(
-                text = when (remainingSeconds) {
-                    3 -> "Take a Photostrip!"
-                    2, 1 -> "Look at the camera!"
-                    else -> ""
-                },
-                style = MaterialTheme.typography.headlineMedium.copy(
-                    shadow = Shadow(
-                        color = Color.Black.copy(alpha = 0.8f),
-                        blurRadius = 4f
-                    )
-                ),
-                color = textColor
-            )
-            Spacer(modifier = Modifier.height(8.dp))
+            // Contextual message (only at 2 and 1, not at 3)
+            val message = when (remainingSeconds) {
+                2, 1 -> "Look at the camera!"
+                else -> null
+            }
+            if (message != null) {
+                Text(
+                    text = message,
+                    style = MaterialTheme.typography.headlineLarge.copy(
+                        shadow = Shadow(
+                            color = Color.Black.copy(alpha = 0.8f),
+                            blurRadius = 4f
+                        )
+                    ),
+                    color = textColor
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+            }
             // Large countdown number
             Text(
                 text = "$remainingSeconds",
@@ -63,13 +65,13 @@ fun CountdownOverlay(
                     )
                 ),
                 color = textColor,
-                fontSize = 120.sp
+                fontSize = 150.sp
             )
             Spacer(modifier = Modifier.height(8.dp))
             // Photo progress
             Text(
                 text = "Photo $photoIndex of $totalPhotos",
-                style = MaterialTheme.typography.titleMedium.copy(
+                style = MaterialTheme.typography.titleLarge.copy(
                     shadow = Shadow(
                         color = Color.Black.copy(alpha = 0.8f),
                         blurRadius = 4f

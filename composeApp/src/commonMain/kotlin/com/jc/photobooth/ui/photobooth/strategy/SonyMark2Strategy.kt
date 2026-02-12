@@ -19,6 +19,7 @@ import com.jc.photobooth.gesture.GestureResult
 import com.jc.photobooth.ui.photobooth.common.BorderOverlay
 import com.jc.photobooth.ui.photobooth.common.CountdownOverlay
 import com.jc.photobooth.ui.photobooth.common.ErrorOverlay
+import com.jc.photobooth.ui.photobooth.common.GestureInstructionOverlay
 import com.jc.photobooth.ui.photobooth.common.HandDetectionOverlay
 import com.jc.photobooth.ui.photobooth.common.StatusOverlay
 import com.jc.photobooth.ui.photobooth.sony.mark2.Mark2CaptureState
@@ -82,6 +83,11 @@ class SonyMark2Strategy(
             )
         }
 
+        // Gesture instructions (idle state only)
+        GestureInstructionOverlay(
+            isVisible = state is Mark2CaptureState.Idle && isConnected
+        )
+
         // Countdown overlay
         if (state is Mark2CaptureState.Countdown) {
             CountdownOverlay(
@@ -133,14 +139,15 @@ class SonyMark2Strategy(
                 onClick = onCaptureClick,
                 modifier = modifier
                     .padding(bottom = 48.dp)
-                    .width(200.dp),
+                    .width(240.dp)
+                    .height(56.dp),
                 colors = ButtonDefaults.buttonColors(
                     containerColor = MaterialTheme.colorScheme.primary
                 )
             ) {
                 Text(
                     text = "Start Photostrip",
-                    style = MaterialTheme.typography.titleMedium
+                    style = MaterialTheme.typography.titleLarge
                 )
             }
         }
