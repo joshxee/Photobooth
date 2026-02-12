@@ -17,6 +17,9 @@ import kotlinx.coroutines.flow.asStateFlow
  * Tracks up to 2 hands and selects the Open_Palm gesture with the largest
  * bounding box (closest to camera). Calculates hand bounding box from the
  * 21 hand landmarks with 10% padding.
+ *
+ * Resets tracking every 3 seconds to allow new people entering closer to
+ * the camera to be prioritized over existing tracked hands.
  */
 class MediaPipeGestureDetector(
     context: Context
@@ -27,6 +30,10 @@ class MediaPipeGestureDetector(
 
     private val gestureRecognizer: GestureRecognizer
 
+    // Periodic tracking reset to allow new people to be prioritized
+    private var lastResetTime: Long = 0
+    private val TRACKING_RESET_INTERVAL_MS = 3000L // Reset every 3 seconds
+
     init {
         val baseOptions = BaseOptions.builder()
             .setModelAssetPath("gesture_recognizer.task")
@@ -36,9 +43,9 @@ class MediaPipeGestureDetector(
             .setBaseOptions(baseOptions)
             .setRunningMode(com.google.mediapipe.tasks.vision.core.RunningMode.LIVE_STREAM)
             .setNumHands(2)  // Track 2 hands for multi-person photobooth scenarios
-            .setMinHandDetectionConfidence(0.3f)  // Lower for more permissive detection
-            .setMinHandPresenceConfidence(0.3f)   // Lower for more permissive detection
-            .setMinTrackingConfidence(0.3f)       // Lower for more permissive detection
+            .setMinHandDetectionConfidence(0.4f)  // Lower for more permissive detection
+            .setMinHandPresenceConfidence(0.4f)   // Lower for more permissive detection
+            .setMinTrackingConfidence(0.6f)       // Lower for more permissive detection
             .setResultListener(::handleResult)
             .setErrorListener { error ->
                 android.util.Log.e(TAG, "MediaPipe error: ${error.message}", error)
@@ -68,6 +75,15 @@ class MediaPipeGestureDetector(
     }
 
     private fun handleResult(result: GestureRecognizerResult, input: com.google.mediapipe.framework.image.MPImage) {
+        val now = System.currentTimeMillis()
+
+        // Periodically force a reset to allow new people to be detected
+        if (now - lastResetTime > TRACKING_RESET_INTERVAL_MS) {
+            _results.value = null
+            lastResetTime = now
+            return
+        }
+
         if (result.gestures().isEmpty() || result.landmarks().isEmpty()) {
             _results.value = null
             return
