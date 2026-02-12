@@ -56,7 +56,7 @@ class CameraNetworkMonitor(
     private var currentNetwork: Network? = null
 
     companion object {
-        private const val HEALTH_CHECK_INTERVAL_MS = 20_000L // 20 seconds
+        private const val HEALTH_CHECK_INTERVAL_MS = 5_000L // 5 seconds
         private const val HEALTHY_LATENCY_THRESHOLD_MS = 500L // < 500ms = healthy
         private const val INITIAL_HEALTH_CHECK_DELAY_MS = 3_000L // 3 seconds initial delay
     }

@@ -10,6 +10,8 @@ import com.jc.photobooth.camera.data.sony.SonyCameraLogger
 import com.jc.photobooth.camera.data.sony.createPlatformLogger
 import com.jc.photobooth.camera.data.sony.decodeImageBitmap
 import com.jc.photobooth.data.SettingsRepository
+import com.jc.photobooth.gesture.GestureDetector
+import com.jc.photobooth.gesture.GestureResult
 import com.jc.photobooth.model.PhotoData
 import com.jc.photobooth.model.PhotoboothConfig
 import io.ktor.client.statement.*
@@ -20,6 +22,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.async
 
 /**
  * Mark 2.0 capture state
@@ -31,13 +34,10 @@ sealed class Mark2CaptureState {
         val photoIndex: Int,
         val totalPhotos: Int
     ) : Mark2CaptureState()
+    data class Flash(val photoIndex: Int) : Mark2CaptureState()
     data class Capturing(val photoIndex: Int) : Mark2CaptureState()
     data class Downloading(val photoIndex: Int, val url: String) : Mark2CaptureState()
-    data class PhotoPreview(
-        val photo: ImageBitmap,
-        val photoIndex: Int,
-        val totalPhotos: Int
-    ) : Mark2CaptureState()
+    // PhotoPreview removed - live view remains active
     data class Complete(val photos: List<PhotoData>) : Mark2CaptureState()
     data class Error(val message: String) : Mark2CaptureState()
 }
@@ -49,7 +49,8 @@ data class SonyMark2UiState(
     val liveViewFrame: ImageBitmap? = null,
     val captureState: Mark2CaptureState = Mark2CaptureState.Idle,
     val isConnected: Boolean = false,
-    val isLiveViewActive: Boolean = false
+    val isLiveViewActive: Boolean = false,
+    val gestureResult: GestureResult? = null
 )
 
 /**
@@ -69,7 +70,8 @@ data class SonyMark2UiState(
  * 8. Navigate to photo strip
  */
 class SonyMark2ViewModel(
-    private val settingsRepository: SettingsRepository
+    private val settingsRepository: SettingsRepository,
+    private val gestureDetector: GestureDetector? = null
 ) : ViewModel() {
 
     private val logger: SonyCameraLogger = createPlatformLogger()
@@ -84,6 +86,11 @@ class SonyMark2ViewModel(
     private var config: PhotoboothConfig = PhotoboothConfig()
     private var liveViewJob: Job? = null
     private var cleanupJob: Job? = null
+    private var gestureCollectorJob: Job? = null
+
+    // Sustained palm detection tracking
+    private var firstPalmDetectionTime: Long? = null
+    private var lastFrameProcessedTime: Long = 0
 
     // Session statistics for monitoring
     private var sessionStartTime: Long = 0
@@ -94,6 +101,8 @@ class SonyMark2ViewModel(
     companion object {
         private const val CLEANUP_INTERVAL_MS = 30 * 60 * 1000L // 30 minutes
         private const val LIVEVIEW_TIMEOUT_MS = 60_000L // 1 minute
+        private const val GESTURE_FRAME_INTERVAL_MS = 100L // ~10 FPS for gesture processing
+        private const val SUSTAINED_PALM_DURATION_MS = 1000L // 1 second to trigger
     }
 
     init {
@@ -111,6 +120,9 @@ class SonyMark2ViewModel(
 
         // Start periodic cleanup job
         startPeriodicCleanup()
+
+        // Start gesture detection collection if available
+        startGestureCollection()
     }
 
     /**
@@ -180,6 +192,7 @@ class SonyMark2ViewModel(
                     try {
                         val imageBitmap = decodeImageBitmap(jpegData)
                         _uiState.update { it.copy(liveViewFrame = imageBitmap) }
+                        processFrameForGesture(jpegData)
                     } catch (e: Exception) {
                         // Skip frames that fail to decode
                     }
@@ -194,6 +207,10 @@ class SonyMark2ViewModel(
      * Start the photo capture sequence
      */
     fun startCaptureSequence() {
+        // Clear gesture state when capture begins
+        firstPalmDetectionTime = null
+        _uiState.update { it.copy(gestureResult = null) }
+
         logger.i(tag, "[MARK2_VM] ═══════════════════════════════════════════════════")
         logger.i(tag, "[MARK2_VM] Starting Mark 2.0 capture sequence")
         logger.i(tag, "[MARK2_VM] Photos: ${config.numberOfPhotos}, Countdown: ${config.countdownSeconds}s")
@@ -207,7 +224,9 @@ class SonyMark2ViewModel(
                     val photoNum = index + 1
                     logger.i(tag, "[MARK2_VM] ─── Photo $photoNum/${config.numberOfPhotos} ───")
 
-                    // Countdown
+                    // Countdown with smart autofocus timing
+                    var captureJob: kotlinx.coroutines.Deferred<PhotoData?>? = null
+
                     for (countdown in config.countdownSeconds downTo 1) {
                         logger.d(tag, "[MARK2_VM] Countdown: $countdown")
                         _uiState.update {
@@ -219,35 +238,29 @@ class SonyMark2ViewModel(
                                 )
                             )
                         }
+
+                        // Start capture workflow at countdown 1 (autofocus + capture in background)
+                        if (countdown == 1) {
+                            logger.i(tag, "[MARK2_VM] Starting capture workflow in background (autofocus + capture)")
+                            captureJob = async {
+                                captureAndDownloadPhoto(photoNum)
+                            }
+                        }
+
                         delay(1000L)
                     }
 
-                    // Capture
+                    // At countdown 0, capture should be complete - just show border and wait for result
                     _uiState.update {
                         it.copy(captureState = Mark2CaptureState.Capturing(photoNum))
                     }
 
-                    val photoData = captureAndDownloadPhoto(photoNum)
+                    // Wait for capture to complete (should be ready by now, or very close)
+                    val photoData = captureJob?.await()
                     if (photoData != null) {
                         photos.add(photoData)
                         totalCapturesSinceStart++
-
-                        // Show preview briefly
-                        try {
-                            val previewBitmap = decodeImageBitmap(photoData.imageBytes)
-                            _uiState.update {
-                                it.copy(
-                                    captureState = Mark2CaptureState.PhotoPreview(
-                                        photo = previewBitmap,
-                                        photoIndex = photoNum,
-                                        totalPhotos = config.numberOfPhotos
-                                    )
-                                )
-                            }
-                            delay(1500L) // Show preview for 1.5 seconds
-                        } catch (e: Exception) {
-                            logger.w(tag, "[MARK2_VM] Failed to show preview: ${e.message}")
-                        }
+                        // No preview - proceed immediately to next photo or complete
                     } else {
                         logger.e(tag, "[MARK2_VM] Failed to capture photo $photoNum")
                         totalErrorsSinceStart++
@@ -467,6 +480,63 @@ class SonyMark2ViewModel(
     }
 
     /**
+     * Process a live view frame for gesture detection.
+     * Throttled to ~10 FPS and only active when idle and connected.
+     */
+    private fun processFrameForGesture(jpegData: ByteArray) {
+        val detector = gestureDetector ?: return
+        val state = _uiState.value
+        if (state.captureState !is Mark2CaptureState.Idle || !state.isConnected) return
+
+        val now = System.currentTimeMillis()
+        if (now - lastFrameProcessedTime < GESTURE_FRAME_INTERVAL_MS) return
+        lastFrameProcessedTime = now
+
+        detector.processFrame(jpegData, now)
+    }
+
+    /**
+     * Collect gesture detection results and track sustained palm detection.
+     * After 2 seconds of continuous Open_Palm, auto-triggers capture sequence.
+     */
+    private fun startGestureCollection() {
+        val detector = gestureDetector ?: return
+        logger.i(tag, "[MARK2_VM] Starting gesture detection collection")
+
+        gestureCollectorJob = viewModelScope.launch {
+            detector.results.collect { result ->
+                val state = _uiState.value
+                if (state.captureState !is Mark2CaptureState.Idle || !state.isConnected) {
+                    // Not in idle state - ignore gesture results
+                    return@collect
+                }
+
+                _uiState.update { it.copy(gestureResult = result) }
+
+                if (result != null) {
+                    val now = System.currentTimeMillis()
+                    if (firstPalmDetectionTime == null) {
+                        firstPalmDetectionTime = now
+                        logger.d(tag, "[MARK2_VM] Palm detected - starting sustained timer")
+                    } else {
+                        val elapsed = now - (firstPalmDetectionTime ?: now)
+                        if (elapsed >= SUSTAINED_PALM_DURATION_MS) {
+                            logger.i(tag, "[MARK2_VM] Sustained palm detected (${elapsed}ms) - auto-triggering capture!")
+                            startCaptureSequence()
+                        }
+                    }
+                } else {
+                    // No palm detected - reset timer
+                    if (firstPalmDetectionTime != null) {
+                        logger.d(tag, "[MARK2_VM] Palm lost - resetting sustained timer")
+                        firstPalmDetectionTime = null
+                    }
+                }
+            }
+        }
+    }
+
+    /**
      * Disconnect from camera
      */
     fun disconnect() {
@@ -475,6 +545,10 @@ class SonyMark2ViewModel(
         // Cancel jobs
         liveViewJob?.cancel()
         cleanupJob?.cancel()
+        gestureCollectorJob?.cancel()
+
+        // Close gesture detector
+        gestureDetector?.close()
 
         // Log final statistics
         logSessionStats()

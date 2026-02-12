@@ -1,6 +1,5 @@
 package com.jc.photobooth.ui.photobooth.common
 
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -8,6 +7,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
@@ -17,37 +17,64 @@ import androidx.compose.ui.unit.sp
  * Displays a large countdown number (3...2...1) and photo progress indicator.
  * Extracted from duplicated code in PhotoboothScreen, SonyPhotoboothScreen, and SonyMark2Screen.
  *
+ * No background - text floats over clear live view with shadow for readability.
+ *
  * @param remainingSeconds Countdown value (e.g., 3, 2, 1)
  * @param photoIndex Current photo number (1-indexed)
  * @param totalPhotos Total number of photos in sequence
  * @param textColor Color for countdown text and photo index
- * @param backgroundColor Color for semi-transparent overlay background
  */
 @Composable
 fun CountdownOverlay(
     remainingSeconds: Int,
     photoIndex: Int,
     totalPhotos: Int,
-    textColor: Color = MaterialTheme.colorScheme.onSurface,
-    backgroundColor: Color = MaterialTheme.colorScheme.surface.copy(alpha = 0.7f),
+    textColor: Color = Color.White,
     modifier: Modifier = Modifier
 ) {
     Box(
-        modifier = modifier
-            .fillMaxSize()
-            .background(backgroundColor),
+        modifier = modifier.fillMaxSize(),
         contentAlignment = Alignment.Center
     ) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            // Contextual message
             Text(
-                text = "$remainingSeconds",
-                style = MaterialTheme.typography.displayLarge,
+                text = when (remainingSeconds) {
+                    3 -> "Take a Photostrip!"
+                    2, 1 -> "Look at the camera!"
+                    else -> ""
+                },
+                style = MaterialTheme.typography.headlineMedium.copy(
+                    shadow = Shadow(
+                        color = Color.Black.copy(alpha = 0.8f),
+                        blurRadius = 4f
+                    )
+                ),
                 color = textColor
             )
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(8.dp))
+            // Large countdown number
+            Text(
+                text = "$remainingSeconds",
+                style = MaterialTheme.typography.displayLarge.copy(
+                    shadow = Shadow(
+                        color = Color.Black.copy(alpha = 0.8f),
+                        blurRadius = 8f
+                    )
+                ),
+                color = textColor,
+                fontSize = 120.sp
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+            // Photo progress
             Text(
                 text = "Photo $photoIndex of $totalPhotos",
-                style = MaterialTheme.typography.headlineMedium,
+                style = MaterialTheme.typography.titleMedium.copy(
+                    shadow = Shadow(
+                        color = Color.Black.copy(alpha = 0.8f),
+                        blurRadius = 4f
+                    )
+                ),
                 color = textColor
             )
         }

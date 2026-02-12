@@ -86,7 +86,7 @@ fun ReconnectionDialog(
 
                     // Instructions
                     Text(
-                        text = "Make sure you're connected to the camera's WiFi network.",
+                        text = "Make sure you're connected to the camera's WiFi network.\n\nNetwork name: DIRECT-wbE1:XXXX-7M3",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
                         textAlign = TextAlign.Center

@@ -12,10 +12,14 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.dp
+import com.jc.photobooth.gesture.GestureResult
+import com.jc.photobooth.ui.photobooth.common.BorderOverlay
 import com.jc.photobooth.ui.photobooth.common.CountdownOverlay
 import com.jc.photobooth.ui.photobooth.common.ErrorOverlay
+import com.jc.photobooth.ui.photobooth.common.HandDetectionOverlay
 import com.jc.photobooth.ui.photobooth.common.StatusOverlay
 import com.jc.photobooth.ui.photobooth.sony.mark2.Mark2CaptureState
 
@@ -30,7 +34,8 @@ import com.jc.photobooth.ui.photobooth.sony.mark2.Mark2CaptureState
  */
 class SonyMark2Strategy(
     private val liveViewFrame: ImageBitmap?,
-    private val isConnected: Boolean
+    private val isConnected: Boolean,
+    private val gestureResult: GestureResult? = null
 ) : PhotoboothContentStrategy {
 
     @Composable
@@ -46,7 +51,9 @@ class SonyMark2Strategy(
                 Image(
                     bitmap = liveViewFrame,
                     contentDescription = "Live view",
-                    modifier = Modifier.fillMaxSize(),
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .graphicsLayer { scaleX = -1f },
                     contentScale = ContentScale.Fit
                 )
             } else {
@@ -67,6 +74,14 @@ class SonyMark2Strategy(
     ) {
         val state = captureState as Mark2CaptureState
 
+        // Hand detection overlay (idle state only)
+        if (state is Mark2CaptureState.Idle && gestureResult != null) {
+            HandDetectionOverlay(
+                boundingBox = gestureResult.boundingBox,
+                isMirrored = true
+            )
+        }
+
         // Countdown overlay
         if (state is Mark2CaptureState.Countdown) {
             CountdownOverlay(
@@ -77,30 +92,16 @@ class SonyMark2Strategy(
             )
         }
 
-        // Capturing indicator
+        // Flash effect removed - timing issues
+
+        // White border during capture
         if (state is Mark2CaptureState.Capturing) {
-            StatusOverlay(
-                icon = Icons.Default.CameraAlt,
-                message = "Capturing photo ${state.photoIndex}..."
-            )
+            BorderOverlay(isVisible = true)
         }
 
-        // Downloading indicator
-        if (state is Mark2CaptureState.Downloading) {
-            StatusOverlay(
-                icon = Icons.Default.Download,
-                message = "Downloading photo ${state.photoIndex}..."
-            )
-        }
+        // Downloading removed - downloads are fast, no need to show status
 
-        // Photo preview overlay (shows photo on top of background)
-        if (state is Mark2CaptureState.PhotoPreview) {
-            PhotoPreviewOverlay(
-                photo = state.photo,
-                photoIndex = state.photoIndex,
-                totalPhotos = state.totalPhotos
-            )
-        }
+        // Photo preview removed - live view remains active
 
         // Connecting indicator
         if (!isConnected && state !is Mark2CaptureState.Error) {
@@ -138,7 +139,7 @@ class SonyMark2Strategy(
                 )
             ) {
                 Text(
-                    text = "Start Photo Booth",
+                    text = "Start Photostrip",
                     style = MaterialTheme.typography.titleMedium
                 )
             }
@@ -147,60 +148,11 @@ class SonyMark2Strategy(
 
     @Composable
     override fun TopRightContent(modifier: Modifier) {
-        // Mark 2.0 badge
-        Box(
-            modifier = modifier
-                .padding(16.dp)
-                .background(
-                    color = MaterialTheme.colorScheme.tertiary,
-                    shape = MaterialTheme.shapes.small
-                )
-                .padding(horizontal = 12.dp, vertical = 6.dp)
-        ) {
-            Text(
-                text = "Mark 2.0",
-                color = MaterialTheme.colorScheme.onTertiary,
-                style = MaterialTheme.typography.labelMedium
-            )
-        }
+        // No overlay - removed to avoid distraction
     }
 }
 
-/**
- * Photo preview overlay - displays captured photo with progress indicator.
- */
-@Composable
-private fun PhotoPreviewOverlay(
-    photo: ImageBitmap,
-    photoIndex: Int,
-    totalPhotos: Int
-) {
-    Box(modifier = Modifier.fillMaxSize()) {
-        // Full-screen photo
-        Image(
-            bitmap = photo,
-            contentDescription = "Captured photo",
-            modifier = Modifier.fillMaxSize(),
-            contentScale = ContentScale.Fit
-        )
-
-        // Progress indicator at top
-        Box(
-            modifier = Modifier
-                .align(Alignment.TopCenter)
-                .padding(top = 80.dp)
-        ) {
-            Text(
-                text = "Photo $photoIndex of $totalPhotos",
-                color = Color.White,
-                style = MaterialTheme.typography.headlineSmall,
-                modifier = Modifier
-                    .background(Color.Black.copy(alpha = 0.6f))
-                    .padding(horizontal = 24.dp, vertical = 12.dp)
-            )
-        }
-    }
-}
+// PhotoPreviewOverlay removed - no longer needed
 
 /**
  * Connecting overlay - shows while establishing camera connection.

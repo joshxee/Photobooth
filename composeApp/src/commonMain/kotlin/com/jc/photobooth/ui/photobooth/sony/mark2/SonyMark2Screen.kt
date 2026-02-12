@@ -58,14 +58,15 @@ fun SonyMark2Screen(
         }
     }
 
-    val strategy = remember(uiState.liveViewFrame, uiState.isConnected) {
+    val strategy = remember(uiState.liveViewFrame, uiState.isConnected, uiState.gestureResult) {
         SonyMark2Strategy(
             liveViewFrame = uiState.liveViewFrame,
-            isConnected = uiState.isConnected
+            isConnected = uiState.isConnected,
+            gestureResult = uiState.gestureResult
         )
     }
 
-    // Network monitor for WiFi health checks (20-second intervals)
+    // Network monitor for WiFi health checks (5-second intervals)
     val networkMonitor = remember {
         createNetworkMonitor(
             cameraIpAddress = "http://192.168.122.1:8080",
@@ -108,11 +109,8 @@ fun SonyMark2Screen(
             onErrorDismiss = { viewModel.resetCapture() }
         )
 
-        // Connection status overlay (top-right corner)
-        ConnectionStatusOverlay(
-            networkStatus = networkStatus,
-            modifier = Modifier.align(Alignment.TopEnd)
-        )
+        // Connection status overlay removed - less distracting
+        // Polling still active in background to trigger reconnection dialog if needed
 
         // Reconnection dialog (when connection lost during capture)
         ReconnectionDialog(

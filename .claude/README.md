@@ -2,18 +2,6 @@
 
 This directory contains configuration for Claude Code to help with the development and testing of the Photobooth Kotlin Multiplatform app.
 
-## 🧪 Pragmatic Testing Philosophy
-
-This project follows a **pragmatic testing approach** that prioritizes clean, modular, and testable code with comprehensive test coverage:
-
-1. **Implement** - Build clean, testable components
-2. **Test** - Write comprehensive tests for completed components
-3. **Refactor** - Improve code quality while keeping tests green
-
-See [TDD_GUIDELINES.md](../TDD_GUIDELINES.md) for comprehensive testing practices.
-
-## Structure
-
 ### Subagents
 Located in `.claude/subagents/`, these are specialized AI assistants with domain expertise:
 
@@ -126,19 +114,6 @@ The session start hook runs automatically and executes all tests to ensure you s
 ./gradlew :composeApp:jsTest         # Web JS
 ./gradlew :composeApp:wasmJsTest     # Web Wasm
 ```
-
-## Kotlin Multiplatform Subagent
-
-A specialized subagent is available to help with Kotlin Multiplatform development. The subagent provides:
-
-- Guidance on expect/actual patterns for platform-specific code
-- Best practices for source set organization (commonMain, androidMain, iosMain, etc.)
-- Help with Compose Multiplatform UI development
-- Gradle configuration assistance for multi-target projects
-- Cross-platform testing strategies
-- Common KMP patterns and solutions to typical issues
-
-The subagent is automatically available when working on KMP-specific tasks and can help ensure code is properly structured for maximum code sharing across platforms.
 
 ## Learn More
 - [Claude Code Documentation](https://docs.claude.com/claude-code)

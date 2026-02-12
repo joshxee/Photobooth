@@ -85,7 +85,9 @@ class SonyPhotoboothViewModel(
                 repeat(config.numberOfPhotos) { index ->
                     println("[SONY_PB_VM] Starting photo ${index + 1}/${config.numberOfPhotos}")
 
-                    // Countdown phase with live view active
+                    // Countdown phase with smart autofocus timing
+                    var isFocused = false
+
                     for (countdown in config.countdownSeconds downTo 1) {
                         println("[SONY_PB_VM] Countdown: $countdown (photo ${index + 1})")
                         _uiState.update {
@@ -95,27 +97,33 @@ class SonyPhotoboothViewModel(
                                     photoIndex = index + 1,
                                     totalPhotos = config.numberOfPhotos
                                 )
-                                // No need to set liveViewState - frame collector handles it
                             )
                         }
-                        delay(1000L) // Only delay for countdown (user-facing timer)
+
+                        // Start autofocus at countdown 1 (runs in background during final second)
+                        if (countdown == 1) {
+                            println("[SONY_PB_VM] Starting autofocus in background...")
+                            try {
+                                camera.actHalfPressShutter()
+                                isFocused = true
+                                // Don't wait - let it focus during the final countdown second
+                            } catch (e: Exception) {
+                                println("[SONY_PB_VM] Autofocus failed: ${e.message}")
+                            }
+                        }
+
+                        delay(1000L)
                     }
 
-                    // Freeze frame at countdown 0
+                    // At countdown 0: Take screenshot (this is the "photo" moment)
                     val currentFrame = camera.liveViewFrame.value
-                    println("[SONY_PB_VM] Freezing frame: ${currentFrame != null}, size: ${currentFrame?.width}x${currentFrame?.height}")
+                    println("[SONY_PB_VM] Capturing frame: ${currentFrame != null}, size: ${currentFrame?.width}x${currentFrame?.height}")
 
                     if (currentFrame == null) {
                         throw Exception("No live view frame available")
                     }
 
-                    _uiState.update {
-                        it.copy(
-                            liveViewState = LiveViewState.Frozen(currentFrame)
-                        )
-                    }
-
-                    // Screenshot frozen frame (synchronous, ~50ms)
+                    // Screenshot current frame (synchronous, ~50ms)
                     println("[SONY_PB_VM] Encoding screenshot...")
                     val startTime = System.currentTimeMillis()
                     val photoBytes = encodeImageBitmapToJpeg(currentFrame, quality = 90)
@@ -128,49 +136,47 @@ class SonyPhotoboothViewModel(
                     )
                     photos.add(photoData)
 
-                    // Camera capture via continuous shooting (ONLY method on A7 III)
+                    // Show capture state with white border
                     _uiState.update {
                         it.copy(
-                            captureState = SonyCaptureState.Capturing(
-                                photoIndex = index + 1,
-                                frozenFrame = currentFrame
-                            )
+                            captureState = SonyCaptureState.Capturing(photoIndex = index + 1)
                         )
                     }
 
-                    // Short continuous shooting burst (100ms instead of 2s)
-                    println("[SONY_PB_VM] Triggering short continuous shooting burst...")
+                    // Trigger camera shutter (uses pre-focused state if successful)
+                    println("[SONY_PB_VM] Triggering camera shutter...")
                     val captureStartTime = System.currentTimeMillis()
 
                     try {
-                        // Autofocus
-                        camera.actHalfPressShutter()
-                        delay(300) // Wait for autofocus
+                        // If focus wasn't started earlier, do it now
+                        if (!isFocused) {
+                            camera.actHalfPressShutter()
+                            delay(300)
+                        } else {
+                            // Give a bit more time for focus to lock (already started 1 sec ago)
+                            delay(100)
+                        }
 
                         // Start continuous shooting
                         camera.startContShooting()
-                        delay(100) // Shoot for only 100ms (1/10th of original 2000ms)
+                        delay(100) // Brief burst
 
-                        // Stop continuous shooting immediately
+                        // Stop continuous shooting
                         camera.stopContShooting()
                         camera.cancelHalfPressShutter()
 
                         val captureDuration = System.currentTimeMillis() - captureStartTime
-                        println("[SONY_PB_VM] Continuous shooting burst completed in ${captureDuration}ms")
+                        println("[SONY_PB_VM] Camera shutter completed in ${captureDuration}ms")
                     } catch (e: Exception) {
-                        println("[SONY_PB_VM] ERROR during capture: ${e.message}")
-                        camera.cancelHalfPressShutter() // Cleanup on error
-                    }
-
-                    // Unfreeze for next photo (immediate transition)
-                    if (index < config.numberOfPhotos - 1) {
-                        println("[SONY_PB_VM] Unfreezing for next photo")
-                        _uiState.update {
-                            it.copy(
-                                liveViewState = LiveViewState.Active(camera.liveViewFrame.value)
-                            )
+                        println("[SONY_PB_VM] ERROR during camera trigger: ${e.message}")
+                        try {
+                            camera.cancelHalfPressShutter()
+                        } catch (cancelError: Exception) {
+                            println("[SONY_PB_VM] Error canceling half-press: ${cancelError.message}")
                         }
                     }
+
+                    // Live view remains active between photos
                 }
 
                 // Sequence complete

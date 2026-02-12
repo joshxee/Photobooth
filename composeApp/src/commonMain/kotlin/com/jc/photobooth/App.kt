@@ -16,6 +16,8 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.jc.photobooth.camera.data.sony.SonyA7IIICamera
+import com.jc.photobooth.gesture.GestureDetector
+import com.jc.photobooth.gesture.createGestureDetector
 import com.jc.photobooth.ui.theme.PhotoboothTheme
 import com.jc.photobooth.camera.domain.CameraRepository
 import com.jc.photobooth.camera.domain.CameraType
@@ -53,9 +55,15 @@ fun App() {
         val cameraRepository = remember { CameraRepository(dataStore) }
         val settingsRepository = remember { SettingsRepository(dataStore) }
 
+        // Create gesture detector (Android-only, null on other platforms)
+        val gestureDetector = remember<GestureDetector?> { createGestureDetector() }
+
         // Persist SonyMark2ViewModel across navigation for continuous sessions
         val sonyMark2ViewModel = remember {
-            com.jc.photobooth.ui.photobooth.sony.mark2.SonyMark2ViewModel(settingsRepository)
+            com.jc.photobooth.ui.photobooth.sony.mark2.SonyMark2ViewModel(
+                settingsRepository = settingsRepository,
+                gestureDetector = gestureDetector
+            )
         }
 
         when (currentScreen) {
@@ -131,10 +139,12 @@ fun App() {
 
                 // Restart live view when returning from photo strip (persistent session)
                 val isReturningFromPhotoStrip = previousCameraScreen == Screen.PHOTOBOOTH_SONY_MARK2
-                LaunchedEffect(isReturningFromPhotoStrip) {
+                LaunchedEffect(currentScreen, isReturningFromPhotoStrip) {
                     if (isReturningFromPhotoStrip) {
                         println("[APP] Returning from photo strip - restarting live view")
                         sonyMark2ViewModel.restartLiveView()
+                        // Reset flag so subsequent returns also trigger the restart
+                        previousCameraScreen = null
                     }
                 }
 

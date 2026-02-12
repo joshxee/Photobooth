@@ -74,6 +74,8 @@ kotlin {
             implementation("androidx.camera:camera-view:1.3.1")
             // Ktor for Sony camera API
             implementation(libs.ktor.client.okhttp)
+            // MediaPipe for gesture recognition
+            implementation("com.google.mediapipe:tasks-vision:0.10.14")
             // DataStore for settings persistence (Android support with extensions)
             implementation(libs.androidx.datastore.preferences)
         }

@@ -15,7 +15,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.RectangleShape
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.jc.photobooth.model.PhotoData
@@ -65,55 +67,15 @@ fun PhotoStripScreen(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background)
+            .background(Color.Black)
     ) {
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(24.dp),
-            horizontalAlignment = Alignment.CenterHorizontally
-        ) {
-            Text(
-                text = "Your Photo Strip",
-                style = MaterialTheme.typography.headlineMedium,
-                color = MaterialTheme.colorScheme.onBackground
-            )
+        // Center: Photo strip
+        PhotoStripComponent(
+            photos = photos,
+            modifier = Modifier.align(Alignment.Center)
+        )
 
-            Spacer(modifier = Modifier.height(24.dp))
-
-            // Photo strip layout
-            Column(
-                modifier = Modifier
-                    .weight(1f)
-                    .fillMaxWidth(),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                photos.forEach { photo ->
-                    PhotoItem(
-                        photoData = photo,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .weight(1f)
-                    )
-                }
-            }
-
-            Spacer(modifier = Modifier.height(24.dp))
-
-            // Manual "Take Another" button (secondary option)
-            OutlinedButton(
-                onClick = {
-                    viewModel.skipCountdown()
-                },
-                modifier = Modifier.fillMaxWidth(),
-                border = BorderStroke(1.dp, Color.White),
-                shape = RectangleShape
-            ) {
-                Text("Take Another Photo Strip", color = Color.White)
-            }
-        }
-
-        // Circular countdown timer in bottom-right corner
+        // Top-right: Countdown timer
         if (uiState.isCountdownActive) {
             CircularCountdownTimer(
                 durationSeconds = uiState.countdownSeconds,
@@ -121,12 +83,73 @@ fun PhotoStripScreen(
                     onReturnToLiveView?.invoke() ?: onReturnToPhotobooth()
                 },
                 modifier = Modifier
-                    .align(Alignment.BottomEnd)
+                    .align(Alignment.TopEnd)
                     .padding(24.dp)
                     .clickable {
-                        // Tap to skip countdown and return immediately
                         viewModel.skipCountdown()
                     }
+            )
+        }
+
+        // Bottom-right: Button
+        OutlinedButton(
+            onClick = { viewModel.skipCountdown() },
+            modifier = Modifier
+                .align(Alignment.BottomEnd)
+                .padding(24.dp),
+            border = BorderStroke(1.dp, Color.White),
+            shape = RectangleShape
+        ) {
+            Text(
+                text = "Take Another Photostrip",
+                style = MaterialTheme.typography.titleMedium,
+                color = Color.White
+            )
+        }
+
+        // Left side: Wedding message
+        Text(
+            text = "the photos will be edited and\nshared by sarah after the wedding.",
+            style = MaterialTheme.typography.bodyMedium,
+            color = Color.White,
+            textAlign = TextAlign.Start,
+            modifier = Modifier
+                .align(Alignment.CenterStart)
+                .padding(start = 32.dp, end = 32.dp)
+                .widthIn(max = 200.dp)
+        )
+    }
+}
+
+/**
+ * Realistic photo booth strip component with white background and borders.
+ *
+ * Creates authentic photostrip appearance:
+ * - White background
+ * - White borders around entire strip (via padding)
+ * - White borders between photos (via spacing)
+ * - 3 photos vertically arranged
+ * - Fixed width for consistent proportions
+ */
+@Composable
+fun PhotoStripComponent(
+    photos: List<PhotoData>,
+    modifier: Modifier = Modifier
+) {
+    Column(
+        modifier = modifier
+            .width(320.dp)
+            .background(Color.White)
+            .padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        photos.forEach { photo ->
+            PhotoItem(
+                photoData = photo,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .aspectRatio(4f / 3f)
             )
         }
     }
@@ -141,7 +164,7 @@ fun PhotoItem(photoData: PhotoData, modifier: Modifier = Modifier) {
     Image(
         bitmap = imageBitmap,
         contentDescription = "Photo",
-        modifier = modifier,
-        contentScale = ContentScale.Crop
+        modifier = modifier.graphicsLayer { scaleX = -1f },
+        contentScale = ContentScale.Fit
     )
 }

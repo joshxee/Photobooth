@@ -6,7 +6,7 @@ import com.jc.photobooth.model.PhotoData
 /**
  * Represents the state of the Sony photobooth capture sequence.
  *
- * Mark 1.1 workflow: Countdown → Freeze → Screenshot → Camera Capture → Repeat
+ * Mark 1.1 workflow: Countdown → Flash → Screenshot → Camera Capture → Repeat
  */
 sealed class SonyCaptureState {
     /**
@@ -28,14 +28,22 @@ sealed class SonyCaptureState {
     ) : SonyCaptureState()
 
     /**
-     * Photo being captured (screenshot taken, camera trigger in progress).
+     * Flash effect at moment of capture.
      *
      * @param photoIndex Current photo being captured (1-based)
-     * @param frozenFrame The frozen live view frame that was screenshotted
+     */
+    data class Flash(
+        val photoIndex: Int
+    ) : SonyCaptureState()
+
+    /**
+     * Photo being captured (screenshot taken, camera trigger in progress).
+     * Live view remains active during capture.
+     *
+     * @param photoIndex Current photo being captured (1-based)
      */
     data class Capturing(
-        val photoIndex: Int,
-        val frozenFrame: ImageBitmap
+        val photoIndex: Int
     ) : SonyCaptureState()
 
     /**
