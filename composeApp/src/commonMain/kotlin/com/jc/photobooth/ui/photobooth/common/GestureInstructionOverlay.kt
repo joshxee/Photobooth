@@ -55,7 +55,7 @@ fun GestureInstructionOverlay(
             )
             // Instruction text
             Text(
-                text = "Raise your open palm to start",
+                text = "Closest person: raise your palm to start",
                 style = MaterialTheme.typography.bodyLarge,
                 color = Color.White
             )

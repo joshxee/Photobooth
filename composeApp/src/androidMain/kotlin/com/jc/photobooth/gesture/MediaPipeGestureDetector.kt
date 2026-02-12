@@ -36,9 +36,9 @@ class MediaPipeGestureDetector(
             .setBaseOptions(baseOptions)
             .setRunningMode(com.google.mediapipe.tasks.vision.core.RunningMode.LIVE_STREAM)
             .setNumHands(2)  // Track 2 hands for multi-person photobooth scenarios
-            .setMinHandDetectionConfidence(0.5f)
-            .setMinHandPresenceConfidence(0.5f)
-            .setMinTrackingConfidence(0.5f)
+            .setMinHandDetectionConfidence(0.3f)  // Lower for more permissive detection
+            .setMinHandPresenceConfidence(0.3f)   // Lower for more permissive detection
+            .setMinTrackingConfidence(0.3f)       // Lower for more permissive detection
             .setResultListener(::handleResult)
             .setErrorListener { error ->
                 android.util.Log.e(TAG, "MediaPipe error: ${error.message}", error)
