@@ -109,8 +109,8 @@ fun PhotoStripScreen(
 
         // Left side: Wedding message
         Text(
-            text = "the photos will be edited and\nshared by sarah after the wedding.",
-            style = MaterialTheme.typography.bodyMedium,
+            text = "the photos will be edited and\nshared by Sian and Carson after the wedding.",
+            style = MaterialTheme.typography.bodyLarge,
             color = Color.White,
             textAlign = TextAlign.Start,
             modifier = Modifier

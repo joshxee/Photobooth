@@ -102,7 +102,7 @@ class SonyMark2ViewModel(
         private const val CLEANUP_INTERVAL_MS = 30 * 60 * 1000L // 30 minutes
         private const val LIVEVIEW_TIMEOUT_MS = 60_000L // 1 minute
         private const val GESTURE_FRAME_INTERVAL_MS = 100L // ~10 FPS for gesture processing
-        private const val SUSTAINED_PALM_DURATION_MS = 1000L // 1 second to trigger
+        private const val SUSTAINED_PALM_DURATION_MS = 800L // 0.8 seconds to trigger
     }
 
     init {

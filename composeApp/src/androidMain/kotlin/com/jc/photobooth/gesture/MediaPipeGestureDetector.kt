@@ -18,8 +18,8 @@ import kotlinx.coroutines.flow.asStateFlow
  * bounding box (closest to camera). Calculates hand bounding box from the
  * 21 hand landmarks with 10% padding.
  *
- * Resets tracking every 3 seconds to allow new people entering closer to
- * the camera to be prioritized over existing tracked hands.
+ * Resets tracking timer every 3 seconds when no gesture is active, allowing
+ * new people entering closer to be prioritized without interrupting active gestures.
  */
 class MediaPipeGestureDetector(
     context: Context
@@ -77,15 +77,14 @@ class MediaPipeGestureDetector(
     private fun handleResult(result: GestureRecognizerResult, input: com.google.mediapipe.framework.image.MPImage) {
         val now = System.currentTimeMillis()
 
-        // Periodically force a reset to allow new people to be detected
-        if (now - lastResetTime > TRACKING_RESET_INTERVAL_MS) {
-            _results.value = null
-            lastResetTime = now
-            return
-        }
-
         if (result.gestures().isEmpty() || result.landmarks().isEmpty()) {
             _results.value = null
+
+            // Periodically reset tracking when no gesture is active
+            // This allows new people to be detected, but doesn't interrupt mid-gesture
+            if (now - lastResetTime > TRACKING_RESET_INTERVAL_MS) {
+                lastResetTime = now
+            }
             return
         }
 
