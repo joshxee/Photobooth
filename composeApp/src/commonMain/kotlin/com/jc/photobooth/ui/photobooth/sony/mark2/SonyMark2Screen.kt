@@ -8,6 +8,7 @@ import androidx.compose.ui.Modifier
 import com.jc.photobooth.camera.domain.openWiFiSettings
 import com.jc.photobooth.data.SettingsRepository
 import com.jc.photobooth.model.PhotoData
+import com.jc.photobooth.network.ConnectionHealthState
 import com.jc.photobooth.network.createNetworkMonitor
 import com.jc.photobooth.ui.FullscreenEffect
 import com.jc.photobooth.ui.overlay.ConnectionStatusOverlay
@@ -40,8 +41,9 @@ fun SonyMark2Screen(
 
     val uiState by viewModel.uiState.collectAsState()
 
-    // Auto-connect when screen opens (only first time)
-    LaunchedEffect(uiState.isConnected) {
+    // Attempt to connect once when the screen first opens.
+    // Subsequent reconnections are handled by the ViewModel's auto-reconnect loop.
+    LaunchedEffect(Unit) {
         if (!uiState.isConnected) {
             viewModel.connect()
         }
@@ -95,10 +97,21 @@ fun SonyMark2Screen(
     // Collect network status
     val networkStatus by networkMonitor.networkStatus.collectAsState()
 
-    // Show reconnection dialog if disconnected during operation
-    val showReconnectionDialog = !uiState.isConnected &&
-        uiState.captureState !is Mark2CaptureState.Idle &&
-        uiState.captureState !is Mark2CaptureState.Complete
+    // Show the reconnection dialog whenever we are actively trying to reconnect
+    // or have given up — regardless of capture state (including Idle).
+    // Does NOT show during the initial connection attempt (autoReconnect starts as Idle).
+    val showReconnectionDialog = uiState.autoReconnect is AutoReconnectState.InProgress ||
+        uiState.autoReconnect is AutoReconnectState.GaveUp
+
+    // Map ViewModel reconnect state → ConnectionHealthState for the dialog UI.
+    val dialogHealthState: ConnectionHealthState = when (val reconnect = uiState.autoReconnect) {
+        is AutoReconnectState.InProgress ->
+            ConnectionHealthState.Reconnecting(reconnect.attemptNumber)
+        is AutoReconnectState.GaveUp ->
+            ConnectionHealthState.Failed("Unable to reconnect after 1 minute.\nCheck WiFi and try again.")
+        is AutoReconnectState.Idle ->
+            networkStatus.healthState
+    }
 
     Box(modifier = Modifier.fillMaxSize()) {
         PhotoboothLayout(
@@ -112,23 +125,21 @@ fun SonyMark2Screen(
         // Connection status overlay removed - less distracting
         // Polling still active in background to trigger reconnection dialog if needed
 
-        // Reconnection dialog (when connection lost during capture)
+        // Reconnection dialog — shown in all states when disconnected (including Idle).
+        // Triggered by stale live view or WiFi loss, not by initial connect failures.
         ReconnectionDialog(
             isVisible = showReconnectionDialog,
-            connectionState = networkStatus.healthState,
+            connectionState = dialogHealthState,
             onOpenWifiSettings = {
-                // Open platform WiFi settings
                 openWiFiSettings()
             },
             onContinueAnyway = {
-                // Reset to idle and continue
-                viewModel.resetCapture()
+                viewModel.dismissReconnection()
             },
             onRetry = {
-                // Attempt to reconnect
-                viewModel.connect()
+                // Restart the full 60-second reconnect window immediately
+                viewModel.manualRetry()
             }
         )
     }
 }
-

@@ -2,6 +2,7 @@ package com.jc.photobooth.ui.photobooth.sony.mark2
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 /**
@@ -11,6 +12,10 @@ import kotlin.test.assertTrue
  * Camera connectivity and actual capture workflow are tested via integration tests.
  */
 class SonyMark2ViewModelTest {
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Mark2CaptureState
+    // ─────────────────────────────────────────────────────────────────────────
 
     @Test
     fun mark2CaptureState_idle_isCorrect() {
@@ -62,14 +67,78 @@ class SonyMark2ViewModelTest {
         assertEquals(errorMessage, state.message)
     }
 
+    // ─────────────────────────────────────────────────────────────────────────
+    // AutoReconnectState
+    // ─────────────────────────────────────────────────────────────────────────
+
+    @Test
+    fun autoReconnectState_idle_isCorrect() {
+        val state = AutoReconnectState.Idle
+        assertTrue(state is AutoReconnectState.Idle)
+    }
+
+    @Test
+    fun autoReconnectState_inProgress_tracksAttemptNumber() {
+        val state = AutoReconnectState.InProgress(attemptNumber = 3)
+
+        assertTrue(state is AutoReconnectState.InProgress)
+        assertEquals(3, state.attemptNumber)
+    }
+
+    @Test
+    fun autoReconnectState_inProgress_attemptNumberIncrementsPerAttempt() {
+        val firstAttempt = AutoReconnectState.InProgress(1)
+        val secondAttempt = AutoReconnectState.InProgress(2)
+
+        assertEquals(1, firstAttempt.attemptNumber)
+        assertEquals(2, secondAttempt.attemptNumber)
+        assertTrue(secondAttempt.attemptNumber > firstAttempt.attemptNumber)
+    }
+
+    @Test
+    fun autoReconnectState_gaveUp_isCorrect() {
+        val state = AutoReconnectState.GaveUp
+        assertTrue(state is AutoReconnectState.GaveUp)
+    }
+
+    @Test
+    fun autoReconnectState_equality_idleMatchesIdle() {
+        assertEquals(AutoReconnectState.Idle, AutoReconnectState.Idle)
+    }
+
+    @Test
+    fun autoReconnectState_equality_gaveUpMatchesGaveUp() {
+        assertEquals(AutoReconnectState.GaveUp, AutoReconnectState.GaveUp)
+    }
+
+    @Test
+    fun autoReconnectState_equality_inProgressWithSameAttemptMatches() {
+        assertEquals(
+            AutoReconnectState.InProgress(5),
+            AutoReconnectState.InProgress(5)
+        )
+    }
+
+    @Test
+    fun autoReconnectState_equality_inProgressWithDifferentAttemptDiffers() {
+        val a = AutoReconnectState.InProgress(1)
+        val b = AutoReconnectState.InProgress(2)
+        assertTrue(a != b)
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // SonyMark2UiState
+    // ─────────────────────────────────────────────────────────────────────────
+
     @Test
     fun sonyMark2UiState_initialState_hasCorrectDefaults() {
         val state = SonyMark2UiState()
 
         assertEquals(null, state.liveViewFrame)
         assertEquals(Mark2CaptureState.Idle, state.captureState)
-        assertEquals(false, state.isConnected)
-        assertEquals(false, state.isLiveViewActive)
+        assertFalse(state.isConnected)
+        assertFalse(state.isLiveViewActive)
+        assertEquals(AutoReconnectState.Idle, state.autoReconnect)
     }
 
     @Test
@@ -81,8 +150,39 @@ class SonyMark2ViewModelTest {
 
         val updatedState = initialState.copy(isConnected = true)
 
-        assertEquals(true, updatedState.isConnected)
-        assertEquals(false, updatedState.isLiveViewActive)
+        assertTrue(updatedState.isConnected)
+        assertFalse(updatedState.isLiveViewActive)
         assertEquals(Mark2CaptureState.Idle, updatedState.captureState)
+        assertEquals(AutoReconnectState.Idle, updatedState.autoReconnect)
+    }
+
+    @Test
+    fun sonyMark2UiState_autoReconnect_canBeSetToInProgress() {
+        val state = SonyMark2UiState().copy(
+            autoReconnect = AutoReconnectState.InProgress(1)
+        )
+
+        assertTrue(state.autoReconnect is AutoReconnectState.InProgress)
+        assertEquals(1, (state.autoReconnect as AutoReconnectState.InProgress).attemptNumber)
+    }
+
+    @Test
+    fun sonyMark2UiState_autoReconnect_canBeSetToGaveUp() {
+        val state = SonyMark2UiState().copy(
+            autoReconnect = AutoReconnectState.GaveUp
+        )
+
+        assertTrue(state.autoReconnect is AutoReconnectState.GaveUp)
+    }
+
+    @Test
+    fun sonyMark2UiState_reconnectCanBeReset_afterGaveUp() {
+        val gaveUpState = SonyMark2UiState().copy(
+            autoReconnect = AutoReconnectState.GaveUp
+        )
+
+        val resetState = gaveUpState.copy(autoReconnect = AutoReconnectState.Idle)
+
+        assertEquals(AutoReconnectState.Idle, resetState.autoReconnect)
     }
 }
