@@ -21,6 +21,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.async
 
@@ -43,6 +44,27 @@ sealed class Mark2CaptureState {
 }
 
 /**
+ * State of the background auto-reconnection loop.
+ *
+ * Transitions:
+ *   Idle → InProgress (on disconnect)
+ *   InProgress → Idle (on successful reconnect)
+ *   InProgress → GaveUp (after RECONNECT_TIMEOUT_MS with no success)
+ *   GaveUp → InProgress (on manual retry)
+ *   Any → Idle (on user dismiss or successful connection)
+ */
+sealed class AutoReconnectState {
+    /** Not reconnecting — either never disconnected or successfully connected. */
+    data object Idle : AutoReconnectState()
+
+    /** Actively attempting to reconnect. */
+    data class InProgress(val attemptNumber: Int) : AutoReconnectState()
+
+    /** Gave up after exceeding the reconnection timeout. */
+    data object GaveUp : AutoReconnectState()
+}
+
+/**
  * Mark 2.0 UI state
  */
 data class SonyMark2UiState(
@@ -50,7 +72,8 @@ data class SonyMark2UiState(
     val captureState: Mark2CaptureState = Mark2CaptureState.Idle,
     val isConnected: Boolean = false,
     val isLiveViewActive: Boolean = false,
-    val gestureResult: GestureResult? = null
+    val gestureResult: GestureResult? = null,
+    val autoReconnect: AutoReconnectState = AutoReconnectState.Idle
 )
 
 /**
@@ -87,10 +110,16 @@ class SonyMark2ViewModel(
     private var liveViewJob: Job? = null
     private var cleanupJob: Job? = null
     private var gestureCollectorJob: Job? = null
+    private var staleDetectionJob: Job? = null
+    private var reconnectJob: Job? = null
 
     // Sustained palm detection tracking
     private var firstPalmDetectionTime: Long? = null
     private var lastFrameProcessedTime: Long = 0
+
+    // Timestamp of the last successfully decoded live view frame.
+    // Read and written only from viewModelScope coroutines (main thread on Android).
+    private var lastFrameTimestamp: Long = 0L
 
     // Session statistics for monitoring
     private var sessionStartTime: Long = 0
@@ -103,6 +132,15 @@ class SonyMark2ViewModel(
         private const val LIVEVIEW_TIMEOUT_MS = 60_000L // 1 minute
         private const val GESTURE_FRAME_INTERVAL_MS = 100L // ~10 FPS for gesture processing
         private const val SUSTAINED_PALM_DURATION_MS = 800L // 0.8 seconds to trigger
+
+        // Stale frame detection — lightweight, checked every few seconds.
+        private const val STALE_FRAME_THRESHOLD_MS = 5_000L  // No frame for 5s → stale
+        private const val STALE_CHECK_INTERVAL_MS = 3_000L   // Poll every 3s
+
+        // Auto-reconnect backoff
+        private const val RECONNECT_TIMEOUT_MS = 60_000L     // Give up after 1 minute total
+        private const val RECONNECT_INITIAL_DELAY_MS = 2_000L
+        private const val RECONNECT_MAX_BACKOFF_MS = 30_000L // Cap individual delay at 30s
     }
 
     init {
@@ -125,36 +163,86 @@ class SonyMark2ViewModel(
         startGestureCollection()
     }
 
+    // ─────────────────────────────────────────────────────────────────────────
+    // Connection management
+    // ─────────────────────────────────────────────────────────────────────────
+
     /**
-     * Connect to camera and start live view
+     * Connect to camera and start live view.
+     * Cancels any ongoing auto-reconnect loop — this is a fresh manual attempt.
      */
     fun connect() {
         logger.i(tag, "[MARK2_VM] Connecting to camera...")
+        reconnectJob?.cancel()
+        reconnectJob = null
 
         viewModelScope.launch {
-            try {
-                // Test connection
-                val apiResult = apiClient.getAvailableApiList()
-                if (apiResult.isFailure) {
-                    throw apiResult.exceptionOrNull() ?: Exception("Connection failed")
-                }
-
-                _uiState.update { it.copy(isConnected = true) }
-                logger.i(tag, "[MARK2_VM] Connected to camera")
-
-                // Start live view
-                startLiveView()
-
-            } catch (e: Exception) {
-                logger.e(tag, "[MARK2_VM] Connection failed: ${e.message}", e)
+            val connected = attemptConnection()
+            if (!connected) {
                 _uiState.update {
-                    it.copy(
-                        captureState = Mark2CaptureState.Error("Failed to connect: ${e.message}")
-                    )
+                    it.copy(captureState = Mark2CaptureState.Error("Failed to connect to camera"))
                 }
             }
         }
     }
+
+    /**
+     * Manually retry connection. Cancels the current auto-reconnect state and
+     * starts a fresh reconnect loop (another full 60-second window).
+     * Called when the user taps "Retry Connection" in the reconnection dialog.
+     */
+    fun manualRetry() {
+        logger.i(tag, "[MARK2_VM] Manual retry triggered")
+        reconnectJob?.cancel()
+        startAutoReconnect()
+    }
+
+    /**
+     * Dismiss the reconnection dialog without reconnecting.
+     * Stops auto-reconnect and resets to idle, so the user can continue
+     * with a frozen frame or navigate away.
+     */
+    fun dismissReconnection() {
+        logger.i(tag, "[MARK2_VM] Reconnection dismissed by user")
+        reconnectJob?.cancel()
+        reconnectJob = null
+        _uiState.update {
+            it.copy(
+                autoReconnect = AutoReconnectState.Idle,
+                captureState = Mark2CaptureState.Idle
+            )
+        }
+    }
+
+    /**
+     * Attempt a single connection to the camera.
+     * On success, updates state and starts live view.
+     *
+     * @return true if the connection succeeded
+     */
+    private suspend fun attemptConnection(): Boolean {
+        return try {
+            val result = apiClient.getAvailableApiList()
+            if (result.isFailure) return false
+
+            _uiState.update {
+                it.copy(
+                    isConnected = true,
+                    autoReconnect = AutoReconnectState.Idle
+                )
+            }
+            logger.i(tag, "[MARK2_VM] Connected to camera")
+            startLiveView()
+            true
+        } catch (e: Exception) {
+            logger.e(tag, "[MARK2_VM] Connection attempt failed: ${e.message}", e)
+            false
+        }
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Live view streaming
+    // ─────────────────────────────────────────────────────────────────────────
 
     private suspend fun startLiveView() {
         logger.i(tag, "[MARK2_VM] Starting live view...")
@@ -170,10 +258,11 @@ class SonyMark2ViewModel(
 
         _uiState.update { it.copy(isLiveViewActive = true) }
 
-        // Start live view streaming
         liveViewJob = viewModelScope.launch {
             streamLiveView(liveviewUrl)
         }
+
+        startStaleDetection()
     }
 
     private suspend fun streamLiveView(url: String) {
@@ -191,10 +280,12 @@ class SonyMark2ViewModel(
                 streamParser.parseFrames(channel).collect { jpegData ->
                     try {
                         val imageBitmap = decodeImageBitmap(jpegData)
+                        lastFrameTimestamp = System.currentTimeMillis()
                         _uiState.update { it.copy(liveViewFrame = imageBitmap) }
                         processFrameForGesture(jpegData)
                     } catch (e: Exception) {
-                        // Skip frames that fail to decode
+                        // Skip frames that fail to decode — don't reset timestamp
+                        // so a single bad frame doesn't trigger stale detection
                     }
                 }
             }
@@ -202,6 +293,133 @@ class SonyMark2ViewModel(
             logger.w(tag, "[MARK2_VM] Live view stream ended: ${e.message}")
         }
     }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Stale frame detection
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /**
+     * Starts a lightweight background watcher that detects a stalled live view stream.
+     *
+     * The watcher wakes up every [STALE_CHECK_INTERVAL_MS] seconds and compares
+     * the current time to [lastFrameTimestamp]. If the stream has been silent for
+     * longer than [STALE_FRAME_THRESHOLD_MS] it is declared stale and
+     * [handleNetworkLost] is called to trigger reconnection.
+     *
+     * The initial frame-wait loop avoids false positives during connection setup,
+     * where frames haven't started arriving yet.
+     */
+    private fun startStaleDetection() {
+        staleDetectionJob?.cancel()
+        staleDetectionJob = viewModelScope.launch {
+
+            // Wait until the first frame arrives before watching for stalls.
+            while (isActive && lastFrameTimestamp == 0L) {
+                delay(STALE_CHECK_INTERVAL_MS)
+            }
+
+            while (isActive) {
+                delay(STALE_CHECK_INTERVAL_MS)
+                val staleDurationMs = System.currentTimeMillis() - lastFrameTimestamp
+                if (staleDurationMs > STALE_FRAME_THRESHOLD_MS) {
+                    logger.w(tag, "[MARK2_VM] Live view stale for ${staleDurationMs}ms — triggering reconnection")
+                    handleLiveViewStale()
+                    break
+                }
+            }
+        }
+    }
+
+    private fun handleLiveViewStale() {
+        lastFrameTimestamp = 0L
+        handleNetworkLost()
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Auto-reconnection
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /**
+     * Starts an exponential-backoff reconnection loop.
+     *
+     * Attempts: immediately, then after 2s, 4s, 8s, 16s, 30s, 30s, …
+     * Gives up after [RECONNECT_TIMEOUT_MS] (1 minute) total elapsed time.
+     *
+     * The [AutoReconnectState] in [uiState] is updated on every attempt so
+     * the UI can show live progress to the user.
+     */
+    private fun startAutoReconnect() {
+        reconnectJob = viewModelScope.launch {
+            val deadline = System.currentTimeMillis() + RECONNECT_TIMEOUT_MS
+            var attempt = 0
+
+            while (isActive && System.currentTimeMillis() < deadline) {
+                attempt++
+                logger.i(tag, "[MARK2_VM] Auto-reconnect attempt $attempt")
+                _uiState.update { it.copy(autoReconnect = AutoReconnectState.InProgress(attempt)) }
+
+                val connected = attemptConnection()
+                if (connected) {
+                    logger.i(tag, "[MARK2_VM] Auto-reconnect succeeded on attempt $attempt")
+                    return@launch
+                }
+
+                val remainingMs = deadline - System.currentTimeMillis()
+                if (remainingMs <= 0) break
+
+                val backoffMs = (RECONNECT_INITIAL_DELAY_MS shl (attempt - 1))
+                    .coerceAtMost(RECONNECT_MAX_BACKOFF_MS)
+                    .coerceAtMost(remainingMs)
+
+                logger.d(tag, "[MARK2_VM] Backoff ${backoffMs}ms before next attempt (${remainingMs}ms remaining)")
+                delay(backoffMs)
+            }
+
+            logger.w(tag, "[MARK2_VM] Auto-reconnect gave up after $attempt attempts")
+            _uiState.update { it.copy(autoReconnect = AutoReconnectState.GaveUp) }
+        }
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Network events
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /**
+     * Perform camera health check.
+     * Called by network monitor for connectivity verification.
+     *
+     * @return Latency in milliseconds, or failure if unreachable
+     */
+    suspend fun performHealthCheck(): Result<Long> {
+        return apiClient.healthCheck()
+    }
+
+    /**
+     * Handle network connection lost.
+     * Called by network monitor when WiFi drops, or when the live view stream goes stale.
+     * Cancels the live view and starts the auto-reconnect loop.
+     */
+    fun handleNetworkLost() {
+        logger.w(tag, "[MARK2_VM] Network connection lost — starting auto-reconnect")
+
+        staleDetectionJob?.cancel()
+        staleDetectionJob = null
+
+        liveViewJob?.cancel()
+        liveViewJob = null
+        lastFrameTimestamp = 0L
+
+        _uiState.update { it.copy(isConnected = false, isLiveViewActive = false) }
+
+        // Only start if not already reconnecting (e.g. health check and stale detection both fire)
+        if (reconnectJob?.isActive != true) {
+            startAutoReconnect()
+        }
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Capture sequence
+    // ─────────────────────────────────────────────────────────────────────────
 
     /**
      * Start the photo capture sequence
@@ -325,7 +543,7 @@ class SonyMark2ViewModel(
     }
 
     /**
-     * Reset to idle state and restart live view if needed
+     * Reset to idle state and restart live view if needed.
      */
     fun resetCapture() {
         logger.i(tag, "[MARK2_VM] Resetting to idle")
@@ -348,9 +566,12 @@ class SonyMark2ViewModel(
     fun restartLiveView() {
         logger.i(tag, "[MARK2_VM] Restarting live view for new session")
 
-        // Cancel existing live view job
+        staleDetectionJob?.cancel()
+        staleDetectionJob = null
+
         liveViewJob?.cancel()
         liveViewJob = null
+        lastFrameTimestamp = 0L
 
         // Reset state to idle
         _uiState.update {
@@ -366,32 +587,9 @@ class SonyMark2ViewModel(
         }
     }
 
-    /**
-     * Perform camera health check.
-     * Called by network monitor for connectivity verification.
-     *
-     * @return Latency in milliseconds, or failure if unreachable
-     */
-    suspend fun performHealthCheck(): Result<Long> {
-        return apiClient.healthCheck()
-    }
-
-    /**
-     * Handle network connection lost.
-     * Called by network monitor when WiFi connection is lost.
-     */
-    fun handleNetworkLost() {
-        logger.w(tag, "[MARK2_VM] Network connection lost!")
-
-        // Update connection state
-        _uiState.update { it.copy(isConnected = false, isLiveViewActive = false) }
-
-        // Cancel live view if active
-        liveViewJob?.cancel()
-        liveViewJob = null
-
-        // Don't auto-reset capture state - let user decide via ReconnectionDialog
-    }
+    // ─────────────────────────────────────────────────────────────────────────
+    // Maintenance
+    // ─────────────────────────────────────────────────────────────────────────
 
     /**
      * Start periodic resource cleanup to maintain memory stability.
@@ -406,12 +604,6 @@ class SonyMark2ViewModel(
         }
     }
 
-    /**
-     * Perform resource cleanup to prevent memory bloat.
-     * - Clears old live view frames
-     * - Logs session statistics
-     * - Triggers GC hint (platform-specific)
-     */
     private fun performResourceCleanup() {
         val now = System.currentTimeMillis()
         val timeSinceStart = (now - sessionStartTime) / 1000 / 60 // minutes
@@ -425,9 +617,7 @@ class SonyMark2ViewModel(
         logger.i(tag, "[MARK2_VM] Total errors: $totalErrorsSinceStart")
         logger.i(tag, "[MARK2_VM] ════════════════════════════════════")
 
-        // Clear live view frame if in idle state (not during capture)
         if (_uiState.value.captureState is Mark2CaptureState.Idle) {
-            // Keep live view active, just log the cleanup
             logger.d(tag, "[MARK2_VM] Live view frame maintained (idle state)")
         }
 
@@ -442,14 +632,13 @@ class SonyMark2ViewModel(
         logger.w(tag, "[MARK2_VM] Timeout detected during: $operation")
         totalErrorsSinceStart++
 
-        // Cancel live view
+        staleDetectionJob?.cancel()
+        staleDetectionJob = null
         liveViewJob?.cancel()
         liveViewJob = null
 
-        // Wait briefly
         delay(2000)
 
-        // Try to restart live view
         try {
             logger.i(tag, "[MARK2_VM] Attempting to recover from timeout...")
             startLiveView()
@@ -537,12 +726,13 @@ class SonyMark2ViewModel(
     }
 
     /**
-     * Disconnect from camera
+     * Disconnect from camera and cancel all background jobs.
      */
     fun disconnect() {
         logger.i(tag, "[MARK2_VM] Disconnecting...")
 
-        // Cancel jobs
+        staleDetectionJob?.cancel()
+        reconnectJob?.cancel()
         liveViewJob?.cancel()
         cleanupJob?.cancel()
         gestureCollectorJob?.cancel()
@@ -550,7 +740,6 @@ class SonyMark2ViewModel(
         // Close gesture detector
         gestureDetector?.close()
 
-        // Log final statistics
         logSessionStats()
 
         viewModelScope.launch {
