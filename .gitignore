@@ -8,6 +8,8 @@ local.properties
 .idea
 .DS_Store
 captures
+.claude/worktrees/
+test-results/
 .externalNativeBuild
 .cxx
 *.xcodeproj/*
