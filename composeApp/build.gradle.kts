@@ -125,6 +125,21 @@ android {
         sourceCompatibility = JavaVersion.VERSION_11
         targetCompatibility = JavaVersion.VERSION_11
     }
+    testOptions {
+        unitTests.isReturnDefaultValues = true
+        // Exclude tests that exercise the real Android Bitmap/Canvas via the
+        // androidMain `actual` of MockImageGenerator. These pass under JVM/iOS
+        // because their actuals are pure Kotlin; on Android JVM unit tests the
+        // Android framework is stubbed. Run them from androidInstrumentedTest
+        // (or via Maestro / `:test` on a connected device) for real coverage.
+        unitTests.all {
+            it.exclude(
+                "**/MockImageGeneratorTest.class",
+                "**/MockCameraControllerTest.class",
+                "**/MockPhotoboothCameraTest.class",
+            )
+        }
+    }
 }
 
 dependencies {

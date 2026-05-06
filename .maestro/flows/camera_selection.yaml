@@ -1,0 +1,24 @@
+appId: com.jc.photobooth
+---
+# Launch app (clearState hangs on API 36 — stopApp + launchApp is the reliable alternative)
+- stopApp
+- launchApp
+
+# Wait for app to finish rendering before asserting
+- waitForAnimationToEnd
+
+# Dismiss ANR dialog if the emulator is slow to respond
+- tapOn:
+    text: "Wait"
+    optional: true
+- waitForAnimationToEnd
+
+# Camera Selection screen should be visible
+- assertVisible: "Select Camera"
+
+# Mock Camera is fastest for E2E — no hardware needed
+- tapOn: "Mock Camera (Testing)"
+- assertVisible: "Test mode • Fast capture • No hardware required"
+
+# Continue button should now be enabled
+- tapOn: "Continue"
