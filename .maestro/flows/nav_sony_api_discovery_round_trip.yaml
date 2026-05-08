@@ -1,0 +1,13 @@
+appId: com.jc.photobooth
+---
+- stopApp
+- launchApp
+- assertVisible: "Select Camera"
+- tapOn: "Sony API Discovery"
+- extendedWaitUntil:
+    visible: "Sony API"
+    timeout: 5000
+- takeScreenshot: 01_api_discovery
+- back
+- assertVisible: "Select Camera"
+- takeScreenshot: 02_back_to_selection

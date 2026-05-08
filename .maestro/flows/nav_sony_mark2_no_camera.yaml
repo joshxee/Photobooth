@@ -1,0 +1,13 @@
+appId: com.jc.photobooth
+---
+# Verifies that selecting the Sony Mark 2.0 path with the camera unreachable
+# surfaces a Knockbox connection error or the reconnection dialog within 30s.
+- stopApp
+- launchApp
+- tapOn: "Sony A7 III (Mark 2.0 - WiFi Transfer)"
+- tapOn: "Continue →"
+- extendedWaitUntil:
+    visible: "Couldn't reach the camera"
+    timeout: 30000
+- takeScreenshot: 01_connection_error
+- assertVisible: "Retry connection"

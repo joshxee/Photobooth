@@ -19,6 +19,8 @@ import com.jc.photobooth.camera.domain.CameraType
 import com.jc.photobooth.camera.domain.SonyCameraConfig
 import com.jc.photobooth.camera.domain.createWiFiConnectionManager
 import com.jc.photobooth.camera.domain.openWiFiSettings
+import com.jc.photobooth.ui.knockbox.KnockboxPill
+import com.jc.photobooth.ui.knockbox.KnockboxPillStyle
 import com.jc.photobooth.ui.overlay.AutoRetryReconnectionDialog
 import kotlinx.coroutines.launch
 
@@ -110,71 +112,43 @@ fun CameraSelectionScreen(
 
             Spacer(modifier = Modifier.weight(1f))
 
-            // Continue button
-            Button(
-                onClick = {
-                    selectedCamera?.let { onCameraSelected(it) }
-                },
+            KnockboxPill(
+                label = "Continue →",
+                onClick = { selectedCamera?.let { onCameraSelected(it) } },
                 enabled = selectedCamera != null,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(vertical = 8.dp)
-            ) {
-                Text(
-                    text = "Continue",
-                    style = MaterialTheme.typography.titleMedium
+                modifier = Modifier.padding(vertical = 8.dp)
+            )
+
+            if (onBack != null) {
+                KnockboxPill(
+                    label = "Back",
+                    onClick = onBack,
+                    style = KnockboxPillStyle.Outline,
+                    leadingDot = false,
+                    modifier = Modifier.padding(bottom = 8.dp)
                 )
             }
 
-            // Back button (hidden if no back navigation available)
-            if (onBack != null) {
-                OutlinedButton(
-                    onClick = onBack,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(bottom = 8.dp)
-                ) {
-                    Text(
-                        text = "Back",
-                        style = MaterialTheme.typography.titleMedium
-                    )
-                }
-            }
-
-            // API Discovery button (dev tool)
             if (onApiDiscovery != null) {
-                TextButton(
+                KnockboxPill(
+                    label = "Sony API Discovery",
                     onClick = onApiDiscovery,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(bottom = 16.dp)
-                ) {
-                    Text(
-                        text = "Sony API Discovery",
-                        style = MaterialTheme.typography.bodyMedium
-                    )
-                }
+                    style = KnockboxPillStyle.Ghost,
+                    leadingDot = false,
+                    modifier = Modifier.padding(bottom = 16.dp)
+                )
             }
 
-            // Reconnect WiFi button (only show if Sony cameras available)
             val hasSonyCameras = availableCameras.any { it == CameraType.SONY_A7III_MARK2 }
 
             if (hasSonyCameras) {
-                TextButton(
-                    onClick = {
-                        // Show reconnection dialog directly
-                        // Live view will be cleared when camera reconnects
-                        showReconnectDialog = true
-                    },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(bottom = 8.dp)
-                ) {
-                    Text(
-                        text = "Reconnect WiFi",
-                        style = MaterialTheme.typography.bodyMedium
-                    )
-                }
+                KnockboxPill(
+                    label = "Reconnect WiFi",
+                    onClick = { showReconnectDialog = true },
+                    style = KnockboxPillStyle.Ghost,
+                    leadingDot = false,
+                    modifier = Modifier.padding(bottom = 8.dp)
+                )
             }
         }
     }

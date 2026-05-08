@@ -2,11 +2,15 @@ package com.jc.photobooth.ui.photobooth.sony.mark2
 
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -17,6 +21,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
@@ -25,12 +30,14 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.jc.photobooth.camera.domain.openWiFiSettings
 import com.jc.photobooth.data.SettingsRepository
+import com.jc.photobooth.model.PhotoboothConfig
 import com.jc.photobooth.model.toImageBitmap
 import com.jc.photobooth.network.ConnectionHealthState
 import com.jc.photobooth.network.createNetworkMonitor
 import com.jc.photobooth.ui.FullscreenEffect
 import com.jc.photobooth.ui.knockbox.KnockboxFonts
 import com.jc.photobooth.ui.knockbox.KnockboxFrame
+import com.jc.photobooth.ui.knockbox.KnockboxPill
 import com.jc.photobooth.ui.knockbox.KnockboxTokens
 import com.jc.photobooth.ui.knockbox.PlaceholderHues
 import com.jc.photobooth.ui.overlay.ReconnectionDialog
@@ -52,6 +59,7 @@ fun SonyMark2Screen(
     FullscreenEffect()
 
     val uiState by viewModel.uiState.collectAsState()
+    val config by settingsRepository.getConfig().collectAsState(initial = PhotoboothConfig())
 
     LaunchedEffect(Unit) {
         if (!uiState.isConnected) viewModel.connect()
@@ -84,6 +92,8 @@ fun SonyMark2Screen(
     }
 
     PhotoboothHost(
+        totalShots = config.numberOfPhotos,
+        countdownSeconds = config.countdownSeconds,
         livePreview = {
             val frame = uiState.liveViewFrame
             Box(
@@ -124,24 +134,65 @@ fun SonyMark2Screen(
         },
         errorSlot = {
             uiState.connectionError?.let { msg ->
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .background(Color.Black.copy(alpha = 0.7f)),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(
-                        text = msg,
-                        color = KnockboxTokens.Paper,
-                        fontFamily = KnockboxFonts.Sans,
-                        fontWeight = FontWeight.Medium,
-                        fontSize = 18.sp,
-                        modifier = Modifier.padding(32.dp)
-                    )
-                }
+                ConnectionErrorCard(
+                    message = msg,
+                    onRetry = { viewModel.connect() }
+                )
             }
         }
     )
+}
+
+@Composable
+private fun ConnectionErrorCard(message: String, onRetry: () -> Unit) {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color.Black.copy(alpha = 0.78f)),
+        contentAlignment = Alignment.Center
+    ) {
+        Column(
+            modifier = Modifier
+                .padding(32.dp)
+                .clip(RoundedCornerShape(KnockboxTokens.RadiusMedium))
+                .background(Color.White.copy(alpha = 0.06f))
+                .border(
+                    width = 1.dp,
+                    color = Color.White.copy(alpha = 0.16f),
+                    shape = RoundedCornerShape(KnockboxTokens.RadiusMedium)
+                )
+                .padding(horizontal = 28.dp, vertical = 28.dp),
+            verticalArrangement = Arrangement.spacedBy(20.dp),
+            horizontalAlignment = Alignment.Start
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(44.dp)
+                    .clip(CircleShape)
+                    .background(KnockboxTokens.ForestSoft),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(text = "!", color = KnockboxTokens.Forest, fontSize = 22.sp, fontWeight = FontWeight.Bold)
+            }
+            Text(
+                text = "Couldn't reach the camera",
+                color = KnockboxTokens.Paper,
+                fontFamily = KnockboxFonts.Sans,
+                fontWeight = FontWeight.Medium,
+                fontSize = 22.sp
+            )
+            Text(
+                text = message,
+                color = KnockboxTokens.Paper.copy(alpha = 0.7f),
+                fontFamily = KnockboxFonts.Sans,
+                fontSize = 14.sp
+            )
+            KnockboxPill(
+                label = "Retry connection",
+                onClick = onRetry
+            )
+        }
+    }
 }
 
 @Composable

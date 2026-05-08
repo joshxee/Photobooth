@@ -1,0 +1,21 @@
+appId: com.jc.photobooth
+---
+- stopApp
+- launchApp
+- tapOn: "Mock Camera (Testing)"
+- tapOn: "Continue →"
+- tapOn:
+    text: "While using the app"
+    optional: true
+- tapOn:
+    text: "Allow"
+    optional: true
+- extendedWaitUntil:
+    visible: "Looking good."
+    timeout: 45000
+- takeScreenshot: 01_strip_review
+- tapOn: "Take another strip →"
+- extendedWaitUntil:
+    visible: "Look at the lens"
+    timeout: 10000
+- takeScreenshot: 02_restarted

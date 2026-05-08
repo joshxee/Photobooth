@@ -1,0 +1,22 @@
+appId: com.jc.photobooth
+---
+# Regression for KnockboxStripReview portrait layout: previously StripCell
+# was given weight 0.0001f which collapsed the photo strip in portrait.
+# Asserts the strip + headline + restart pill all render.
+- stopApp
+- launchApp
+- tapOn: "Mock Camera (Testing)"
+- tapOn: "Continue →"
+- tapOn:
+    text: "While using the app"
+    optional: true
+- tapOn:
+    text: "Allow"
+    optional: true
+- extendedWaitUntil:
+    visible: "Looking good."
+    timeout: 45000
+- takeScreenshot: 01_strip_portrait
+- assertVisible: "VIRTUAL PHOTO STRIP SAVED"
+- assertVisible: "Want another?"
+- assertVisible: "Take another strip →"

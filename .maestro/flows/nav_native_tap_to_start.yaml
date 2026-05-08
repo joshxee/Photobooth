@@ -1,0 +1,19 @@
+appId: com.jc.photobooth
+---
+- stopApp
+- launchApp
+- tapOn: "Mock Camera (Testing)"
+- tapOn: "Continue →"
+- tapOn:
+    text: "While using the app"
+    optional: true
+- tapOn:
+    text: "Allow"
+    optional: true
+# Tap immediately on attract before auto-start fires (~3s)
+- tapOn:
+    point: "50%,50%"
+- extendedWaitUntil:
+    visible: "Look at the lens"
+    timeout: 3000
+- takeScreenshot: 01_countdown_after_tap

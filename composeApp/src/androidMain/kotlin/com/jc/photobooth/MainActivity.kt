@@ -10,6 +10,8 @@ import com.jc.photobooth.camera.domain.initWiFiConnectionManagerContext
 import com.jc.photobooth.data.initDataStore
 import com.jc.photobooth.gesture.initGestureDetectorContext
 import com.jc.photobooth.network.initNetworkMonitorContext
+import com.jc.photobooth.util.CrashLogger
+import com.jc.photobooth.util.initCrashLogger
 
 class MainActivity : ComponentActivity() {
 
@@ -27,6 +29,9 @@ class MainActivity : ComponentActivity() {
 
         // Initialize gesture detector context
         initGestureDetectorContext(applicationContext)
+
+        initCrashLogger(applicationContext)
+        CrashLogger.install()
 
         // Keep screen on for continuous photobooth operation
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)

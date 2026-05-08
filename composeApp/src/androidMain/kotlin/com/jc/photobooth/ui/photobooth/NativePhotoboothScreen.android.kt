@@ -1,8 +1,13 @@
 package com.jc.photobooth.ui.photobooth
 
 import android.Manifest
+import android.app.Activity
+import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.Uri
+import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.core.app.ActivityCompat
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -27,9 +32,11 @@ import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.runtime.collectAsState
 import androidx.core.content.ContextCompat
 import com.jc.photobooth.camera.createCameraController
 import com.jc.photobooth.data.SettingsRepository
+import com.jc.photobooth.model.PhotoboothConfig
 import com.jc.photobooth.model.toImageBitmap
 import com.jc.photobooth.ui.knockbox.KnockboxFonts
 import com.jc.photobooth.ui.knockbox.KnockboxFrame
@@ -54,25 +61,47 @@ actual fun NativePhotoboothScreen(
                 == PackageManager.PERMISSION_GRANTED
         )
     }
+    var permissionRequested by remember { mutableStateOf(false) }
 
     val launcher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission()
-    ) { granted -> hasPermission = granted }
+    ) { granted ->
+        hasPermission = granted
+        permissionRequested = true
+    }
 
     LaunchedEffect(Unit) {
         if (!hasPermission) launcher.launch(Manifest.permission.CAMERA)
     }
 
     if (!hasPermission) {
-        PermissionPrompt(onRequest = { launcher.launch(Manifest.permission.CAMERA) })
+        val activity = context as? Activity
+        val canRequestAgain = activity?.let {
+            ActivityCompat.shouldShowRequestPermissionRationale(it, Manifest.permission.CAMERA)
+        } ?: true
+        val permanentlyDenied = permissionRequested && !canRequestAgain
+
+        PermissionPrompt(
+            permanentlyDenied = permanentlyDenied,
+            onRequest = { launcher.launch(Manifest.permission.CAMERA) },
+            onOpenSettings = {
+                val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                    data = Uri.fromParts("package", context.packageName, null)
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
+                context.startActivity(intent)
+            }
+        )
         return
     }
 
     val controller = remember { createCameraController(context, lifecycleOwner, executor) }
+    val config by settingsRepository.getConfig().collectAsState(initial = PhotoboothConfig())
 
     PhotoboothHost(
         headline = headline,
-        totalShots = totalShots,
+        totalShots = config.numberOfPhotos,
+        countdownSeconds = config.countdownSeconds,
         livePreview = {
             CameraPreview(
                 controller = controller,
@@ -91,7 +120,11 @@ actual fun NativePhotoboothScreen(
 }
 
 @Composable
-private fun PermissionPrompt(onRequest: () -> Unit) {
+private fun PermissionPrompt(
+    permanentlyDenied: Boolean,
+    onRequest: () -> Unit,
+    onOpenSettings: () -> Unit
+) {
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -111,7 +144,11 @@ private fun PermissionPrompt(onRequest: () -> Unit) {
                 fontWeight = FontWeight.Medium
             )
             Text(
-                text = "Photobooth needs the camera to run live preview and capture strips.",
+                text = if (permanentlyDenied) {
+                    "Camera access was denied. Enable it in system settings to continue."
+                } else {
+                    "Photobooth needs the camera to run live preview and capture strips."
+                },
                 color = KnockboxTokens.Paper.copy(alpha = 0.7f),
                 fontFamily = KnockboxFonts.Sans,
                 fontSize = 14.sp
@@ -120,11 +157,13 @@ private fun PermissionPrompt(onRequest: () -> Unit) {
                 modifier = Modifier
                     .clip(RoundedCornerShape(999.dp))
                     .background(KnockboxTokens.Paper)
-                    .clickable { onRequest() }
+                    .clickable {
+                        if (permanentlyDenied) onOpenSettings() else onRequest()
+                    }
                     .padding(horizontal = 28.dp, vertical = 14.dp)
             ) {
                 Text(
-                    text = "Grant camera",
+                    text = if (permanentlyDenied) "Open settings" else "Grant camera",
                     color = KnockboxTokens.Ink,
                     fontFamily = KnockboxFonts.Sans,
                     fontWeight = FontWeight.Medium,

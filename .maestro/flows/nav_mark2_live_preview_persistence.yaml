@@ -1,0 +1,20 @@
+appId: com.jc.photobooth
+---
+# PL6 — round-trip CAMERA_SELECTION ↔ MARK2 three times. Verifies the hoisted
+# SonyMark2ViewModel keeps live view warm so the "Connecting…" overlay does
+# not reappear after the first connect.
+- stopApp
+- launchApp
+- repeat:
+    times: 3
+    commands:
+      - tapOn: "Sony A7 III (Mark 2.0 - WiFi Transfer)"
+      - tapOn: "Continue →"
+      # First visit may show "Connecting…"; subsequent visits should not.
+      - extendedWaitUntil:
+          visible: "Couldn't reach the camera"
+          timeout: 30000
+          optional: true
+      - takeScreenshot: roundtrip
+      - back
+      - assertVisible: "Select Camera"

@@ -1,0 +1,10 @@
+appId: com.jc.photobooth
+---
+# SKIPPED: Kiosk pinning requires device-owner provisioning via
+# `adb shell dpm set-device-owner com.jc.photobooth/.kiosk.KioskAdminReceiver`
+# on a freshly-wiped device, which is out of scope for automated CI runs.
+# See wiki/Production-Readiness-Deferred.md (PL10).
+- stopApp
+- launchApp
+- assertVisible: "Select Camera"
+- takeScreenshot: 01_skipped_kiosk

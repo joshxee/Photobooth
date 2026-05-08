@@ -20,13 +20,24 @@ private val PhotoboothColorScheme = darkColorScheme(
     background = KnockboxTokens.Ink,
     onBackground = KnockboxTokens.Paper,
 
+    primaryContainer = KnockboxTokens.ForestSoft,
+    onPrimaryContainer = KnockboxTokens.Forest,
+
     secondary = KnockboxTokens.Forest,
     onSecondary = KnockboxTokens.Paper,
+    secondaryContainer = KnockboxTokens.ForestSoft,
+    onSecondaryContainer = KnockboxTokens.Forest,
+
     tertiary = KnockboxTokens.ForestSoft,
     onTertiary = KnockboxTokens.Ink,
+    tertiaryContainer = KnockboxTokens.ForestSoft,
+    onTertiaryContainer = KnockboxTokens.Forest,
 
     error = Color(0xFFE57373),
     onError = KnockboxTokens.Ink,
+
+    surfaceVariant = Color(0xFF1A1F22),
+    onSurfaceVariant = KnockboxTokens.Paper,
 
     surfaceContainer = Color(0xFF1A1F22),
     surfaceContainerHigh = Color(0xFF242A2D),

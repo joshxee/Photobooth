@@ -7,7 +7,6 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -78,30 +77,58 @@ fun KnockboxStripReview(
     val bg = Brush.verticalGradient(listOf(KnockboxTokens.Ink, Color(0xFF11151A)))
 
     Box(modifier = modifier.fillMaxSize().background(bg)) {
-        Row(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(
-                    start = if (isPortrait) 32.dp else 48.dp,
-                    end = if (isPortrait) 32.dp else 48.dp,
-                    top = 32.dp,
-                    bottom = if (isPortrait) 96.dp else 80.dp
-                ),
-            horizontalArrangement = Arrangement.spacedBy(if (isPortrait) 28.dp else 48.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            StripCell(
-                isPortrait = isPortrait,
-                frames = frames,
-                headline = headline,
-                date = date,
-                stripScalePortrait = stripScalePortrait,
-                stripScaleLandscape = stripScaleLandscape
+        val contentPadding = Modifier
+            .fillMaxSize()
+            .padding(
+                start = if (isPortrait) 32.dp else 48.dp,
+                end = if (isPortrait) 32.dp else 48.dp,
+                top = 32.dp,
+                bottom = if (isPortrait) 96.dp else 80.dp
             )
-            ReviewTextColumn(
-                isPortrait = isPortrait,
-                onAgain = onAgain
-            )
+        if (isPortrait) {
+            Column(
+                modifier = contentPadding,
+                verticalArrangement = Arrangement.spacedBy(20.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                StripCell(
+                    frames = frames,
+                    headline = headline,
+                    date = date,
+                    scale = stripScalePortrait,
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxWidth()
+                        .wrapContentSize(Alignment.Center)
+                )
+                ReviewTextColumn(
+                    isPortrait = true,
+                    onAgain = onAgain,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+        } else {
+            Row(
+                modifier = contentPadding,
+                horizontalArrangement = Arrangement.spacedBy(48.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                StripCell(
+                    frames = frames,
+                    headline = headline,
+                    date = date,
+                    scale = stripScaleLandscape,
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxHeight()
+                        .wrapContentSize(Alignment.Center)
+                )
+                ReviewTextColumn(
+                    isPortrait = false,
+                    onAgain = onAgain,
+                    modifier = Modifier.weight(1f).fillMaxHeight()
+                )
+            }
         }
 
         // Reverse loading bar pinned to bottom
@@ -165,37 +192,34 @@ fun KnockboxStripReview(
 }
 
 @Composable
-private fun RowScope.StripCell(
-    isPortrait: Boolean,
+private fun StripCell(
     frames: List<KnockboxFrame>,
     headline: String,
     date: String,
-    stripScalePortrait: Float,
-    stripScaleLandscape: Float
+    scale: Float,
+    modifier: Modifier = Modifier
 ) {
     Box(
-        modifier = Modifier
-            .weight(if (isPortrait) 0.0001f else 1f, fill = !isPortrait)
-            .fillMaxHeight()
-            .wrapContentSize(),
+        modifier = modifier,
         contentAlignment = Alignment.Center
     ) {
         KnockboxPhotoStrip(
             frames = frames,
             headline = headline,
             date = date,
-            scale = if (isPortrait) stripScalePortrait else stripScaleLandscape
+            scale = scale
         )
     }
 }
 
 @Composable
-private fun RowScope.ReviewTextColumn(
+private fun ReviewTextColumn(
     isPortrait: Boolean,
-    onAgain: () -> Unit
+    onAgain: () -> Unit,
+    modifier: Modifier = Modifier
 ) {
     Column(
-        modifier = Modifier.weight(1f).fillMaxHeight(),
+        modifier = modifier,
         verticalArrangement = Arrangement.spacedBy(18.dp),
         horizontalAlignment = Alignment.Start
     ) {

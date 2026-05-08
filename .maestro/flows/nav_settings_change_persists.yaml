@@ -1,0 +1,28 @@
+appId: com.jc.photobooth
+---
+- stopApp
+- launchApp
+- tapOn:
+    id: "Settings"
+- assertVisible: "Number of Photos"
+# Drag countdown slider — exact value depends on slider geometry; just tap
+# both sliders far-right to change them, then re-launch and assert they
+# do not snap back to the defaults shown in the info card.
+- swipe:
+    from: "20%,40%"
+    to: "80%,40%"
+    duration: 400
+- swipe:
+    from: "20%,55%"
+    to: "80%,55%"
+    duration: 400
+- takeScreenshot: 01_after_changes
+- back
+- stopApp
+- launchApp
+- tapOn:
+    id: "Settings"
+- takeScreenshot: 02_after_relaunch
+# Default config text would read "3 photos", "3 second countdown".
+# Assert the info card no longer shows BOTH defaults.
+- assertNotVisible: "• 3 photos per session"

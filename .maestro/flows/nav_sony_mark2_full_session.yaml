@@ -1,0 +1,18 @@
+appId: com.jc.photobooth
+---
+# PRECONDITION: Sony A7 III physically reachable at 192.168.122.1, in Single
+# Shooting JPEG mode, paired over WiFi with the device. Skipped by run_all.sh
+# unless SONY_CAMERA_AVAILABLE=1.
+- stopApp
+- launchApp
+- tapOn: "Sony A7 III (Mark 2.0 - WiFi Transfer)"
+- tapOn: "Continue →"
+- extendedWaitUntil:
+    visible: "Look at the lens"
+    timeout: 60000
+- takeScreenshot: 01_countdown
+- extendedWaitUntil:
+    visible: "Looking good."
+    timeout: 90000
+- takeScreenshot: 02_strip_review
+- assertVisible: "VIRTUAL PHOTO STRIP SAVED"

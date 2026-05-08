@@ -14,6 +14,9 @@ import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.unit.dp
 import com.jc.photobooth.data.SettingsRepository
 import com.jc.photobooth.model.PhotoboothConfig
+import com.jc.photobooth.ui.knockbox.KnockboxTokens
+import com.jc.photobooth.util.CrashEntry
+import com.jc.photobooth.util.CrashLogger
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -27,6 +30,7 @@ fun SettingsScreen(
     var isSaving by remember { mutableStateOf(false) }
     var kioskModeEnabled by remember { mutableStateOf(false) }
     var photoStripCountdown by remember { mutableStateOf(10) }
+    val lastCrash: CrashEntry? = remember { CrashLogger.lastCrash() }
 
     LaunchedEffect(Unit) {
         repository.getConfig().collect { loadedConfig ->
@@ -143,10 +147,11 @@ fun SettingsScreen(
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 colors = CardDefaults.cardColors(
-                    containerColor = Color(0xFF1A1A1A)
+                    containerColor = KnockboxTokens.ForestSoft.copy(alpha = 0.18f),
+                    contentColor = KnockboxTokens.Paper
                 ),
                 shape = RectangleShape,
-                border = BorderStroke(1.dp, Color.White.copy(alpha = 0.2f))
+                border = BorderStroke(1.dp, KnockboxTokens.Forest.copy(alpha = 0.4f))
             ) {
                 Column(
                     modifier = Modifier.padding(16.dp),
@@ -176,6 +181,15 @@ fun SettingsScreen(
                         text = "• Photo strip displays for $photoStripCountdown seconds",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSecondaryContainer
+                    )
+                    Text(
+                        text = if (lastCrash == null) {
+                            "• Last crash: none recorded"
+                        } else {
+                            "• Last crash: ${lastCrash.timestampMillis} — ${lastCrash.message.take(120)}"
+                        },
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.7f)
                     )
                 }
             }

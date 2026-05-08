@@ -1,0 +1,16 @@
+appId: com.jc.photobooth
+---
+- stopApp
+- launchApp
+- assertVisible: "Select Camera"
+- takeScreenshot: 01_camera_selection
+- tapOn:
+    id: "Settings"
+- assertVisible: "Settings"
+- assertVisible: "Number of Photos"
+- assertVisible: "Countdown Seconds"
+- takeScreenshot: 02_settings
+- tapOn:
+    id: "Back"
+- assertVisible: "Select Camera"
+- takeScreenshot: 03_back_to_selection

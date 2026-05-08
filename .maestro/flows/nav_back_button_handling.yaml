@@ -1,0 +1,21 @@
+appId: com.jc.photobooth
+---
+- stopApp
+- launchApp
+- assertVisible: "Select Camera"
+# Hardware back from home should not exit the app — assert still visible.
+- back
+- assertVisible: "Select Camera"
+- takeScreenshot: 01_back_from_home
+# Settings → back → home
+- tapOn:
+    id: "Settings"
+- assertVisible: "Number of Photos"
+- back
+- assertVisible: "Select Camera"
+- takeScreenshot: 02_back_from_settings
+# API discovery → back → home
+- tapOn: "Sony API Discovery"
+- back
+- assertVisible: "Select Camera"
+- takeScreenshot: 03_back_from_api_discovery
