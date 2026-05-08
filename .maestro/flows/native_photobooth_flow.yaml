@@ -1,0 +1,34 @@
+appId: com.jc.photobooth
+---
+- stopApp
+- launchApp
+
+# Camera selection
+- assertVisible: "Select Camera"
+- tapOn: "Mock Camera (Testing)"
+- tapOn: "Continue"
+
+# Permission dialog (granted on first run; optional thereafter)
+- tapOn:
+    text: "While using the app"
+    optional: true
+- tapOn:
+    text: "Allow"
+    optional: true
+
+# Attract → auto-start kicks in after ~3s. Capture screenshot quickly.
+- takeScreenshot: 01_attract_or_preview
+
+# Countdown should appear within ~5s of arriving on the host
+- extendedWaitUntil:
+    visible: "Look at the lens"
+    timeout: 10000
+- takeScreenshot: 02_countdown
+
+# 3 shots × ~3s + flash; expect strip review within 30s
+- extendedWaitUntil:
+    visible: "Looking good."
+    timeout: 30000
+- takeScreenshot: 03_strip
+- assertVisible: "VIRTUAL PHOTO STRIP SAVED — COPIES WILL BE AVAILABLE AFTER THE EVENT"
+- assertVisible: "Take another strip →"

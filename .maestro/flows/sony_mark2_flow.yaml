@@ -1,0 +1,38 @@
+appId: com.jc.photobooth
+---
+- stopApp
+- launchApp
+
+# Camera selection
+- assertVisible: "Select Camera"
+- tapOn: "Sony A7 III (Mark 2.0 - WiFi Transfer)"
+- tapOn: "Continue"
+
+# Camera connection (and any permission prompt)
+- tapOn:
+    text: "While using the app"
+    optional: true
+- tapOn:
+    text: "Allow"
+    optional: true
+
+# Verify host's Knockbox attract overlay reaches the screen even though
+# the camera connection may be in progress (live preview slot may show
+# "Connecting to camera…" until WiFi transfer is established).
+- takeScreenshot: m2_01_arrive
+- extendedWaitUntil:
+    visible: "KNOCKBOX · PHOTOBOOTH"
+    timeout: 10000
+- takeScreenshot: m2_02_attract
+
+# Auto-progress past attract → countdown
+- extendedWaitUntil:
+    visible: "Look at the lens"
+    timeout: 12000
+- takeScreenshot: m2_03_countdown
+
+# Allow up to 60s for 3 WiFi-transfer captures + strip review
+- extendedWaitUntil:
+    visible: "Looking good."
+    timeout: 60000
+- takeScreenshot: m2_04_strip

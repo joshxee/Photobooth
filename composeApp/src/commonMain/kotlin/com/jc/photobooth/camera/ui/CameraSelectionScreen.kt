@@ -51,7 +51,7 @@ fun CameraSelectionScreen(
 
     // Load Sony camera config when available
     LaunchedEffect(availableCameras) {
-        if (availableCameras.any { it == CameraType.SONY_A7III || it == CameraType.SONY_A7III_MARK2 }) {
+        if (availableCameras.any { it == CameraType.SONY_A7III_MARK2 }) {
             cameraConfig = repository.getSonyCameraConfig()
         }
     }
@@ -157,9 +157,7 @@ fun CameraSelectionScreen(
             }
 
             // Reconnect WiFi button (only show if Sony cameras available)
-            val hasSonyCameras = availableCameras.any {
-                it == CameraType.SONY_A7III || it == CameraType.SONY_A7III_MARK2
-            }
+            val hasSonyCameras = availableCameras.any { it == CameraType.SONY_A7III_MARK2 }
 
             if (hasSonyCameras) {
                 TextButton(
@@ -252,7 +250,6 @@ fun CameraOptionCard(
                 Text(
                     text = when (cameraType) {
                         CameraType.DEVICE_CAMERA -> "Use your device's built-in camera"
-                        CameraType.SONY_A7III -> "Screenshot workflow • Live view screenshots • High-res backups to SD"
                         CameraType.SONY_A7III_MARK2 -> "WiFi transfer • Downloads actual photos • Requires Single Shot mode"
                         CameraType.MOCK_CAMERA -> "Test mode • Fast capture • No hardware required"
                     },

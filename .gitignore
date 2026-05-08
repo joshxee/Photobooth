@@ -28,3 +28,6 @@ graphify-out/.graphify_root
 graphify-out/.graphify_*.json
 !graphify-out/.graphify_labels.json
 graphify-out/.needs_update
+
+# Maestro screenshots in repo root (transient)
+/*.png

@@ -4,42 +4,36 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
+import com.jc.photobooth.ui.knockbox.KnockboxTokens
 
 /**
  * Premium monochrome color scheme for photobooth app.
  * Business card aesthetic with black/white/gray palette.
  */
 private val PhotoboothColorScheme = darkColorScheme(
-    // Primary colors: Pure white on black
-    primary = Color(0xFFFFFFFF),
-    onPrimary = Color(0xFF000000),
+    primary = KnockboxTokens.Paper,
+    onPrimary = KnockboxTokens.Ink,
 
-    // Surface colors: Dark gray background (prevents OLED burn-in)
-    surface = Color(0xFF0A0A0A),
-    onSurface = Color(0xFFFFFFFF),
+    surface = KnockboxTokens.Ink,
+    onSurface = KnockboxTokens.Paper,
 
-    // Background colors: Dark gray
-    background = Color(0xFF0A0A0A),
-    onBackground = Color(0xFFFFFFFF),
+    background = KnockboxTokens.Ink,
+    onBackground = KnockboxTokens.Paper,
 
-    // Grayscale accents
-    secondary = Color(0xFF808080),
-    onSecondary = Color(0xFFFFFFFF),
-    tertiary = Color(0xFFCCCCCC),
-    onTertiary = Color(0xFF000000),
+    secondary = KnockboxTokens.Forest,
+    onSecondary = KnockboxTokens.Paper,
+    tertiary = KnockboxTokens.ForestSoft,
+    onTertiary = KnockboxTokens.Ink,
 
-    // Error colors: Grayscale (no red)
-    error = Color(0xFFCCCCCC),
-    onError = Color(0xFF000000),
+    error = Color(0xFFE57373),
+    onError = KnockboxTokens.Ink,
 
-    // Container colors: Slightly lighter than background
-    surfaceContainer = Color(0xFF1A1A1A),
-    surfaceContainerHigh = Color(0xFF2A2A2A),
-    surfaceContainerHighest = Color(0xFF3A3A3A),
+    surfaceContainer = Color(0xFF1A1F22),
+    surfaceContainerHigh = Color(0xFF242A2D),
+    surfaceContainerHighest = Color(0xFF2E3438),
 
-    // Borders and outlines
-    outline = Color(0xFF808080),
-    outlineVariant = Color(0xFF4A4A4A)
+    outline = Color(0xFF6E7780),
+    outlineVariant = Color(0xFF3A4146)
 )
 
 /**
@@ -57,7 +51,7 @@ fun PhotoboothTheme(
 ) {
     MaterialTheme(
         colorScheme = PhotoboothColorScheme,
-        typography = PhotoboothTypography,
+        typography = photoboothTypography(),
         shapes = PhotoboothShapes,
         content = content
     )

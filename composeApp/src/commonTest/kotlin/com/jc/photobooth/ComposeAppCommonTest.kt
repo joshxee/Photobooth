@@ -28,17 +28,10 @@ class ComposeAppCommonTest {
     }
 
     @Test
-    fun testScreenEnumHasPhotoboothSonyScreen() {
-        val screen = Screen.PHOTOBOOTH_SONY
+    fun testScreenEnumHasSonyMark2Screen() {
+        val screen = Screen.PHOTOBOOTH_SONY_MARK2
         assertNotNull(screen)
-        assertEquals("PHOTOBOOTH_SONY", screen.name)
-    }
-
-    @Test
-    fun testScreenEnumHasPhotoStripScreen() {
-        val screen = Screen.PHOTO_STRIP
-        assertNotNull(screen)
-        assertEquals("PHOTO_STRIP", screen.name)
+        assertEquals("PHOTOBOOTH_SONY_MARK2", screen.name)
     }
 
     @Test
@@ -49,22 +42,20 @@ class ComposeAppCommonTest {
     }
 
     @Test
-    fun testScreenEnumHasNineValues() {
-        val screens = Screen.values()
-        assertEquals(9, screens.size)
+    fun testScreenEnumHasSevenValues() {
+        val screens = Screen.entries
+        assertEquals(7, screens.size)
     }
 
     @Test
     fun testScreenEnumOrder() {
-        val screens = Screen.values()
+        val screens = Screen.entries
         assertEquals(Screen.CAMERA_SELECTION, screens[0])
         assertEquals(Screen.PHOTOBOOTH_NATIVE, screens[1])
-        assertEquals(Screen.PHOTOBOOTH_SONY, screens[2])
-        assertEquals(Screen.PHOTOBOOTH_SONY_MARK2, screens[3])
-        assertEquals(Screen.PHOTOBOOTH_MOCK, screens[4])
-        assertEquals(Screen.PHOTO_STRIP, screens[5])
-        assertEquals(Screen.SETTINGS, screens[6])
-        assertEquals(Screen.SONY_API_DISCOVERY, screens[7])
-        assertEquals(Screen.UNDER_CONSTRUCTION, screens[8])
+        assertEquals(Screen.PHOTOBOOTH_SONY_MARK2, screens[2])
+        assertEquals(Screen.PHOTOBOOTH_MOCK, screens[3])
+        assertEquals(Screen.SETTINGS, screens[4])
+        assertEquals(Screen.SONY_API_DISCOVERY, screens[5])
+        assertEquals(Screen.UNDER_CONSTRUCTION, screens[6])
     }
 }
