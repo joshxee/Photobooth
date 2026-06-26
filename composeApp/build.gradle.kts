@@ -65,6 +65,8 @@ kotlin {
             // Kotlinx Serialization
             implementation(libs.kotlinx.serialization.json)
 
+            // DataStore (KMP core — platform actuals add the full implementation)
+            implementation(libs.androidx.datastore.preferences.core)
         }
         commonTest.dependencies {
             implementation(libs.kotlin.test)
