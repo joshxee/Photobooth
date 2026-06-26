@@ -1,32 +1,18 @@
 package com.jc.photobooth.camera.domain.discovery
 
-import androidx.datastore.core.DataStore
-import androidx.datastore.preferences.core.Preferences
-import androidx.datastore.preferences.core.edit
-import androidx.datastore.preferences.core.stringPreferencesKey
 import com.jc.photobooth.camera.data.sony.SonyCameraApiClient
-import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.flow.map
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.jsonPrimitive
 
-/**
- * Service for discovering and testing Sony Camera API capabilities
- */
 class SonyApiDiscoveryService(
-    private val apiClient: SonyCameraApiClient,
-    private val dataStore: DataStore<Preferences>? = null
+    private val apiClient: SonyCameraApiClient
 ) {
     private val json = Json {
         prettyPrint = true
         ignoreUnknownKeys = true
-    }
-
-    companion object {
-        private val DISCOVERY_RESULTS_KEY = stringPreferencesKey("sony_discovery_results_json")
     }
 
     /**
@@ -282,30 +268,6 @@ class SonyApiDiscoveryService(
      */
     fun exportToJson(results: DiscoveryResults): String {
         return json.encodeToString(results)
-    }
-
-    /**
-     * Save discovery results to DataStore
-     */
-    suspend fun saveToDataStore(results: DiscoveryResults) {
-        dataStore?.edit { preferences ->
-            preferences[DISCOVERY_RESULTS_KEY] = exportToJson(results)
-        }
-    }
-
-    /**
-     * Load discovery results from DataStore
-     */
-    suspend fun loadFromDataStore(): DiscoveryResults? {
-        return try {
-            dataStore?.data?.map { preferences ->
-                preferences[DISCOVERY_RESULTS_KEY]?.let { jsonString ->
-                    json.decodeFromString<DiscoveryResults>(jsonString)
-                }
-            }?.first()
-        } catch (e: Exception) {
-            null
-        }
     }
 
     // Helper methods
