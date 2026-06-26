@@ -102,7 +102,7 @@ fun SettingsScreen(
                 }
             )
 
-            Divider()
+            HorizontalDivider()
 
             // Kiosk Mode Toggle
             SettingToggle(

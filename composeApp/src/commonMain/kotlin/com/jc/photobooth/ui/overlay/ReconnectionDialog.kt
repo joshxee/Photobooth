@@ -82,7 +82,7 @@ fun ReconnectionDialog(
                         )
                     }
 
-                    Divider()
+                    HorizontalDivider()
 
                     // Instructions
                     Text(

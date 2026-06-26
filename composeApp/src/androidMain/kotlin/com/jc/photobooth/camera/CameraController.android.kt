@@ -113,7 +113,8 @@ class AndroidCameraController(
     suspend fun initialize(): Preview {
         cameraProvider = getCameraProvider()
 
-        preview = Preview.Builder().build()
+        val newPreview = Preview.Builder().build()
+        preview = newPreview
         imageCapture = ImageCapture.Builder()
             .setCaptureMode(ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY)
             .setTargetRotation(android.view.Surface.ROTATION_0)
@@ -125,11 +126,11 @@ class AndroidCameraController(
         camera = cameraProvider?.bindToLifecycle(
             lifecycleOwner,
             cameraSelector,
-            preview,
+            newPreview,
             imageCapture
         )
 
-        return preview!!
+        return newPreview
     }
 
     private suspend fun getCameraProvider(): ProcessCameraProvider =

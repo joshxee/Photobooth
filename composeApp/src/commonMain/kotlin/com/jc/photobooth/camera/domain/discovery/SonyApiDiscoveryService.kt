@@ -166,7 +166,7 @@ class SonyApiDiscoveryService(
             val event = result.getOrNull()
             val rawData = event?.rawData
 
-            if (rawData == null || rawData !is JsonArray) {
+            if (rawData == null) {
                 return Result.failure(Exception("Invalid event data"))
             }
 

@@ -4,14 +4,15 @@ appId: com.jc.photobooth
 - stopApp
 - launchApp
 
-# Wait for app to finish rendering before asserting
-- waitForAnimationToEnd
+# Wait for Camera Selection screen to fully render
+- extendedWaitUntil:
+    visible: "Select Camera"
+    timeout: 15000
 
-# Dismiss ANR dialog if the emulator is slow to respond
+# Dismiss ANR dialog if present
 - tapOn:
     text: "Wait"
     optional: true
-- waitForAnimationToEnd
 
 # Camera Selection screen should be visible
 - assertVisible: "Select Camera"

@@ -106,6 +106,7 @@ class SonyMark2ViewModel(
 
     // Sustained palm detection tracking
     private var firstPalmDetectionTime: Long? = null
+    private var lastPalmDetectionTime: Long? = null
     private var lastFrameProcessedTime: Long = 0
 
     // Timestamp of the last successfully decoded live view frame.
@@ -121,8 +122,9 @@ class SonyMark2ViewModel(
     companion object {
         private const val CLEANUP_INTERVAL_MS = 30 * 60 * 1000L // 30 minutes
         private const val LIVEVIEW_TIMEOUT_MS = 60_000L // 1 minute
-        private const val GESTURE_FRAME_INTERVAL_MS = 100L // ~10 FPS for gesture processing
+        private const val GESTURE_FRAME_INTERVAL_MS = 150L // ~6.5 FPS for gesture processing
         private const val SUSTAINED_PALM_DURATION_MS = 800L // 0.8 seconds to trigger
+        private const val GESTURE_GAP_GRACE_MS = 250L       // Allow brief null gaps before resetting sustained timer
 
         // Stale frame detection — lightweight, checked every few seconds.
         private const val STALE_FRAME_THRESHOLD_MS = 5_000L  // No frame for 5s → stale
@@ -417,6 +419,7 @@ class SonyMark2ViewModel(
     suspend fun captureSingle(): PhotoData {
         // Clear gesture state when a capture starts
         firstPalmDetectionTime = null
+        lastPalmDetectionTime = null
         _uiState.update { it.copy(gestureResult = null) }
 
         logger.i(tag, "[MARK2_VM] Capturing single photo…")
@@ -503,36 +506,6 @@ class SonyMark2ViewModel(
     }
 
     /**
-     * Handle camera operation timeout.
-     * Attempts to recover by restarting live view.
-     */
-    private suspend fun handleTimeout(operation: String) {
-        logger.w(tag, "[MARK2_VM] Timeout detected during: $operation")
-        totalErrorsSinceStart++
-
-        staleDetectionJob?.cancel()
-        staleDetectionJob = null
-        liveViewJob?.cancel()
-        liveViewJob = null
-
-        delay(2000)
-
-        try {
-            logger.i(tag, "[MARK2_VM] Attempting to recover from timeout...")
-            startLiveView()
-        } catch (e: Exception) {
-            logger.e(tag, "[MARK2_VM] Recovery failed: ${e.message}", e)
-            _uiState.update {
-                it.copy(
-                    isConnected = false,
-                    isLiveViewActive = false,
-                    connectionError = "Connection timeout. Please check camera."
-                )
-            }
-        }
-    }
-
-    /**
      * Log session statistics.
      */
     fun logSessionStats() {
@@ -548,7 +521,7 @@ class SonyMark2ViewModel(
 
     /**
      * Process a live view frame for gesture detection.
-     * Throttled to ~10 FPS and only active when idle and connected.
+     * Throttled to ~6.5 FPS and only active when idle and connected.
      */
     private fun processFrameForGesture(jpegData: ByteArray) {
         val detector = gestureDetector ?: return
@@ -575,8 +548,9 @@ class SonyMark2ViewModel(
 
                 _uiState.update { it.copy(gestureResult = result) }
 
+                val now = System.currentTimeMillis()
                 if (result != null) {
-                    val now = System.currentTimeMillis()
+                    lastPalmDetectionTime = now
                     if (firstPalmDetectionTime == null) {
                         firstPalmDetectionTime = now
                         logger.d(tag, "[MARK2_VM] Palm detected - starting sustained timer")
@@ -585,12 +559,17 @@ class SonyMark2ViewModel(
                         if (elapsed >= SUSTAINED_PALM_DURATION_MS) {
                             logger.i(tag, "[MARK2_VM] Sustained palm — emitting startSignal")
                             firstPalmDetectionTime = null
+                            lastPalmDetectionTime = null
                             _startSignal.tryEmit(Unit)
                         }
                     }
                 } else if (firstPalmDetectionTime != null) {
-                    logger.d(tag, "[MARK2_VM] Palm lost - resetting sustained timer")
-                    firstPalmDetectionTime = null
+                    val gapMs = now - (lastPalmDetectionTime ?: now)
+                    if (gapMs > GESTURE_GAP_GRACE_MS) {
+                        logger.d(tag, "[MARK2_VM] Palm lost >250ms - resetting sustained timer")
+                        firstPalmDetectionTime = null
+                        lastPalmDetectionTime = null
+                    }
                 }
             }
         }
@@ -617,7 +596,7 @@ class SonyMark2ViewModel(
             try {
                 apiClient.stopLiveview()
             } catch (e: Exception) {
-                // Ignore errors during disconnect
+                logger.w(tag, "[MARK2_VM] Failed to stop live view: ${e.message}")
             }
         }
         apiClient.close()

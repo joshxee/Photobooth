@@ -12,6 +12,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
+
 /**
  * Implementation of PhotoboothCamera for Sony A7 III camera.
  * Uses WiFi-based Camera Remote API for control and image capture.
@@ -326,7 +327,7 @@ class SonyA7IIICamera(
             Result.success(
                 CapturedPhoto(
                     image = imageBitmap,
-                    timestamp = 0L, // TODO: Use proper multiplatform timestamp
+                    timestamp = System.currentTimeMillis(),
                     metadata = PhotoMetadata(
                         width = imageBitmap.width,
                         height = imageBitmap.height,

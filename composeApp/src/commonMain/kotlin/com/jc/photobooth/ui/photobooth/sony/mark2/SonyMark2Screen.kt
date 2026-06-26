@@ -1,5 +1,6 @@
 package com.jc.photobooth.ui.photobooth.sony.mark2
 
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -22,12 +23,16 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.jc.photobooth.gesture.HandBoundingBox
 import com.jc.photobooth.camera.domain.openWiFiSettings
 import com.jc.photobooth.data.SettingsRepository
 import com.jc.photobooth.model.PhotoboothConfig
@@ -53,8 +58,7 @@ import com.jc.photobooth.ui.photobooth.PhotoboothHost
 @Composable
 fun SonyMark2Screen(
     viewModel: SonyMark2ViewModel,
-    settingsRepository: SettingsRepository,
-    onHome: () -> Unit
+    settingsRepository: SettingsRepository
 ) {
     FullscreenEffect()
 
@@ -124,6 +128,9 @@ fun SonyMark2Screen(
         },
         startTrigger = viewModel.startSignal,
         overlay = {
+            uiState.gestureResult?.let { gesture ->
+                HandDetectionOverlay(boundingBox = gesture.boundingBox)
+            }
             ReconnectionDialog(
                 isVisible = showReconnectionDialog,
                 connectionState = dialogHealthState,
@@ -207,6 +214,24 @@ private fun ConnectingOverlay() {
             color = KnockboxTokens.Paper,
             fontFamily = KnockboxFonts.Sans,
             fontSize = 16.sp
+        )
+    }
+}
+
+@Composable
+private fun HandDetectionOverlay(boundingBox: HandBoundingBox) {
+    Canvas(modifier = Modifier.fillMaxSize()) {
+
+        val left: Float = (1f - boundingBox.right) * size.width
+        val right: Float = (1f - boundingBox.left) * size.width
+
+        val top = boundingBox.top * size.height
+        val bottom = boundingBox.bottom * size.height
+        drawRect(
+            color = Color.White,
+            topLeft = Offset(left, top),
+            size = Size(right - left, bottom - top),
+            style = Stroke(width = 6f)
         )
     }
 }

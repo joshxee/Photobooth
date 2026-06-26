@@ -12,6 +12,10 @@ plugins {
 }
 
 kotlin {
+    compilerOptions {
+        freeCompilerArgs.add("-Xexpect-actual-classes")
+    }
+
     androidTarget {
         compilerOptions {
             jvmTarget.set(JvmTarget.JVM_11)
@@ -60,6 +64,7 @@ kotlin {
 
             // Kotlinx Serialization
             implementation(libs.kotlinx.serialization.json)
+
         }
         commonTest.dependencies {
             implementation(libs.kotlin.test)
@@ -69,13 +74,13 @@ kotlin {
             implementation(compose.preview)
             implementation(libs.androidx.activity.compose)
             // CameraX dependencies for native camera
-            implementation("androidx.camera:camera-camera2:1.3.1")
-            implementation("androidx.camera:camera-lifecycle:1.3.1")
-            implementation("androidx.camera:camera-view:1.3.1")
+            implementation(libs.androidx.camera.camera2)
+            implementation(libs.androidx.camera.lifecycle)
+            implementation(libs.androidx.camera.view)
             // Ktor for Sony camera API
             implementation(libs.ktor.client.okhttp)
             // MediaPipe for gesture recognition
-            implementation("com.google.mediapipe:tasks-vision:0.10.14")
+            implementation(libs.mediapipe.tasks.vision)
             // DataStore for settings persistence (Android support with extensions)
             implementation(libs.androidx.datastore.preferences)
         }

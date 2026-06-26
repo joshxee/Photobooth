@@ -1,5 +1,8 @@
 package com.jc.photobooth.ui.knockbox
 
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -23,6 +26,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -50,25 +54,18 @@ fun KnockboxStripReview(
     stripScalePortrait: Float = 1.45f,
     stripScaleLandscape: Float = 1.3f,
     autoReturnSec: Int = 12,
-    presenceTriggerMs: Long = 4500,
     onAgain: () -> Unit,
+    onTimeout: () -> Unit = onAgain,
     modifier: Modifier = Modifier
 ) {
     var remaining by remember { mutableStateOf(autoReturnSec * 1000L) }
-    var presence by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) {
         while (remaining > 0L) {
             delay(100)
             remaining = max(0L, remaining - 100L)
         }
-        onAgain()
-    }
-    LaunchedEffect(Unit) {
-        delay(presenceTriggerMs)
-        presence = true
-        delay(800)
-        onAgain()
+        onTimeout()
     }
 
     val pct = remaining.toFloat() / (autoReturnSec * 1000f)
@@ -157,7 +154,7 @@ fun KnockboxStripReview(
                             .background(KnockboxTokens.Forest)
                     )
                     Text(
-                        text = if (presence) "PRESENCE DETECTED" else "RETURNING TO PHOTOBOOTH",
+                        text = "RETURNING TO PHOTOBOOTH",
                         color = Color.White.copy(alpha = 0.7f),
                         fontFamily = KnockboxFonts.Mono,
                         fontWeight = FontWeight.Medium,
@@ -218,6 +215,20 @@ private fun ReviewTextColumn(
     onAgain: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    var buttonLoading by remember { mutableStateOf(false) }
+    val fillProgress = remember { Animatable(0f) }
+
+    LaunchedEffect(buttonLoading) {
+        if (buttonLoading) {
+            fillProgress.snapTo(0f)
+            fillProgress.animateTo(
+                targetValue = 1f,
+                animationSpec = tween(durationMillis = 3000, easing = LinearEasing)
+            )
+            onAgain()
+        }
+    }
+
     Column(
         modifier = modifier,
         verticalArrangement = Arrangement.spacedBy(18.dp),
@@ -242,51 +253,20 @@ private fun ReviewTextColumn(
             letterSpacing = (-1.6).sp
         )
 
-        Row(
-            modifier = Modifier
-                .clip(RoundedCornerShape(KnockboxTokens.RadiusMedium))
-                .background(Color.White.copy(alpha = 0.06f))
-                .border(
-                    width = 1.dp,
-                    color = Color.White.copy(alpha = 0.12f),
-                    shape = RoundedCornerShape(KnockboxTokens.RadiusMedium)
-                )
-                .padding(horizontal = 22.dp, vertical = 18.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(16.dp)
-        ) {
-            Box(
-                modifier = Modifier
-                    .size(44.dp)
-                    .clip(CircleShape)
-                    .background(KnockboxTokens.ForestSoft),
-                contentAlignment = Alignment.Center
-            ) {
-                Text(text = "✋", color = KnockboxTokens.Forest, fontSize = 22.sp)
-            }
-            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                Text(
-                    text = "Want another?",
-                    color = Color.White,
-                    fontFamily = KnockboxFonts.Sans,
-                    fontWeight = FontWeight.Medium,
-                    fontSize = 18.sp
-                )
-                Text(
-                    text = "RAISE A HAND · OR TAP BELOW",
-                    color = Color.White.copy(alpha = 0.5f),
-                    fontFamily = KnockboxFonts.Mono,
-                    fontSize = 11.sp,
-                    letterSpacing = 1.0.sp
-                )
-            }
-        }
-
+        val progress = fillProgress.value
         Row(
             modifier = Modifier
                 .clip(RoundedCornerShape(999.dp))
                 .background(KnockboxTokens.Paper)
-                .clickable { onAgain() }
+                .drawBehind {
+                    if (progress > 0f) {
+                        drawRect(
+                            color = KnockboxTokens.Forest.copy(alpha = 0.28f),
+                            size = size.copy(width = size.width * progress)
+                        )
+                    }
+                }
+                .clickable(enabled = !buttonLoading) { buttonLoading = true }
                 .padding(horizontal = 28.dp, vertical = 18.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(12.dp)

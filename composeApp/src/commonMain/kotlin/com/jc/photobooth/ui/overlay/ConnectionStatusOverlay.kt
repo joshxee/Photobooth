@@ -100,7 +100,7 @@ fun ConnectionStatusOverlay(
                             color = Color.White
                         )
 
-                        Divider(color = Color.White.copy(alpha = 0.3f))
+                        HorizontalDivider(color = Color.White.copy(alpha = 0.3f))
 
                         // WiFi Status
                         StatusRow(

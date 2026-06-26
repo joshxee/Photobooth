@@ -9,6 +9,9 @@ import com.google.mediapipe.tasks.vision.gesturerecognizer.GestureRecognizerResu
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import java.util.concurrent.Executors
+import java.util.concurrent.atomic.AtomicLong
+import java.util.concurrent.atomic.AtomicReference
 
 /**
  * Android implementation of GestureDetector using MediaPipe.
@@ -18,23 +21,27 @@ import kotlinx.coroutines.flow.asStateFlow
  * bounding box (closest to camera). Calculates hand bounding box from the
  * 21 hand landmarks with 10% padding.
  *
- * Resets tracking timer every 3 seconds when no gesture is active, allowing
- * new people entering closer to be prioritized without interrupting active gestures.
+ * Periodically swaps the recognizer via AtomicReference when no Open_Palm is
+ * active. This drops MediaPipe's internal hand tracks and forces fresh detection,
+ * ensuring new people entering frame are picked up quickly.
+ *
+ * Thread safety: processFrame (live-view coroutine thread) and handleResult
+ * (MediaPipe callback thread) run concurrently. AtomicReference.getAndSet is
+ * used for the recognizer swap so the read-assign-close sequence is atomic.
  */
 class MediaPipeGestureDetector(
-    context: Context
+    private val context: Context
 ) : GestureDetector {
 
     private val _results = MutableStateFlow<GestureResult?>(null)
     override val results: StateFlow<GestureResult?> = _results.asStateFlow()
 
-    private val gestureRecognizer: GestureRecognizer
+    private val recognizerRef = AtomicReference(createRecognizer())
+    private val lastResetTime = AtomicLong(System.currentTimeMillis())
+    // Single background thread for all recognizer create/close ops — never blocks the callback thread
+    private val resetExecutor = Executors.newSingleThreadExecutor()
 
-    // Periodic tracking reset to allow new people to be prioritized
-    private var lastResetTime: Long = 0
-    private val TRACKING_RESET_INTERVAL_MS = 3000L // Reset every 3 seconds
-
-    init {
+    private fun createRecognizer(): GestureRecognizer {
         val baseOptions = BaseOptions.builder()
             .setModelAssetPath("gesture_recognizer.task")
             .build()
@@ -42,17 +49,17 @@ class MediaPipeGestureDetector(
         val options = GestureRecognizer.GestureRecognizerOptions.builder()
             .setBaseOptions(baseOptions)
             .setRunningMode(com.google.mediapipe.tasks.vision.core.RunningMode.LIVE_STREAM)
-            .setNumHands(2)  // Track 2 hands for multi-person photobooth scenarios
-            .setMinHandDetectionConfidence(0.4f)  // Lower for more permissive detection
-            .setMinHandPresenceConfidence(0.4f)   // Lower for more permissive detection
-            .setMinTrackingConfidence(0.6f)       // Lower for more permissive detection
+            .setNumHands(2)
+            .setMinHandDetectionConfidence(0.4f)
+            .setMinHandPresenceConfidence(0.4f)
+            .setMinTrackingConfidence(0.4f)
             .setResultListener(::handleResult)
             .setErrorListener { error ->
                 android.util.Log.e(TAG, "MediaPipe error: ${error.message}", error)
             }
             .build()
 
-        gestureRecognizer = GestureRecognizer.createFromOptions(context, options)
+        return GestureRecognizer.createFromOptions(context, options)
     }
 
     override fun processFrame(imageBytes: ByteArray, timestampMs: Long) {
@@ -60,15 +67,16 @@ class MediaPipeGestureDetector(
             val bitmap = BitmapFactory.decodeByteArray(imageBytes, 0, imageBytes.size)
                 ?: return
             val mpImage = BitmapImageBuilder(bitmap).build()
-            gestureRecognizer.recognizeAsync(mpImage, timestampMs)
+            recognizerRef.get().recognizeAsync(mpImage, timestampMs)
         } catch (e: Exception) {
             android.util.Log.w(TAG, "Frame processing failed: ${e.message}")
         }
     }
 
     override fun close() {
+        resetExecutor.shutdown()
         try {
-            gestureRecognizer.close()
+            recognizerRef.get().close()
         } catch (e: Exception) {
             android.util.Log.w(TAG, "Error closing gesture recognizer: ${e.message}")
         }
@@ -79,12 +87,7 @@ class MediaPipeGestureDetector(
 
         if (result.gestures().isEmpty() || result.landmarks().isEmpty()) {
             _results.value = null
-
-            // Periodically reset tracking when no gesture is active
-            // This allows new people to be detected, but doesn't interrupt mid-gesture
-            if (now - lastResetTime > TRACKING_RESET_INTERVAL_MS) {
-                lastResetTime = now
-            }
+            maybeResetRecognizer(now)
             return
         }
 
@@ -110,9 +113,14 @@ class MediaPipeGestureDetector(
         }
 
         if (bestGesture == null || bestLandmarks == null) {
+            // Hands visible but no Open_Palm — still eligible for reset
             _results.value = null
+            maybeResetRecognizer(now)
             return
         }
+
+        // Active palm — push reset timer forward so we don't interrupt mid-gesture
+        lastResetTime.set(now)
 
         val boundingBox = calculateBoundingBox(bestLandmarks)
         _results.value = GestureResult(
@@ -120,6 +128,25 @@ class MediaPipeGestureDetector(
             confidence = bestGesture.score(),
             boundingBox = boundingBox
         )
+    }
+
+    private fun maybeResetRecognizer(now: Long) {
+        if (now - lastResetTime.get() <= TRACKING_RESET_INTERVAL_MS) return
+        // Mark reset time immediately to prevent re-entry from subsequent callback frames
+        lastResetTime.set(now)
+        // Offload to background executor — never block the MediaPipe callback thread.
+        // close() acquires the native Graph lock; calling it on the callback thread
+        // while the processing thread holds the same lock causes a deadlock → ANR.
+        resetExecutor.submit {
+            try {
+                val new = createRecognizer()
+                val old = recognizerRef.getAndSet(new)
+                old.close()
+                android.util.Log.d(TAG, "Recognizer reset — fresh hand detection")
+            } catch (e: Exception) {
+                android.util.Log.w(TAG, "Recognizer reset failed: ${e.message}")
+            }
+        }
     }
 
     private fun calculateBoundingBox(
@@ -137,7 +164,6 @@ class MediaPipeGestureDetector(
             if (landmark.y() > maxY) maxY = landmark.y()
         }
 
-        // Add 10% padding
         val width = maxX - minX
         val height = maxY - minY
         val paddingX = width * BOUNDING_BOX_PADDING
@@ -155,5 +181,6 @@ class MediaPipeGestureDetector(
         private const val TAG = "MediaPipeGesture"
         private const val OPEN_PALM_GESTURE = "Open_Palm"
         private const val BOUNDING_BOX_PADDING = 0.1f
+        private const val TRACKING_RESET_INTERVAL_MS = 3000L
     }
 }

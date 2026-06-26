@@ -4,6 +4,8 @@ import android.content.Context
 import android.net.ConnectivityManager
 import android.net.Network
 import android.net.NetworkCapabilities
+import android.net.wifi.WifiInfo
+import android.os.Build
 import android.net.NetworkRequest
 import com.jc.photobooth.camera.data.sony.SonyCameraApiClient
 import kotlinx.coroutines.CoroutineScope
@@ -172,9 +174,13 @@ class CameraNetworkMonitor(
         if (isWifi) {
             // Try to get SSID (requires location permission)
             val ssid = try {
-                @Suppress("DEPRECATION")
-                val wifiInfo = connectivityManager.getNetworkInfo(network)
-                wifiInfo?.extraInfo?.trim('"')
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                    val wifiInfo = capabilities?.transportInfo as? WifiInfo
+                    wifiInfo?.ssid?.trim('"')?.takeIf { it != "<unknown ssid>" }
+                } else {
+                    @Suppress("DEPRECATION")
+                    connectivityManager.getNetworkInfo(network)?.extraInfo?.trim('"')
+                }
             } catch (e: Exception) {
                 null
             }

@@ -37,7 +37,7 @@ private enum class Stage { Attract, Countdown, Flash, Strip }
  *
  * The [livePreview] composable stays in composition across all stages so
  * the upstream camera session keeps streaming — prevents reconnect lag and
- * allows gesture detection while strip review is on screen.
+ * camera session keeps streaming to prevent reconnect lag on next shoot.
  */
 @Composable
 fun PhotoboothHost(
@@ -95,7 +95,6 @@ private fun PhotoboothFlow(
     var stage by remember { mutableStateOf(Stage.Attract) }
     var countdown by remember { mutableIntStateOf(countdownSeconds) }
     var shotIndex by remember { mutableIntStateOf(0) }
-    var presence by remember { mutableStateOf(false) }
     val frames = remember { mutableStateListOf<KnockboxFrame>() }
 
     fun start() {
@@ -105,21 +104,11 @@ private fun PhotoboothFlow(
         stage = Stage.Countdown
     }
 
-    LaunchedEffect(stage) {
-        if (stage == Stage.Attract) {
-            presence = false
-            delay(2200)
-            presence = true
-            delay(900)
-            if (stage == Stage.Attract) start()
-        }
-    }
-
     LaunchedEffect(stage, startTrigger) {
-        if (stage == Stage.Attract && startTrigger != null) {
-            startTrigger.collect {
-                if (stage == Stage.Attract) start()
-            }
+        startTrigger ?: return@LaunchedEffect
+        when (stage) {
+            Stage.Attract -> startTrigger.collect { start() }
+            else -> {}
         }
     }
 
@@ -162,7 +151,6 @@ private fun PhotoboothFlow(
         when (stage) {
             Stage.Attract -> KnockboxAttract(
                 isPortrait = isPortrait,
-                presence = presence,
                 totalShots = totalShots,
                 onStart = ::start
             )
@@ -183,7 +171,8 @@ private fun PhotoboothFlow(
                 date = date,
                 stripScalePortrait = stripScalePortrait,
                 stripScaleLandscape = stripScaleLandscape,
-                onAgain = ::start
+                onAgain = ::start,
+                onTimeout = { stage = Stage.Attract }
             )
         }
 

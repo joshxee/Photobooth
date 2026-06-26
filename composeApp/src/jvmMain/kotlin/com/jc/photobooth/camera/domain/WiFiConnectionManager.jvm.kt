@@ -35,19 +35,18 @@ actual class WiFiConnectionManager {
             when {
                 // macOS
                 System.getProperty("os.name").contains("Mac", ignoreCase = true) -> {
-                    Runtime.getRuntime().exec("open /System/Library/PreferencePanes/Network.prefPane")
+                    ProcessBuilder("open", "/System/Library/PreferencePanes/Network.prefPane").start()
                 }
                 // Windows
                 System.getProperty("os.name").contains("Windows", ignoreCase = true) -> {
-                    Runtime.getRuntime().exec("control.exe /name Microsoft.NetworkAndSharingCenter")
+                    ProcessBuilder("control.exe", "/name", "Microsoft.NetworkAndSharingCenter").start()
                 }
                 // Linux
                 else -> {
                     // Try to open network manager on Linux (varies by distro)
                     try {
-                        Runtime.getRuntime().exec("nm-connection-editor")
+                        ProcessBuilder("nm-connection-editor").start()
                     } catch (e: Exception) {
-                        // Fallback: just provide instructions
                         println("Please open your system's WiFi settings and connect to the camera network")
                     }
                 }
