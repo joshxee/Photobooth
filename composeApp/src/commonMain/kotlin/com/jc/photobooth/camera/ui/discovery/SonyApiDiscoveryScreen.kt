@@ -23,9 +23,8 @@ fun SonyApiDiscoveryScreen(
     onBack: () -> Unit
 ) {
     val scope = rememberCoroutineScope()
-    val dataStore: androidx.datastore.core.DataStore<androidx.datastore.preferences.core.Preferences> = remember { createDataStore() }
     val apiClient = remember { SonyCameraApiClient(logger = createPlatformLogger()) }
-    val discoveryService = remember { SonyApiDiscoveryService(apiClient, dataStore) }
+    val discoveryService = remember { SonyApiDiscoveryService(apiClient) }
 
     var connectionState by remember { mutableStateOf<ConnectionState>(ConnectionState.Disconnected) }
     var availableApis by remember { mutableStateOf<List<ApiMethodInfo>>(emptyList()) }
@@ -336,12 +335,7 @@ fun SonyApiDiscoveryScreen(
                                         notes = "Full discovery completed on Sony A7 III"
                                     )
 
-                                    // Save to DataStore
-                                    discoveryService.saveToDataStore(results)
-
-                                    // Export to file
-                                    val timestamp = System.currentTimeMillis()
-                                    val filename = "sony_a7iii_api_discovery_$timestamp.json"
+                                    val filename = "sony_a7iii_api_discovery.json"
                                     val json = discoveryService.exportToJson(results)
 
                                     val exportResult = exportToFile(filename, json)
