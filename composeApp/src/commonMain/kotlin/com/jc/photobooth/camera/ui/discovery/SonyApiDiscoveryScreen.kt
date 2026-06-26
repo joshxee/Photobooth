@@ -106,7 +106,7 @@ fun SonyApiDiscoveryScreen(
                         )
                     ) {
                         Text(
-                            text = statusMessage!!,
+                            text = statusMessage.orEmpty(),
                             modifier = Modifier.padding(16.dp),
                             style = MaterialTheme.typography.bodyMedium
                         )

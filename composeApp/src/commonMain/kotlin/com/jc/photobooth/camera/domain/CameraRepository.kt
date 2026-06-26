@@ -73,10 +73,7 @@ class CameraRepository(
         return when (type) {
             CameraType.DEVICE_CAMERA -> deviceCamera
             CameraType.SONY_A7III_MARK2 -> {
-                if (sonyCamera == null) {
-                    sonyCamera = SonyA7IIICamera()
-                }
-                sonyCamera!!
+                sonyCamera ?: SonyA7IIICamera().also { sonyCamera = it }
             }
             CameraType.MOCK_CAMERA -> {
                 // Mock camera handled separately in UI layer
