@@ -54,21 +54,6 @@ class CameraRepository(
         }
     }
 
-    /**
-     * Get the currently selected camera instance
-     */
-    suspend fun getCurrentCamera(): PhotoboothCamera {
-        val cameraType = dataStore.data.map { preferences ->
-            val cameraId = preferences[SELECTED_CAMERA_KEY] ?: CameraType.DEVICE_CAMERA.id
-            CameraType.fromId(cameraId) ?: CameraType.DEVICE_CAMERA
-        }.first()
-
-        return getCameraInstance(cameraType)
-    }
-
-    /**
-     * Get a specific camera instance
-     */
     fun getCameraInstance(type: CameraType): PhotoboothCamera {
         return when (type) {
             CameraType.DEVICE_CAMERA -> deviceCamera
@@ -104,28 +89,6 @@ class CameraRepository(
         }.first()
     }
 
-    /**
-     * Save Sony camera WiFi configuration
-     */
-    suspend fun saveSonyCameraConfig(config: SonyCameraConfig) {
-        dataStore.edit { preferences ->
-            preferences[SONY_CAMERA_IP_KEY] = config.ip
-            preferences[SONY_CAMERA_SSID_KEY] = config.ssid
-            preferences[SONY_CAMERA_PASSWORD_KEY] = config.password
-        }
-
-        // Recreate Sony camera instance with new config
-        sonyCamera?.close()
-        sonyCamera = SonyA7IIICamera(config.ip)
-    }
-
-    /**
-     * Disconnect all cameras
-     */
-    suspend fun disconnectAll() {
-        deviceCamera.disconnect()
-        sonyCamera?.disconnect()
-    }
 }
 
 /**

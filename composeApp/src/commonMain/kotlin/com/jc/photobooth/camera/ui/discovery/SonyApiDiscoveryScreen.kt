@@ -15,7 +15,6 @@ import com.jc.photobooth.camera.data.sony.createPlatformLogger
 import com.jc.photobooth.camera.domain.ConnectionState
 import com.jc.photobooth.camera.domain.discovery.*
 import com.jc.photobooth.camera.ui.ConnectionStatusIndicator
-import com.jc.photobooth.data.createDataStore
 import kotlinx.coroutines.launch
 
 @Composable
@@ -28,7 +27,6 @@ fun SonyApiDiscoveryScreen(
 
     var connectionState by remember { mutableStateOf<ConnectionState>(ConnectionState.Disconnected) }
     var availableApis by remember { mutableStateOf<List<ApiMethodInfo>>(emptyList()) }
-    var testResults by remember { mutableStateOf<List<ApiTestResult>>(emptyList()) }
     var captureTestResults by remember { mutableStateOf<List<CaptureMethodResult>>(emptyList()) }
     var captureWorkflowResult by remember { mutableStateOf<CaptureWorkflowResult?>(null) }
     var eventAnalysis by remember { mutableStateOf<EventStructureAnalysis?>(null) }

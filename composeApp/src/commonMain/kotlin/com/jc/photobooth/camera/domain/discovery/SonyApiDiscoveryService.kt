@@ -293,7 +293,7 @@ class SonyApiDiscoveryService(
                     innerArray?.mapNotNull {
                         try {
                             it.jsonPrimitive.content
-                        } catch (e: Exception) {
+                        } catch (_: Exception) {
                             null
                         }
                     }?.filter { it.startsWith("http") } ?: emptyList()
