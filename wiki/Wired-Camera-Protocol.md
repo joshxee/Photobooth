@@ -166,7 +166,7 @@ Status as of the first hardware run (2026-10-08); ✅ = observed in the device l
 - ✅ Shutter is released after every capture.
 - ⬜ The SD card also holds the picture (Still Img. Save Dest. = PC+Camera).
 - ✅ Three consecutive RAW+JPEG captures (1.9–2.0 s each, 6000×4000) with the RAW discarded each time; live view ran at ~20 fps with ~19 % of frames refused (`AccessDenied`) and no gap over 0.11 s outside a capture.
-- ⬜ The same session read through to the strip on screen (the logs do not record the UI).
+- ✅ A full 3-shot RAW+JPEG session on the latest build (RAW cleared inside the capture): the preview stayed live through every countdown and the strip showed all three photos (user-observed).
 - ✅ Unplug while idle: live view gave up after five `No such device` failures (~0.5 s) and the camera went to the error state.
 - ⬜ Unplug mid-countdown: recoverable error, not a hang.
 - ⬜ Wrong mode (USB Connection = Mass Storage): the error mentions PC Remote.
@@ -183,6 +183,11 @@ Status as of the first hardware run (2026-10-08); ✅ = observed in the device l
 - **Desktop USB on Windows** needs a WinUSB driver bound to the camera (e.g. Zadig); the
   `desktop-usb` feature is compile- and unit-tested here but not exercised.
 - **One camera, one session.** Hot-swapping cameras mid-session is out of scope.
+- **Strip photos take ~0.5 s to appear.** The app serves the camera's full 6000×4000 JPEG (~10 MB)
+  over `booth://` unscaled, so the WebView decodes three 24 MP images when the strip mounts. This
+  is the likely cause, not a measured one. The cheap fix is to prefetch and `decode()` each photo
+  when its capture finishes, during the next countdown; downscaling in Rust would need a JPEG
+  decoder dependency (only an encoder is present today).
 - **RAW+JPEG makes each capture slower on the wire** (the ~49 MB RAW is downloaded and discarded
   inside the capture, ~2.3 s). JPEG-only quality avoids it; whether to keep RAW on the SD card is a
   camera-menu choice the app cannot influence.
