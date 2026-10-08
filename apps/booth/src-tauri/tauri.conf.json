@@ -22,8 +22,12 @@
     ],
     "security": {
       "csp": "default-src 'self'; img-src 'self' booth: http://booth.localhost blob:; connect-src ipc: http://ipc.localhost; style-src 'self'",
-      "assetProtocol": { "enable": false },
-      "capabilities": ["default"]
+      "assetProtocol": {
+        "enable": false
+      },
+      "capabilities": [
+        "default"
+      ]
     }
   },
   "bundle": {
@@ -35,6 +39,9 @@
       "icons/128x128@2x.png",
       "icons/icon.icns",
       "icons/icon.ico"
-    ]
+    ],
+    "android": {
+      "debugApplicationIdSuffix": ".tauri"
+    }
   }
 }
