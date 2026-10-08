@@ -352,7 +352,7 @@ impl AppState {
     pub async fn start_live_view(&self, sink: Box<dyn FrameSink>) -> Result<(), CommandError> {
         let camera = self.active_camera()?;
         let stream = camera.start_live_view().await?;
-        let task = tokio::spawn(forward_frames(stream, sink));
+        let task = tokio::spawn(keep_live_view_running(camera, stream, sink));
         if let Some(previous) = self.live.lock().await.replace(task) {
             previous.abort();
         }
@@ -405,16 +405,68 @@ impl AppState {
     }
 }
 
-async fn forward_frames(mut stream: FrameStream, mut sink: Box<dyn FrameSink>) {
+/// Forwards `stream` to `sink` until the stream ends. `false` means the consumer went away.
+async fn forward_frames(mut stream: FrameStream, sink: &mut dyn FrameSink) -> bool {
     while let Some(mut frame) = stream.next().await {
         // Keep-latest: drop anything that queued up while we were busy.
         while let Some(Some(newer)) = stream.next().now_or_never() {
             frame = newer;
         }
         if !sink.send(frame) {
-            break;
+            return false;
         }
     }
+    true
+}
+
+/// Forwards live view and, when the camera ends the stream (it failed or was unplugged), resumes
+/// into the *same* sink once the camera is back — however it was reconnected (a new session,
+/// "Retry connection", ...). Without this the preview froze for good: the stream ended, the
+/// camera reconnected, and nothing asked it for frames again.
+///
+/// Only a camera that left `Ready` and returned counts as back, so a camera whose stream is
+/// empty by design (a native preview) is not restarted in a loop.
+async fn keep_live_view_running(
+    camera: Arc<dyn Camera>,
+    first: FrameStream,
+    mut sink: Box<dyn FrameSink>,
+) {
+    let mut status = camera.status();
+    let mut stream = first;
+    loop {
+        if !forward_frames(stream, sink.as_mut()).await {
+            return;
+        }
+        tracing::info!("live view ended; it resumes when the camera is ready again");
+        stream = loop {
+            if !wait_until_ready_again(&mut status).await {
+                return;
+            }
+            match camera.start_live_view().await {
+                Ok(resumed) => {
+                    tracing::info!("live view resumed");
+                    break resumed;
+                }
+                Err(err) => tracing::warn!(%err, "live view could not resume"),
+            }
+        };
+    }
+}
+
+/// Waits for the camera to leave `Ready` (it may already have) and become `Ready` again.
+/// `false` when the camera is gone for good.
+async fn wait_until_ready_again(status: &mut watch::Receiver<CameraStatus>) -> bool {
+    while *status.borrow_and_update() == CameraStatus::Ready {
+        if status.changed().await.is_err() {
+            return false;
+        }
+    }
+    while *status.borrow_and_update() != CameraStatus::Ready {
+        if status.changed().await.is_err() {
+            return false;
+        }
+    }
+    true
 }
 
 #[cfg(test)]
@@ -726,6 +778,55 @@ mod tests {
         );
     }
 
+    /// Unplug (the stream ends), reconnect by any route, and the preview comes back by itself.
+    #[tokio::test(start_paused = true)]
+    async fn live_view_resumes_into_the_same_sink_after_the_camera_reconnects() {
+        let rig = rig();
+        rig.state.select_camera(CameraId::TEST).await.unwrap();
+        rig.state.connect_camera().await.unwrap();
+        let (tx, mut rx) = mpsc::unbounded_channel();
+        rig.state
+            .start_live_view(Box::new(ChannelSink(tx)))
+            .await
+            .unwrap();
+        rx.recv().await.expect("frames flow before the fault");
+
+        rig.state.inject(Fault::DisconnectCamera).await.unwrap();
+        tokio::time::sleep(Duration::from_secs(1)).await;
+        while rx.try_recv().is_ok() {} // frames already in flight
+        tokio::time::sleep(Duration::from_secs(1)).await;
+        assert!(rx.try_recv().is_err(), "no frames while the camera is gone");
+
+        // Not through start_live_view: the supervisor must notice the reconnect on its own.
+        rig.state.connect_camera().await.unwrap();
+        let frame = tokio::time::timeout(Duration::from_secs(5), rx.recv())
+            .await
+            .expect("frames resume after the reconnect")
+            .expect("same sink");
+        assert!(frame.starts_with(&[0xFF, 0xD8]));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn live_view_does_not_resume_after_it_was_stopped_on_purpose() {
+        let rig = rig();
+        rig.state.select_camera(CameraId::TEST).await.unwrap();
+        rig.state.connect_camera().await.unwrap();
+        let (tx, mut rx) = mpsc::unbounded_channel();
+        rig.state
+            .start_live_view(Box::new(ChannelSink(tx)))
+            .await
+            .unwrap();
+        rx.recv().await.expect("frame");
+
+        rig.state.stop_live_view().await;
+        rig.state.inject(Fault::DisconnectCamera).await.unwrap();
+        rig.state.connect_camera().await.unwrap();
+        tokio::time::sleep(Duration::from_secs(1)).await;
+        while rx.try_recv().is_ok() {}
+        tokio::time::sleep(Duration::from_secs(1)).await;
+        assert!(rx.try_recv().is_err(), "a stopped preview stays stopped");
+    }
+
     #[tokio::test]
     async fn forwarder_delivers_only_the_newest_queued_frame() {
         struct Slow(mpsc::UnboundedSender<Bytes>);
@@ -737,7 +838,8 @@ mod tests {
         let frames: Vec<Bytes> = (0u8..6).map(|i| Bytes::from(vec![i])).collect();
         let stream: FrameStream = Box::pin(futures_util::stream::iter(frames));
         let (tx, mut rx) = mpsc::unbounded_channel();
-        forward_frames(stream, Box::new(Slow(tx))).await;
+        let consumer_open = forward_frames(stream, &mut Slow(tx)).await;
+        assert!(consumer_open);
         let delivered: Vec<Bytes> = std::iter::from_fn(|| rx.try_recv().ok()).collect();
         // Everything was already queued, so only the last frame is worth sending.
         assert_eq!(delivered, vec![Bytes::from(vec![5u8])]);

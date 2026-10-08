@@ -4,6 +4,7 @@
 //! Everything blocking: it is driven from a dedicated thread (`spawn_blocking`) by
 //! `SonyCamera`, or directly from the `shoot` example.
 
+use std::collections::VecDeque;
 use std::thread::sleep;
 use std::time::{Duration, Instant};
 
@@ -15,6 +16,9 @@ use crate::props;
 use crate::ptp::{Ptp, Timeouts};
 use crate::transport::Transport;
 
+/// How many camera events are remembered for the log when an image never arrives.
+const RECENT_EVENTS: usize = 16;
+
 /// Tunables. `Default` is for real hardware; [`SonyConfig::no_delays`] is for tests.
 #[derive(Clone, Debug)]
 pub struct SonyConfig {
@@ -24,7 +28,16 @@ pub struct SonyConfig {
     pub handshake_retry_delay: Duration,
     /// Pause between half-press (autofocus) and full press.
     pub af_settle: Duration,
-    /// How long to wait for the captured image to appear in camera memory.
+    /// How long to wait for the image after the first shutter press before concluding that the
+    /// camera ignored it. A real A7 III delivers it ~1.1–1.3 s after the press.
+    ///
+    /// With focus priority the camera drops a full press that arrives before autofocus has
+    /// locked, and nothing ever shows up. The press is then repeated once, after
+    /// [`retry_af_settle`](Self::retry_af_settle).
+    pub retry_after: Duration,
+    /// Autofocus pause for the repeated press.
+    pub retry_af_settle: Duration,
+    /// How long to wait for the captured image to appear in camera memory (after the repeat).
     pub image_timeout: Duration,
     /// Interval between checks for the image; also the interrupt-pipe read timeout.
     pub poll_interval: Duration,
@@ -49,7 +62,9 @@ impl Default for SonyConfig {
             handshake_retries: 20,
             handshake_retry_delay: Duration::from_millis(100),
             af_settle: Duration::from_millis(300),
-            image_timeout: Duration::from_secs(10),
+            retry_after: Duration::from_secs(3),
+            retry_af_settle: Duration::from_millis(1200),
+            image_timeout: Duration::from_secs(6),
             poll_interval: Duration::from_millis(50),
             live_view_timeout: Duration::from_secs(3),
             chunk_threshold: u32::MAX,
@@ -69,6 +84,8 @@ impl SonyConfig {
             },
             handshake_retry_delay: Duration::ZERO,
             af_settle: Duration::ZERO,
+            retry_after: Duration::from_millis(100),
+            retry_af_settle: Duration::ZERO,
             image_timeout: Duration::from_millis(200),
             poll_interval: Duration::from_millis(1),
             live_view_timeout: Duration::from_millis(50),
@@ -325,12 +342,25 @@ impl<T: Transport> Sony<T> {
             tracing::warn!(stale, "discarded objects left over from an earlier capture");
         }
         let started = Instant::now();
-        self.shoot()?;
+        self.shoot_with(self.cfg.af_settle)?;
         tracing::info!(
             elapsed_ms = started.elapsed().as_millis() as u64,
             "shutter released; waiting for the image"
         );
-        self.wait_for_image()?;
+        match self.wait_for_image_within(self.cfg.retry_after) {
+            // A full press that lands before autofocus has locked is dropped (focus priority)
+            // and no image ever follows. Nothing was taken, so pressing again cannot duplicate
+            // a photo; the second try gets a longer autofocus pause.
+            Err(Error::Timeout(_)) => {
+                tracing::warn!(
+                    waited_ms = started.elapsed().as_millis() as u64,
+                    "no image after the shutter press (autofocus may not have locked in time); pressing again"
+                );
+                self.shoot_with(self.cfg.retry_af_settle)?;
+                self.wait_for_image_within(self.cfg.image_timeout)?;
+            }
+            other => other?,
+        }
         let capture = self.download_jpeg()?;
         tracing::info!(
             elapsed_ms = started.elapsed().as_millis() as u64,
@@ -345,8 +375,11 @@ impl<T: Transport> Sony<T> {
 
     /// S1 down → AF settle → S2 down → S2 up → S1 up, via a drop-guard.
     pub fn shoot(&mut self) -> Result<()> {
+        self.shoot_with(self.cfg.af_settle)
+    }
+
+    fn shoot_with(&mut self, af_settle: Duration) -> Result<()> {
         self.require_connected()?;
-        let af_settle = self.cfg.af_settle;
         let mut shutter = ShutterGuard::new(&mut self.ptp);
         shutter.half_press()?;
         sleep(af_settle);
@@ -398,11 +431,21 @@ impl<T: Transport> Sony<T> {
     /// Property read failures are tolerated while there is still time: the event or a retried
     /// `GetObjectInfo` may yet succeed.
     pub fn wait_for_image(&mut self) -> Result<()> {
+        self.wait_for_image_within(self.cfg.image_timeout)
+    }
+
+    fn wait_for_image_within(&mut self, timeout: Duration) -> Result<()> {
         let started = Instant::now();
-        let deadline = started + self.cfg.image_timeout;
+        let deadline = started + timeout;
+        // What the camera said while we waited, for the log if it never delivers.
+        let mut recent: VecDeque<(u16, Option<u32>)> = VecDeque::with_capacity(RECENT_EVENTS);
         loop {
             if let Some(ev) = self.ptp.poll_event(self.cfg.poll_interval)? {
                 tracing::debug!(code = ev.code, params = ?ev.params, "camera event");
+                if recent.len() == RECENT_EVENTS {
+                    recent.pop_front();
+                }
+                recent.push_back((ev.code, ev.params.first().copied()));
                 let added = matches!(ev.code, event::SONY_OBJECT_ADDED | event::OBJECT_ADDED);
                 if added && ev.params.first() == Some(&handle::CAPTURED_IMAGE) {
                     tracing::info!(
@@ -426,6 +469,11 @@ impl<T: Transport> Sony<T> {
                 Err(e) => tracing::debug!(%e, "ObjectInMemory not readable; relying on events"),
             }
             if Instant::now() >= deadline {
+                tracing::warn!(
+                    waited_ms = started.elapsed().as_millis() as u64,
+                    last_events = ?recent.iter().map(|(code, param)| (format!("{code:#06x}"), param.map(|p| format!("{p:#06x}")))).collect::<Vec<_>>(),
+                    "no image appeared; the camera's last events (code, first parameter)"
+                );
                 return Err(Error::Timeout(
                     "captured image never appeared in camera memory",
                 ));

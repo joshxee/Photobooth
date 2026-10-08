@@ -154,6 +154,55 @@ fn capture_presses_s1_then_s2_and_releases_s2_before_s1() {
     assert_eq!(photo.filename, "DSC00001.JPG");
 }
 
+const PRESS_AND_RELEASE: [(u16, u16); 4] = [
+    (prop::SHUTTER_HALF, DOWN),
+    (prop::SHUTTER_FULL, DOWN),
+    (prop::SHUTTER_FULL, UP),
+    (prop::SHUTTER_HALF, UP),
+];
+
+/// Seen on a real A7 III: when the full press lands before autofocus has locked, the camera
+/// drops it and never produces an image.
+#[test]
+fn a_press_the_camera_ignores_is_repeated_once_and_the_photo_is_returned() {
+    let (mut sony, sim) = connected(SimConfig {
+        ignore_shutters: 1,
+        ..SimConfig::default()
+    });
+    let photo = sony.capture().unwrap();
+
+    assert!(photo.jpeg.starts_with(&[0xFF, 0xD8]));
+    assert_eq!(sim.exposures(), 1, "exactly one picture, not two");
+    let twice: Vec<_> = PRESS_AND_RELEASE
+        .iter()
+        .chain(&PRESS_AND_RELEASE)
+        .copied()
+        .collect();
+    assert_eq!(sim.shutter_log(), twice);
+    assert!(!sim.shutter_held());
+}
+
+#[test]
+fn a_camera_that_ignores_every_press_fails_after_exactly_one_repeat() {
+    let (mut sony, sim) = connected(SimConfig {
+        ignore_shutters: 99,
+        ..SimConfig::default()
+    });
+    let err = sony.capture().unwrap_err();
+
+    assert!(
+        matches!(err, Error::Timeout(what) if what.starts_with("captured image")),
+        "{err:?}"
+    );
+    assert_eq!(sim.exposures(), 0);
+    assert_eq!(
+        sim.shutter_log().len(),
+        8,
+        "the first press and one repeat, nothing more"
+    );
+    assert!(!sim.shutter_held());
+}
+
 #[test]
 fn consecutive_captures_return_distinct_images() {
     let (mut sony, sim) = connected(SimConfig::default());

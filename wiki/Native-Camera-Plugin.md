@@ -127,9 +127,11 @@ Xiaomi Pad, Android 14 (HyperOS/MIUI), 2026-10-09. ✅ = observed, ⬜ = not yet
   front, which would explain the "flaky" impression; not confirmed with a log.
 - ✅ fd handoff: the Sony handshake completes and `GetDeviceInfo` reports `ILCE-7M3`
   (see `Wired-Camera-Protocol.md`).
-- ◐ Unplugging the camera while idle: live view gave up after five `No such device` failures and
-  the camera went to the error state. ⬜ Unplug **mid-countdown** and replugging without restarting
-  the app (the old connection is torn down in the right order).
+- ◐ Unplugging the camera: live view gave up after five `No such device` failures, but the camera
+  status stayed `Ready` (no banner, nothing could recover it) and, after unplug → replug → *Try
+  again* mid-session, the preview stayed dead. Both fixed on 2026-10-09 (status goes to `Error`;
+  `AppState` resumes live view once the camera is back) and covered by tests, **not yet re-run on
+  the tablet**. See `Wired-Camera-Protocol.md`, findings 6–7.
 - ⬜ Background and foreground the app with the preview running.
 
 ## Known limitations

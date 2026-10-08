@@ -41,6 +41,9 @@ pub struct SimConfig {
     pub chunked_download_supported: bool,
     /// Property polls before `LiveViewStatus` turns non-zero.
     pub live_view_after_polls: u32,
+    /// The camera drops this many full presses without taking a picture, as a body with focus
+    /// priority does when autofocus has not locked yet.
+    pub ignore_shutters: u32,
     pub faults: Vec<Fault>,
 }
 
@@ -61,6 +64,7 @@ impl Default for SimConfig {
             image_height: 4000,
             chunked_download_supported: true,
             live_view_after_polls: 1,
+            ignore_shutters: 0,
             faults: Vec::new(),
         }
     }
@@ -110,6 +114,7 @@ struct State {
     in_memory: bool,
     live_polls_seen: u32,
     exposures: u32,
+    ignored_shutters: u32,
     next_live_frame: u32,
     chunk_requests: u32,
     current_op: u16,
@@ -391,7 +396,9 @@ impl SimTransport {
             (prop::SHUTTER_HALF, 1) => state.s1_down = false,
             (prop::SHUTTER_FULL, 2) => {
                 state.s2_down = true;
-                if state.s1_down {
+                if state.s1_down && state.ignored_shutters < self.cfg.ignore_shutters {
+                    state.ignored_shutters += 1;
+                } else if state.s1_down {
                     state.exposures += 1;
                     state.image_polls_left = Some(self.cfg.image_ready_after_polls);
                     // Like a real camera, objects nobody fetched stay queued (and

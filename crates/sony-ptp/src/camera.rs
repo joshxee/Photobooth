@@ -135,6 +135,8 @@ pub fn map_error(err: &Error) -> CameraError {
             CameraError::Protocol(format!("timed out ({what}): {PC_REMOTE_HINT}"))
         }
         Error::Stall(what) => CameraError::Io(format!("the camera stalled the USB pipe ({what})")),
+        // libusb's wording for a device that has been unplugged.
+        Error::Io(message) if message.contains("No such device") => CameraError::Disconnected,
         Error::Io(message) => CameraError::Io(message.clone()),
         Error::Response { code, .. } if *code == rc::DEVICE_BUSY => CameraError::Busy,
         Error::NotConnected | Error::NotFound => CameraError::NotConnected,
@@ -298,6 +300,8 @@ fn live_loop<T: Transport>(
     let mut denied_for: Option<Duration> = None;
     let mut restarts = 0u32;
     let mut last_progress = Instant::now();
+    // Set when the loop ends because the camera stopped working (not because it was told to).
+    let mut gave_up: Option<String> = None;
 
     while !stop.load(Ordering::SeqCst) && !frames.is_closed() {
         if shared.capture_pending.load(Ordering::SeqCst) {
@@ -355,6 +359,7 @@ fn live_loop<T: Transport>(
                 tracing::warn!(%err, failures, "live view step failed");
                 if failures >= MAX_CONSECUTIVE_FAILURES {
                     tracing::warn!("giving up on live view after repeated failures");
+                    gave_up = Some(map_error(&err).to_string());
                     break;
                 }
                 active = false;
@@ -366,10 +371,26 @@ fn live_loop<T: Transport>(
             restarts += 1;
             tracing::warn!(restarts, "live view stalled; restarting it");
             if restarts > MAX_RESTARTS {
+                gave_up = Some("live view stopped responding".to_owned());
                 break;
             }
             active = false;
             last_progress = Instant::now();
+        }
+    }
+
+    // Say so. Otherwise the camera still looks `Ready` while its preview is dead: no error is
+    // shown, and `connect()` (a no-op for a Ready camera) could never rebuild the connection.
+    if let Some(reason) = gave_up {
+        if !stop.load(Ordering::SeqCst) {
+            shared.status.send_if_modified(|status| {
+                if *status == CameraStatus::Ready {
+                    *status = CameraStatus::Error(reason);
+                    true
+                } else {
+                    false
+                }
+            });
         }
     }
 }
@@ -744,6 +765,54 @@ mod tests {
         assert!(
             !message.contains("PC Remote"),
             "the handshake already worked: {message}"
+        );
+    }
+
+    /// Without this the camera kept saying `Ready` while its preview was dead: no error banner,
+    /// and `connect()` (a no-op for a Ready camera) could not rebuild the connection.
+    #[tokio::test]
+    async fn live_view_giving_up_marks_the_camera_errored_so_connect_can_recover_it() {
+        let (cam, _) = camera(SimConfig {
+            faults: (1..=5)
+                .map(|nth| Fault::WriteError {
+                    op: crate::codes::op::GET_OBJECT,
+                    nth,
+                })
+                .collect(),
+            ..SimConfig::default()
+        });
+        cam.connect().await.unwrap();
+        let mut status = cam.status();
+        let mut frames = cam.start_live_view().await.unwrap();
+
+        tokio::time::timeout(
+            Duration::from_secs(5),
+            status.wait_for(|s| matches!(s, CameraStatus::Error(_))),
+        )
+        .await
+        .expect("the camera is flagged once live view gives up")
+        .unwrap();
+        assert!(
+            next(&mut frames).await.is_none(),
+            "and the frame stream has ended"
+        );
+
+        cam.connect().await.expect("a reconnect recovers it");
+        assert_eq!(*cam.status().borrow(), CameraStatus::Ready);
+        cam.capture().await.expect("and captures work again");
+    }
+
+    #[test]
+    fn an_unplugged_camera_is_reported_as_disconnected_not_as_a_raw_usb_error() {
+        let unplugged = Error::Io(
+            "GetObject failed: No such device (it may have been disconnected)".to_owned(),
+        );
+        assert_eq!(map_error(&unplugged), CameraError::Disconnected);
+        assert!(needs_reconnect(&unplugged));
+        // Other I/O failures keep their detail.
+        assert_eq!(
+            map_error(&Error::Io("Input/Output Error".to_owned())),
+            CameraError::Io("Input/Output Error".to_owned())
         );
     }
 

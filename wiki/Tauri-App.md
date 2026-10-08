@@ -38,6 +38,15 @@ encoding. The backend forwarder additionally keeps **only the newest frame** whe
 up (`forward_frames`), and the frontend painter drops stale frames while a decode is in flight, so
 latency cannot grow without bound. Events remain right for the small, infrequent state messages.
 
+**Live view resumes by itself.** A Tauri `Channel` has no "closed" signal, so the frontend cannot
+tell that a stream has died. `keep_live_view_running` in `state.rs` therefore owns the stream:
+when the camera ends it (a failure, an unplug) it waits for the camera to leave `Ready` and come
+back, then starts live view again into the *same* channel, whichever route reconnected the camera
+(a new session, *Retry connection*). Requiring a departure from `Ready` keeps a camera whose
+stream is empty by design (the native preview) from being restarted in a loop, and an explicit
+`live_view_stop` aborts the supervisor so a stopped preview stays stopped. Before this, an
+unplug → replug left the last frame frozen on screen.
+
 ## The `booth://` protocol
 
 Photos are served from the in-memory `PhotoStore` only (the no-retention rule): there is no asset

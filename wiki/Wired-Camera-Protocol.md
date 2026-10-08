@@ -36,7 +36,8 @@ SDIO_Connect(3,0,0)                   → connected
 **Capture:** drain stale events and any **pending objects** left in the camera → S1 down (`0xD2C1` ← `0x0002`) → ~300 ms AF settle → S2
 down (`0xD2C2` ← `0x0002`) → S2 up (`0x0001`) → S1 up. Then wait for the image: an
 `ObjectAdded` event (`0xC201`, param `0xFFFFC001`) **or** `ObjectInMemory` (`0xD215`) ≥
-`0x8000`, whichever comes first. Then `GetObjectInfo(0xFFFFC001)` (retried on
+`0x8000`, whichever comes first. If neither shows within 3 s the whole press is repeated once
+(longer AF pause; see finding 6). Then `GetObjectInfo(0xFFFFC001)` (retried on
 `InvalidObjectHandle`/`DeviceBusy`) and a plain `GetObject(0xFFFFC001)` **whatever the size**
 (chunked `SDIO_GetPartialLargeObject` stalls the A7 III's pipe, so it is opt-in — see below). A
 RAW (`0xB101`) object that arrives *before* the JPEG is consumed and discarded; one that arrives
@@ -126,17 +127,34 @@ proves any divergence fails loudly.
 5. **A misleading hint.** A photo that never arrived was reported as "camera not in PC Remote mode?",
    although the handshake had just succeeded. It now says the camera did not deliver the photo and to
    check focus and *Still Img. Save Dest.* An earlier attempt hit exactly this timeout (identical
-   shutter sequence, no `ObjectAdded` event); the cause was **not established** — focus priority is the
-   likely suspect (the camera may refuse to fire when AF has not locked within the 300 ms settle) but
-   that is a hypothesis.
+   shutter sequence, no `ObjectAdded` event); the cause was **not established** at the time.
+6. **A shot that never fires (2026-10-09, second occurrence).** After an unplug/replug, one shot in
+   a session produced no image for the full 10 s while the three before it took ~1.1 s each. The
+   events show a focus-related property change (`0xD213`) arriving ~480 ms after the half-press, *after*
+   our 300 ms settle had already tapped S2 and released both buttons; the successful shots show no
+   such event. Reading: with focus priority the camera drops a full press that lands before
+   autofocus has locked, and the quick tap (S2 up immediately) leaves nothing to fire later. This
+   fits both occurrences but is **still an inference** (the property's meaning is unverified; no
+   PTP trace was running). So the engine now repeats the press **once** if no image shows within
+   3 s (`retry_after`), with a 1.2 s autofocus pause (`retry_af_settle`); nothing was taken, so it
+   cannot duplicate a photo. If the second try also fails, the error is unchanged. On a timeout the
+   log now lists the camera's last events. Holding S2 until the image arrives was rejected: in a
+   continuous drive mode it would keep firing.
+7. **Live view died quietly.** The live-view loop gives up after five consecutive failures
+   (an unplug), but it did not update the camera's status: it kept saying `Ready`, so no error was
+   shown, `connect()` (a no-op for a Ready camera) could not rebuild it, and after a manual
+   reconnect nothing asked the camera for frames again. Now the loop marks the camera `Error`
+   when it gives up, and `AppState` resumes live view into the same channel once the camera has left
+   `Ready` and come back. An unplugged camera is reported as "camera disconnected" instead of the
+   raw libusb text.
 
 **Still unverified**
 
 - Live-view stability over minutes (the refusal pattern is intermittent and not understood);
   `ObjectInMemory` semantics beyond what the event path showed.
 - RAW-only quality, other firmware, and `SDIO_OpenSession (0x9210)` (not needed on this body).
-- Whether a blind 300 ms AF settle is enough in dim light; a focus-confirmation property would be
-  better but its code has not been verified.
+- Whether a blind 300 ms AF settle (plus the one repeat) is enough in dim light; a
+  focus-confirmation property would be better, but the meaning of `0xD213` has not been verified.
 
 ## Diagnosing on the device
 
@@ -167,8 +185,14 @@ Status as of the first hardware run (2026-10-08); ✅ = observed in the device l
 - ⬜ The SD card also holds the picture (Still Img. Save Dest. = PC+Camera).
 - ✅ Three consecutive RAW+JPEG captures (1.9–2.0 s each, 6000×4000) with the RAW discarded each time; live view ran at ~20 fps with ~19 % of frames refused (`AccessDenied`) and no gap over 0.11 s outside a capture.
 - ✅ A full 3-shot RAW+JPEG session on the latest build (RAW cleared inside the capture): the preview stayed live through every countdown and the strip showed all three photos (user-observed).
-- ✅ Unplug while idle: live view gave up after five `No such device` failures (~0.5 s) and the camera went to the error state.
-- ⬜ Unplug mid-countdown: recoverable error, not a hang.
+- ◐ Unplug while idle: live view gave up after five `No such device` failures (~0.5 s). **The
+  camera status did not change** (an earlier version of this page wrongly said it went to the error
+  state), so no banner appeared and nothing could recover it. Fixed 2026-10-09, see below; the fix
+  is covered by a simulator test but not yet re-run on the tablet.
+- ◐ Unplug mid-countdown (2026-10-09): the capture failed with a recoverable error as expected,
+  and replugging then *Try again* reconnected (`CloseSession` on the dead transport failed,
+  the new one handshook in 15 ms), but **the preview stayed dead** and a later shot timed out.
+  Both fixed (below); not yet re-run on the tablet.
 - ⬜ Wrong mode (USB Connection = Mass Storage): the error mentions PC Remote.
 - ⬜ Live view for 30+ s without freezing; a capture still works while it is refusing frames.
 - ⬜ JPEG-only quality (no RAW companion) behaves identically.
@@ -191,6 +215,6 @@ Status as of the first hardware run (2026-10-08); ✅ = observed in the device l
 - **RAW+JPEG makes each capture slower on the wire** (the ~49 MB RAW is downloaded and discarded
   inside the capture, ~2.3 s). JPEG-only quality avoids it; whether to keep RAW on the SD card is a
   camera-menu choice the app cannot influence.
-- **No coverage percentage is claimed.** 83 `sony-ptp` tests (54 without the `core-camera`
+- **No coverage percentage is claimed.** 87 `sony-ptp` tests (63 without the `core-camera`
   adapter), all against the simulator or recorded transcripts — the hardware findings above were
   observed by hand, not by an automated test.
