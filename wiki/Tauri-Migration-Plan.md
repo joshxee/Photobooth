@@ -58,6 +58,12 @@ modes:
 - **Testing, three tiers only:** unit (`cargo test`, `bun test`); E2E (Maestro on the
   real tablet with **test mode** as the default camera for determinism); a manual
   on-the-rig checklist. No coverage percentages are claimed.
+  *Amended 2026-10-09:* on the Xiaomi Pad, Maestro cannot run unattended: its helper app triggers
+  an "Install via USB" prompt on the tablet (10 s auto-deny) and someone has to tap it on **every**
+  run. So **local testing on that tablet favours plain adb** (`screencap`, `input tap/keyevent`,
+  `am start`, `uiautomator dump`, `logcat`, `run-as`), which needs no prompt. Maestro stays the
+  E2E tier for CI and emulators/virtual devices, where that prompt is not expected (not yet tried
+  there, and not yet wired into CI).
 
 ## Architecture
 
