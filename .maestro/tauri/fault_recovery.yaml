@@ -1,0 +1,35 @@
+appId: com.jc.photobooth.tauri
+---
+# Requires a build that includes the dev capability (tauri.dev.conf.json): the Dev panel is
+# absent otherwise.
+- stopApp
+- launchApp
+- extendedWaitUntil:
+    visible: "Select Camera"
+    timeout: 20000
+- tapOn: "Test Camera"
+- tapOn: "Continue →"
+- extendedWaitUntil:
+    visible: "Tap to start photoshoot"
+    timeout: 15000
+
+- tapOn: "Dev"
+- tapOn: "Fail next capture"
+- tapOn: "Start session"
+- extendedWaitUntil:
+    visible: "Something went wrong"
+    timeout: 30000
+- takeScreenshot: error
+- tapOn: "Try again"
+- extendedWaitUntil:
+    visible: "Looking good."
+    timeout: 40000
+
+# disconnect, then recover with Retry connection
+- extendedWaitUntil:
+    visible: "Tap to start photoshoot"
+    timeout: 30000
+- tapOn: "Disconnect camera"
+- assertVisible: "Camera disconnected"
+- tapOn: "Retry connection"
+- assertNotVisible: "Camera disconnected"

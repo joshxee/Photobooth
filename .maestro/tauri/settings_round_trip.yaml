@@ -1,0 +1,17 @@
+appId: com.jc.photobooth.tauri
+---
+- stopApp
+- launchApp
+- extendedWaitUntil:
+    visible: "Select Camera"
+    timeout: 20000
+- tapOn: "Settings"
+- extendedWaitUntil:
+    visible: "Number of Photos"
+    timeout: 10000
+- assertVisible: "Countdown Seconds"
+- assertVisible: "Photo Strip Display Time"
+- assertVisible: "Current Configuration"
+- takeScreenshot: settings
+- tapOn: "Back"
+- assertVisible: "Select Camera"

@@ -1,0 +1,18 @@
+appId: com.jc.photobooth.tauri
+---
+- stopApp
+- launchApp
+- extendedWaitUntil:
+    visible: "Select Camera"
+    timeout: 20000
+- assertVisible: "Device Camera"
+- assertVisible: "Sony A7 III (USB)"
+- assertVisible: "Test Camera"
+- tapOn: "Test Camera"
+- assertVisible: "Test mode • Fast capture • No hardware required"
+- tapOn: "Continue →"
+- extendedWaitUntil:
+    visible: "Tap to start photoshoot"
+    timeout: 15000
+- assertVisible: "3 SHOTS"
+- takeScreenshot: attract_with_test_camera
