@@ -1,0 +1,56 @@
+[package]
+name = "tauri-plugin-photobooth-camera"
+version = "0.1.0"
+description = "Android camera (CameraX behind the WebView) and USB host support for the Photobooth app"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+# Tauri's plugin build script asserts that `links` equals the package name.
+links = "tauri-plugin-photobooth-camera"
+
+[features]
+default = []
+# `NativeCamera`: photobooth_core::Camera over the CameraX preview.
+core-camera = [
+    "dep:photobooth-core",
+    "dep:async-trait",
+    "dep:bytes",
+    "dep:tokio",
+    "dep:tokio-stream",
+]
+# `UsbSonyCamera`: the Sony PTP engine over an Android USB file descriptor.
+sony-transport = [
+    "core-camera",
+    "dep:sony-ptp",
+    "sony-ptp/core-camera",
+    "sony-ptp/rusb-transport",
+    "dep:rusb",
+]
+
+[build-dependencies]
+tauri-plugin = { version = "2", features = ["build"] }
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tauri = { version = "2" }
+thiserror = "2"
+tracing = "0.1"
+
+async-trait = { version = "0.1", optional = true }
+bytes = { version = "1", optional = true }
+photobooth-core = { path = "../../crates/photobooth-core", optional = true }
+rusb = { version = "0.9", optional = true }
+sony-ptp = { path = "../../crates/sony-ptp", optional = true }
+tokio = { version = "1", features = ["sync", "time", "rt", "fs", "macros"], optional = true }
+tokio-stream = { version = "0.1", optional = true }
+
+[dev-dependencies]
+async-trait = "0.1"
+bytes = "1"
+futures-util = "0.3"
+photobooth-core = { path = "../../crates/photobooth-core" }
+sony-ptp = { path = "../../crates/sony-ptp", features = ["sim"] }
+tempfile = "3"
+tokio = { version = "1", features = ["sync", "time", "rt", "fs", "macros", "test-util"] }
+tokio-stream = "0.1"

@@ -35,7 +35,8 @@ const MAX_RESTARTS: u32 = 3;
 const MAX_CONSECUTIVE_FAILURES: u32 = 5;
 
 struct Shared<T: Transport> {
-    engine: Mutex<Sony<T>>,
+    /// `None` once [`SonyCamera::release`] has dropped the engine (and with it the transport).
+    engine: Mutex<Option<Sony<T>>>,
     status: watch::Sender<CameraStatus>,
     live_stop: Mutex<Option<Arc<AtomicBool>>>,
     capture_pending: AtomicBool,
@@ -45,6 +46,17 @@ fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
     // The guarded data is only ever left in a consistent state by the engine (every operation
     // either completes or returns an error), so a poisoned lock is safe to reuse.
     m.lock().unwrap_or_else(|e| e.into_inner())
+}
+
+/// Runs `f` on the engine, or fails with `NotConnected` if it has been released.
+fn with_engine<T: Transport, R>(
+    shared: &Shared<T>,
+    f: impl FnOnce(&mut Sony<T>) -> Result<R, Error>,
+) -> Result<R, Error> {
+    match lock(&shared.engine).as_mut() {
+        Some(engine) => f(engine),
+        None => Err(Error::NotConnected),
+    }
 }
 
 pub struct SonyCamera<T: Transport + 'static> {
@@ -60,7 +72,7 @@ impl<T: Transport + 'static> SonyCamera<T> {
         let (status, _) = watch::channel(CameraStatus::Disconnected);
         Self {
             shared: Arc::new(Shared {
-                engine: Mutex::new(Sony::new(transport, config)),
+                engine: Mutex::new(Some(Sony::new(transport, config))),
                 status,
                 live_stop: Mutex::new(None),
                 capture_pending: AtomicBool::new(false),
@@ -72,6 +84,29 @@ impl<T: Transport + 'static> SonyCamera<T> {
         if let Some(stop) = lock(&self.shared.live_stop).take() {
             stop.store(true, Ordering::SeqCst);
         }
+    }
+
+    /// Ends the session and **drops the transport before returning**.
+    ///
+    /// Needed when the transport wraps a resource with a strict lifetime — on Android, a USB
+    /// file descriptor that must not outlive Kotlin's `UsbDeviceConnection`. Other clones of
+    /// this camera's internals (an in-flight capture, the live-view thread) keep running only
+    /// until their next engine call, which then reports `NotConnected`. After this the camera
+    /// is unusable; build a new one to reconnect.
+    pub async fn release(&self) {
+        self.stop_live();
+        let shared = self.shared.clone();
+        // Waits for any operation currently holding the engine, then drops it.
+        let _ = tokio::task::spawn_blocking(move || {
+            let engine = lock(&shared.engine).take();
+            if let Some(mut engine) = engine {
+                if let Err(err) = engine.disconnect() {
+                    tracing::debug!(%err, "closing the PTP session failed; dropping the transport anyway");
+                }
+            }
+        })
+        .await;
+        self.shared.status.send_replace(CameraStatus::Disconnected);
     }
 
     fn is_connected(&self) -> bool {
@@ -118,7 +153,7 @@ impl<T: Transport + 'static> Camera for SonyCamera<T> {
         self.shared.status.send_replace(CameraStatus::Connecting);
         let shared = self.shared.clone();
         let outcome = tokio::task::spawn_blocking(move || {
-            let result = lock(&shared.engine).connect().map(|_| ());
+            let result = with_engine(&shared, |engine| engine.connect().map(|_| ()));
             // Status is settled inside the closure so it is right even if this future is dropped.
             match &result {
                 Ok(()) => shared.status.send_replace(CameraStatus::Ready),
@@ -136,9 +171,10 @@ impl<T: Transport + 'static> Camera for SonyCamera<T> {
     async fn disconnect(&self) -> Result<(), CameraError> {
         self.stop_live();
         let shared = self.shared.clone();
-        let result = tokio::task::spawn_blocking(move || lock(&shared.engine).disconnect())
-            .await
-            .map_err(join_error)?;
+        let result =
+            tokio::task::spawn_blocking(move || with_engine(&shared, |engine| engine.disconnect()))
+                .await
+                .map_err(join_error)?;
         self.shared.status.send_replace(CameraStatus::Disconnected);
         result.map_err(|e| map_error(&e))
     }
@@ -184,7 +220,7 @@ impl<T: Transport + 'static> Camera for SonyCamera<T> {
         self.shared.capture_pending.store(true, Ordering::SeqCst);
         let shared = self.shared.clone();
         let result = tokio::task::spawn_blocking(move || {
-            let result = lock(&shared.engine).capture();
+            let result = with_engine(&shared, |engine| engine.capture());
             shared.capture_pending.store(false, Ordering::SeqCst);
             // Settle status here, not in the awaiting task (see module docs).
             let next = match &result {
@@ -238,8 +274,7 @@ fn live_loop<T: Transport>(
             continue;
         }
 
-        let step = {
-            let mut engine = lock(&shared.engine);
+        let step = with_engine(shared, |engine| {
             if active {
                 engine
                     .live_frame()
@@ -247,7 +282,7 @@ fn live_loop<T: Transport>(
             } else {
                 engine.wait_for_live_view().map(|()| Step::Activated)
             }
-        };
+        });
 
         match step {
             Ok(Step::Activated) => {
@@ -473,6 +508,97 @@ mod tests {
         cam.disconnect().await.unwrap();
         while next(&mut frames).await.is_some() {}
         assert!(!sim.session_open());
+    }
+
+    /// A transport that reports when it is dropped.
+    struct DropFlag {
+        inner: SimTransport,
+        dropped: Arc<AtomicBool>,
+    }
+
+    impl Drop for DropFlag {
+        fn drop(&mut self) {
+            self.dropped.store(true, Ordering::SeqCst);
+        }
+    }
+
+    impl Transport for DropFlag {
+        fn write_bulk(&mut self, buf: &[u8], t: Duration) -> crate::Result<usize> {
+            self.inner.write_bulk(buf, t)
+        }
+        fn read_bulk(&mut self, buf: &mut [u8], t: Duration) -> crate::Result<usize> {
+            self.inner.read_bulk(buf, t)
+        }
+        fn read_interrupt(&mut self, buf: &mut [u8], t: Duration) -> crate::Result<usize> {
+            self.inner.read_interrupt(buf, t)
+        }
+        fn reset(&mut self) -> crate::Result<()> {
+            self.inner.reset()
+        }
+    }
+
+    fn camera_with_drop_flag() -> (SonyCamera<DropFlag>, Arc<AtomicBool>, SimHandle) {
+        let (inner, sim) = SimTransport::new(SimConfig::default());
+        let dropped = Arc::new(AtomicBool::new(false));
+        let transport = DropFlag {
+            inner,
+            dropped: dropped.clone(),
+        };
+        (
+            SonyCamera::with_config(transport, SonyConfig::no_delays()),
+            dropped,
+            sim,
+        )
+    }
+
+    #[tokio::test]
+    async fn release_drops_the_transport_before_returning() {
+        let (cam, dropped, sim) = camera_with_drop_flag();
+        cam.connect().await.unwrap();
+        assert!(!dropped.load(Ordering::SeqCst));
+
+        cam.release().await;
+
+        assert!(
+            dropped.load(Ordering::SeqCst),
+            "the transport must be gone when release() returns"
+        );
+        assert!(!sim.session_open(), "the PTP session was closed first");
+        assert_eq!(*cam.status().borrow(), CameraStatus::Disconnected);
+    }
+
+    #[tokio::test]
+    async fn a_released_camera_refuses_further_work() {
+        let (cam, _, _) = camera_with_drop_flag();
+        cam.connect().await.unwrap();
+        cam.release().await;
+        assert_eq!(cam.capture().await.unwrap_err(), CameraError::NotConnected);
+        assert!(matches!(
+            cam.start_live_view().await,
+            Err(CameraError::NotConnected)
+        ));
+        assert!(matches!(
+            cam.connect().await,
+            Err(CameraError::NotConnected),
+        ));
+    }
+
+    #[tokio::test]
+    async fn release_ends_live_view_and_waits_for_a_capture_in_flight() {
+        let (cam, dropped, _) = camera_with_drop_flag();
+        cam.connect().await.unwrap();
+        let mut frames = cam.start_live_view().await.unwrap();
+        next(&mut frames).await.expect("frame");
+        cam.release().await;
+        assert!(dropped.load(Ordering::SeqCst));
+        while next(&mut frames).await.is_some() {}
+    }
+
+    #[tokio::test]
+    async fn releasing_twice_is_harmless() {
+        let (cam, _, _) = camera_with_drop_flag();
+        cam.release().await;
+        cam.release().await;
     }
 
     #[test]
