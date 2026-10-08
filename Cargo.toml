@@ -1,0 +1,15 @@
+[workspace]
+resolver = "2"
+members = ["crates/photobooth-core"]
+
+[workspace.package]
+edition = "2021"
+license = "MIT"
+rust-version = "1.80"
+
+[workspace.lints.rust]
+unsafe_op_in_unsafe_fn = "deny"
+
+# Mock-camera JPEG synthesis runs on the tablet in debug builds too; keep the encoder fast.
+[profile.dev.package.jpeg-encoder]
+opt-level = 3
