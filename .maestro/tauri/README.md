@@ -44,7 +44,10 @@ at the tablet for the first flow of a session.
 | `back_button.yaml` | no |
 | `fault_recovery.yaml` | **yes** (Dev panel) |
 
-Notes: the "tap" pills fill for ~3 s before they fire, so waits after tapping are generous. A full
+Notes: the start pill is disabled while the camera is connecting or has a problem (Android reports
+it `enabled=false`), so `full_session.yaml` taps it with `enabled: true`; that selector is
+**unverified**, as Maestro cannot be run unattended on the development tablet (see above). The "tap"
+pills fill for ~3 s before they fire, so waits after tapping are generous. A full
 default session (3 shots × 3 s countdown) takes ~15 s before the strip appears; the strip returns to
 attract after 12 s. `back_button.yaml` sends the Android Back key, not a tap on the on-screen
 **Back** button (which `settings_round_trip.yaml` uses).

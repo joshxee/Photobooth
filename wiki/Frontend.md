@@ -92,6 +92,10 @@ slider/checkbox/text `aria-label`s equal to their visible label, `Dev` toggle. P
 coordinates. Pills that fill (`Tap to start photoshoot`, `Take another strip →`) need
 `extendedWaitUntil` ≥ 4 s after the tap for the fill plus the backend transition.
 
+While the camera cannot take a photo, the start pill is a disabled `<button>`, which Android
+reports as `enabled=false` (checked with `uiautomator dump`). Taps on it are ignored, so flows
+should tap with `enabled: true` (Maestro then waits out the "Connecting to camera…" phase).
+
 Maestro matches the **whole** text of an accessibility node as a regex, and it merges what a
 control contains, so a few selectors must be patterns (learned running the flows on the tablet):
 
@@ -100,6 +104,58 @@ control contains, so a few selectors must be patterns (learned running the flows
 | A camera card | one node: `Test Camera Test mode • Fast capture • No hardware required` | `"Test Camera.*"` |
 | `{n} SHOTS` | two nodes: `3` and ` SHOTS` | `".*SHOTS"` |
 | The strip caption | one long node starting `VIRTUAL PHOTO STRIP SAVED — COPIES…` | `"VIRTUAL PHOTO STRIP SAVED.*"` |
+## Camera problems: one voice, and no photo you cannot take
+
+`cameraBanner` (in `store/store.ts`) is the single answer to "can the guest take a photo?" on the
+attract screen: `null` when the camera is fine, otherwise the text to show ("Connecting to
+camera…", "Camera disconnected", or the backend's error message). Three things follow from it:
+
+- the banner is shown exactly when it is non-null, with *Retry connection* unless connecting;
+- the **start pill is disabled** while it is non-null (greyed out, taps ignored): there is no
+  point in starting a session the camera cannot serve, and a guest who did would only get an
+  error screen;
+- a **toast whose text contains the banner's message is not shown**. The backend reports a failed
+  connect twice, as a camera status and as the rejected `camera_connect` command (for example
+  "camera I/O error: Camera permission was denied…" next to "Camera permission was denied…").
+  Mid-session there is no banner, so there the toast is the only place the problem appears.
+
+Suppressing by containment, rather than deleting the toast from the connect call, keeps the
+failures that never change the camera's status (a live view that could not start) visible.
+Checked on the tablet with the permission denied: one message, pill disabled.
+
+## Strip photos: ready before the strip appears
+
+The camera's JPEGs are full size (6000×4000, ~10–20 MB). Fetching and decoding three of them the
+moment the strip appeared took about a third of a second on the tablet (up to 0.8 s). The booth
+now prepares each photo while the guest is on the next countdown:
+
+1. When the session announces `flash` (shot *n* is captured and stored; the state carries its
+   `session_id`), `photoPrefetcher` fetches `/photo/<session>/<n>` as a Blob.
+2. It decodes the Blob straight to strip size (`createImageBitmap(blob, { resizeWidth: 1280 })`),
+   draws it to a canvas and keeps the result as a ~100 KB in-memory JPEG (`blob:` URL).
+3. `PhotoStrip` asks the prefetcher for each photo's URL (`useSyncExternalStore`): the small copy
+   if it exists, otherwise the original. The full-size data is let go; the original stays
+   available at its `booth://` URL.
+4. Returning to attract (or leaving the booth) revokes every small copy.
+
+Photos under 1 MB (the test camera's) are not shrunk; any failure along the way just leaves the
+strip on the original URL.
+
+**Measured on the tablet** with the test camera temporarily returning a 24 MP, 9.7 MB JPEG (3 runs
+each, a small sample; DevTools over adb, scripts not kept): the strip's first two photos were
+visible ~10 ms after it appeared instead of ~185 ms (320 ms in an earlier batch); the third was
+unchanged at ~175 ms, because it is captured only ~0.3 s before the strip shows and so is still
+being prepared. Page smoothness during the session: longest frame gap 84–98 ms with the prefetch
+(baseline 14–104 ms).
+
+**What did not work** (so nobody retries it): (1) holding a full-size `Image` and calling
+`decode()` — the strip's own `<img>` still paid 400–700 ms on some runs, because the browser
+evicts 24 MP bitmaps; (2) `createImageBitmap(<img>)` — it runs on the main thread and froze the
+live preview for ~280 ms per photo, three times a session; (3) exporting the canvas without a
+CORS response — "tainted canvas" error. Decoding a Blob runs off the main thread; that and the two
+cross-origin allowances (CORS header, `connect-src`) are what make it work. See
+`Tauri-App.md`.
+
 ## Developer panel
 
 Visible only when the selected camera is the test camera **and** the backend accepts the

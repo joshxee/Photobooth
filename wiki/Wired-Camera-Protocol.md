@@ -232,11 +232,10 @@ Status as of the first hardware run (2026-10-08); ✅ = observed in the device l
 - **Desktop USB on Windows** needs a WinUSB driver bound to the camera (e.g. Zadig); the
   `desktop-usb` feature is compile- and unit-tested here but not exercised.
 - **One camera, one session.** Hot-swapping cameras mid-session is out of scope.
-- **Strip photos take ~0.5 s to appear.** The app serves the camera's full 6000×4000 JPEG (~10 MB)
-  over `booth://` unscaled, so the WebView decodes three 24 MP images when the strip mounts. This
-  is the likely cause, not a measured one. The cheap fix is to prefetch and `decode()` each photo
-  when its capture finishes, during the next countdown; downscaling in Rust would need a JPEG
-  decoder dependency (only an encoder is present today).
+- **Strip photos used to take ~0.5 s to appear** because the full 6000×4000 JPEG (~10 MB) was
+  fetched and decoded three times when the strip mounted. The booth now prepares each photo during
+  the next countdown, so the first two show instantly; the last one still takes ~0.2 s. See
+  "Strip photos" in `Frontend.md`.
 - **RAW+JPEG makes each capture slower on the wire** (the ~49 MB RAW is downloaded and discarded
   inside the capture, ~2.3 s). JPEG-only quality avoids it; whether to keep RAW on the SD card is a
   camera-menu choice the app cannot influence.

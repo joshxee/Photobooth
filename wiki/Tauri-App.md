@@ -64,6 +64,12 @@ per-boot nonce so a cached URL from a previous run can never alias a new photo. 
 the current `register_uri_scheme_protocol` signature (a `UriSchemeContext`, not a bare
 `AppHandle`).
 
+Responses also carry `Access-Control-Allow-Origin: *`. The page (`tauri.localhost`) and the photos
+(`booth.localhost`) are different origins, and the strip's photo preparation reads each photo with
+`fetch`, which a cross-origin response without that header would block. The scheme is only
+reachable from this app's own WebView and the photos are the ones it already displays, so `*`
+widens nothing in practice. A unit test pins the header.
+
 ## Trade-off: concrete `Wry`, not generic over `R: Runtime`
 
 `AppState` and the commands hard-code the default runtime. Making them generic looks cleaner but
@@ -84,7 +90,11 @@ is what stops pieces from different threads interleaving (found by a concurrency
 ## Security posture
 
 - CSP `default-src 'self'; img-src 'self' booth: http://booth.localhost blob:; connect-src ipc:
-  http://ipc.localhost; style-src 'self'`; the asset protocol is disabled.
+  http://ipc.localhost http://booth.localhost booth:; style-src 'self'`; the asset protocol is
+  disabled. `connect-src` names the photo origin so the page can `fetch` the photos it already
+  displays (the strip's prefetch); nothing else about it loosened, and a unit test pins both the
+  addition and the absence of `unsafe-*`, `*`, `http:` and `https:`. Lose that entry and the
+  strip silently falls back to the full-size photos (slower, not broken).
 - `build.rs` lists the commands; `capabilities/default.json` grants the guest-facing ones plus the
   plugin's tiny default set. `capabilities/dev.json` (`test_inject`, `logs_recent`) is referenced
   only by `tauri.dev.conf.json`, so a release build never exposes fault injection and the dev

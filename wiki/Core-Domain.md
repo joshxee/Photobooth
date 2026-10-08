@@ -65,7 +65,9 @@ rejects unknown fields so a typo from the UI is an error rather than a silent no
 
 Session states add a `total` field (and `StripReview` carries `session_id` + the list of
 available shot numbers) beyond the bare spec shapes, because the UI shows "photo 2 of 3"
-and needs the session id to build photo URLs.
+and needs the session id to build photo URLs. `Flash` carries the `session_id` too: the photo is
+stored *before* `Flash` is published (a test pins that), so the UI can start preparing it for the
+strip the moment it hears about it (see "Strip photos" in `Frontend.md`).
 
 ## Start triggers
 

@@ -11,7 +11,10 @@ appId: com.jc.photobooth.tauri
     visible: "Tap to start photoshoot"
     timeout: 15000
 - takeScreenshot: 01_attract
-- tapOn: "Tap to start photoshoot"
+# the pill is disabled while the camera is connecting (or has a problem): wait until it is enabled
+- tapOn:
+    text: "Tap to start photoshoot"
+    enabled: true
 # the pill fills for ~3 s, then the countdown begins
 - extendedWaitUntil:
     visible: "Look at the lens"

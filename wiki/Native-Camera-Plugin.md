@@ -111,8 +111,8 @@ Xiaomi Pad, Android 14 (HyperOS/MIUI), 2026-10-09. ✅ = observed, ⬜ = not yet
 - ✅ First launch: the CAMERA permission prompt appears when the Device Camera is connected.
   ✅ Denying it (permission revoked and marked user-fixed over adb, so no dialog) shows
   "Camera permission was denied. Allow it in Settings → Apps → Photobooth → Permissions." in the
-  banner with *Retry connection*; no crash. Polish: a red toast repeats the same text ("camera
-  I/O error: …"), and *Tap to start* stays active with no camera.
+  banner with *Retry connection*; no crash. (The duplicate red toast and the still-active *Tap to
+  start* pill were fixed afterwards: one message now, pill disabled. Re-checked on the tablet.)
 - ✅ **Preview visible under the React overlay** on the attract screen; the "Tap to start" pill
   and text stay legible; the strip-review screen (opaque) covers it.
 - ✅ Rotating the device with the app running works (user-observed). ⬜ Mirror on/off in Settings
