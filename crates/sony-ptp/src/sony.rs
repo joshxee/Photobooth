@@ -311,6 +311,34 @@ impl<T: Transport> Sony<T> {
         }
     }
 
+    /// Every integer property the camera reports, as `code=value` pairs in hex, for the log.
+    /// Taken before each shot and again when no image appears, so a failed shot can be compared
+    /// with a good one; never an error (a failure to read is part of the picture).
+    fn describe_props(&mut self) -> String {
+        // Only the dataset call lists everything; a body that lacks it is not asked again.
+        if self.prop_mode == PropMode::Standard {
+            return "unavailable: this camera has no property dataset".to_owned();
+        }
+        let response = match self
+            .ptp
+            .call(op::SDIO_GET_ALL_EXT_DEVICE_PROP_INFO, &[], None)
+        {
+            Ok(response) => response,
+            Err(err) => return format!("unavailable: {err}"),
+        };
+        match props::parse_all_ext_prop_info(&response.data) {
+            Ok((mut records, _)) => {
+                records.sort_by_key(|r| r.code);
+                records
+                    .iter()
+                    .filter_map(|r| r.current.map(|v| format!("{:04x}={v:x}", r.code)))
+                    .collect::<Vec<_>>()
+                    .join(" ")
+            }
+            Err(err) => format!("unreadable: {err}"),
+        }
+    }
+
     fn prop_via_ext_info(&mut self, code: u16) -> Result<u16> {
         let response = self
             .ptp
@@ -341,6 +369,8 @@ impl<T: Transport> Sony<T> {
         if stale > 0 {
             tracing::warn!(stale, "discarded objects left over from an earlier capture");
         }
+        let before = self.describe_props();
+        tracing::debug!(state = %before, "camera state before the shot");
         let started = Instant::now();
         self.shoot_with(self.cfg.af_settle)?;
         tracing::info!(
@@ -469,8 +499,10 @@ impl<T: Transport> Sony<T> {
                 Err(e) => tracing::debug!(%e, "ObjectInMemory not readable; relying on events"),
             }
             if Instant::now() >= deadline {
+                let state = self.describe_props();
                 tracing::warn!(
                     waited_ms = started.elapsed().as_millis() as u64,
+                    state = %state,
                     last_events = ?recent.iter().map(|(code, param)| (format!("{code:#06x}"), param.map(|p| format!("{p:#06x}")))).collect::<Vec<_>>(),
                     "no image appeared; the camera's last events (code, first parameter)"
                 );

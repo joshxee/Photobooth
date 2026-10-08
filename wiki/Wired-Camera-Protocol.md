@@ -140,6 +140,19 @@ proves any divergence fails loudly.
    cannot duplicate a photo. If the second try also fails, the error is unchanged. On a timeout the
    log now lists the camera's last events. Holding S2 until the image arrives was rejected: in a
    continuous drive mode it would keep firing.
+
+   **Third occurrence, and the repeat did not help.** On the next test (no unplug yet; shots 1–2
+   fine at ~1.1 s) shot 3 got no image, the automatic repeat got none either, and the user saw
+   that the shutter never fired. This time the failed attempt showed *no* `0xD213` event at all
+   (only `0xD21D` property changes, and none of the `0x5004` that precedes the image in good
+   shots), so the focus-event reading above does **not** fit every case, and a longer autofocus
+   pause is not a fix. What is known: the camera accepted every control command without error and
+   simply did not fire. What is not: why. Candidates are autofocus failing on whatever was in
+   front of the lens (a person moving, the cable being handled), a camera-side state, or the
+   quick S2 tap. To settle it, the engine now logs the camera's **whole property set** before every
+   shot (`camera state before the shot`, debug) and again on each timeout (`state=` in the warning,
+   `code=value` in hex) so a failed shot can be diffed against a good one, and the camera's screen
+   (focus frame colour, beep) at the moment of failure is worth noting.
 7. **Live view died quietly.** The live-view loop gives up after five consecutive failures
    (an unplug), but it did not update the camera's status: it kept saying `Ready`, so no error was
    shown, `connect()` (a no-op for a Ready camera) could not rebuild it, and after a manual
