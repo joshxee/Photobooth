@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Hand-edit: lets the debug build sit beside the existing Photobooth app on a device. -->
+<resources>
+    <string name="app_name">Photobooth (Tauri)</string>
+    <string name="main_activity_title">Photobooth (Tauri)</string>
+</resources>

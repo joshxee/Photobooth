@@ -99,7 +99,7 @@ fn platform_slots(app: &AppHandle) -> Vec<CameraSlot> {
         // Read when the preview starts, so a settings change applies without a restart.
         settings_source
             .try_state::<AppState>()
-            .map_or(true, |state| state.settings().mirror_preview)
+            .is_none_or(|state| state.settings().mirror_preview)
     }));
     let sony = Arc::new(UsbSonyCamera::new(backend, Arc::new(AndroidUsbFactory)));
     vec![

@@ -8,10 +8,12 @@ use async_trait::async_trait;
 use bytes::Bytes;
 use futures_util::{FutureExt, StreamExt};
 use photobooth_core::{
-    Camera, CameraError, CameraId, CameraStatus, CapturedPhoto, DevPanelTrigger, FrameStream,
-    MockCamera, MockCameraHandle, PhotoStore, Session, SessionContext, SessionHandle, SessionState,
-    SessionTask, Settings, SettingsPatch, SettingsStore, StartTrigger, TapTrigger, Timings,
+    Camera, CameraId, CameraStatus, DevPanelTrigger, FrameStream, MockCamera, MockCameraHandle,
+    PhotoStore, Session, SessionContext, SessionHandle, SessionState, SessionTask, Settings,
+    SettingsPatch, SettingsStore, StartTrigger, TapTrigger, Timings,
 };
+#[cfg(any(not(target_os = "android"), test))]
+use photobooth_core::{CameraError, CapturedPhoto};
 use tokio::sync::{broadcast, watch};
 use tokio::task::JoinHandle;
 
@@ -40,11 +42,14 @@ impl CameraProvider for AlwaysAvailable {
 }
 
 /// A camera that cannot be used on this platform or right now; every operation fails.
+/// (Android builds real cameras instead, so this exists there only for tests.)
+#[cfg(any(not(target_os = "android"), test))]
 pub struct Unavailable {
     camera: Arc<NullCamera>,
     reason: String,
 }
 
+#[cfg(any(not(target_os = "android"), test))]
 impl Unavailable {
     pub fn new(id: CameraId, reason: impl Into<String>) -> Self {
         Self {
@@ -54,6 +59,7 @@ impl Unavailable {
     }
 }
 
+#[cfg(any(not(target_os = "android"), test))]
 #[async_trait]
 impl CameraProvider for Unavailable {
     async fn unavailable_reason(&self) -> Option<String> {
@@ -64,11 +70,13 @@ impl CameraProvider for Unavailable {
     }
 }
 
+#[cfg(any(not(target_os = "android"), test))]
 struct NullCamera {
     id: CameraId,
     status: watch::Sender<CameraStatus>,
 }
 
+#[cfg(any(not(target_os = "android"), test))]
 impl NullCamera {
     fn new(id: CameraId) -> Self {
         Self {
@@ -78,6 +86,7 @@ impl NullCamera {
     }
 }
 
+#[cfg(any(not(target_os = "android"), test))]
 #[async_trait]
 impl Camera for NullCamera {
     fn id(&self) -> CameraId {
