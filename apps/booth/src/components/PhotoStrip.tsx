@@ -1,6 +1,6 @@
-import { useState, type CSSProperties } from "react";
+import { useState, useSyncExternalStore, type CSSProperties } from "react";
 
-import { photoUrl } from "../ipc/photo";
+import { photoPrefetcher } from "../ipc/photo";
 
 interface PhotoStripProps {
   sessionId: string;
@@ -30,6 +30,11 @@ export function PhotoStrip({ sessionId, photos, headline, date, scale }: PhotoSt
 
 function StripPhoto({ sessionId, shot }: { sessionId: string; shot: number }) {
   const [failed, setFailed] = useState(false);
+  // The small copy prepared while the strip was still being taken, once it exists.
+  const src = useSyncExternalStore(
+    photoPrefetcher.subscribe,
+    () => photoPrefetcher.urlFor(sessionId, shot),
+  );
   return (
     <div className="strip__photo">
       {failed ? (
@@ -38,7 +43,7 @@ function StripPhoto({ sessionId, shot }: { sessionId: string; shot: number }) {
         </div>
       ) : (
         <img
-          src={photoUrl(sessionId, shot)}
+          src={src}
           alt={`Photo ${shot}`}
           onError={() => setFailed(true)}
           draggable={false}

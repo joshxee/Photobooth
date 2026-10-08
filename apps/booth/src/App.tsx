@@ -5,12 +5,13 @@ import { Booth } from "./screens/Booth";
 import { CameraSelect } from "./screens/CameraSelect";
 import { Settings } from "./screens/Settings";
 import { startBridge } from "./store/bridge";
-import { useBooth } from "./store/store";
+import { cameraBanner, useBooth } from "./store/store";
 
 const NOTICE_MS = 6000;
 
 function Notice() {
   const notice = useBooth((s) => s.notice);
+  const banner = useBooth(cameraBanner);
 
   useEffect(() => {
     if (!notice) return;
@@ -18,7 +19,8 @@ function Notice() {
     return () => clearTimeout(timer);
   }, [notice]);
 
-  if (!notice) return null;
+  // A camera problem the banner already shows is not announced a second time.
+  if (!notice || (banner !== null && notice.includes(banner))) return null;
   return (
     <div className="notice" role="alert">
       <span>{notice}</span>

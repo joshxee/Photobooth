@@ -7,7 +7,16 @@ import { PhotoStrip } from "../components/PhotoStrip";
 import { ShotPips } from "../components/ShotPips";
 import { uiConfig } from "../uiConfig";
 
-export function Attract({ totalShots, onStart }: { totalShots: number; onStart: () => void }) {
+export function Attract({
+  totalShots,
+  onStart,
+  disabled = false,
+}: {
+  totalShots: number;
+  onStart: () => void;
+  /** The camera cannot take a photo yet: the pill is greyed out and does nothing. */
+  disabled?: boolean;
+}) {
   return (
     <section className="view view--attract" aria-label="Attract">
       <div className="attract__brand">
@@ -26,6 +35,7 @@ export function Attract({ totalShots, onStart }: { totalShots: number; onStart: 
           size="large"
           fillMs={uiConfig.fillMs}
           onFire={onStart}
+          disabled={disabled}
         />
       </div>
 

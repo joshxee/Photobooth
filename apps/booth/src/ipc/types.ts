@@ -32,7 +32,7 @@ export type SessionState =
   | { state: "arming" }
   | { state: "countdown"; shot: number; total: number; remaining: number }
   | { state: "capturing"; shot: number; total: number }
-  | { state: "flash"; shot: number; total: number }
+  | { state: "flash"; shot: number; total: number; session_id: string }
   | { state: "strip_review"; session_id: string; photos: number[]; auto_return_in: number }
   | { state: "error"; message: string; recoverable: boolean };
 

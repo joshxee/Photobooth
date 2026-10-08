@@ -48,9 +48,12 @@ pub enum SessionState {
         shot: u8,
         total: u8,
     },
+    /// Shot `shot` has been captured and is stored: it can be fetched at
+    /// `booth://photo/<session_id>/<shot>` from now on (the UI uses this to prefetch it).
     Flash {
         shot: u8,
         total: u8,
+        session_id: String,
     },
     /// `photos` lists the shot numbers available at `booth://photo/<session_id>/<shot>`.
     StripReview {
@@ -600,6 +603,12 @@ impl Actor {
 
     fn current_state(&self) -> SessionState {
         let total = self.run.as_ref().map_or(0, |r| r.total);
+        let session_id = || {
+            self.run
+                .as_ref()
+                .map(|r| r.session_id.clone())
+                .unwrap_or_default()
+        };
         match &self.phase {
             Phase::Attract => SessionState::Attract,
             Phase::Arming => SessionState::Arming,
@@ -609,13 +618,13 @@ impl Actor {
                 remaining: *remaining,
             },
             Phase::Capturing { shot } => SessionState::Capturing { shot: *shot, total },
-            Phase::Flash { shot } => SessionState::Flash { shot: *shot, total },
+            Phase::Flash { shot } => SessionState::Flash {
+                shot: *shot,
+                total,
+                session_id: session_id(),
+            },
             Phase::StripReview { remaining } => SessionState::StripReview {
-                session_id: self
-                    .run
-                    .as_ref()
-                    .map(|r| r.session_id.clone())
-                    .unwrap_or_default(),
+                session_id: session_id(),
                 photos: (1..=total).collect(),
                 auto_return_in: *remaining,
             },
@@ -760,6 +769,11 @@ mod tests {
             photos: vec![1, 2],
             auto_return_in: n,
         };
+        let flash = |shot| SessionState::Flash {
+            shot,
+            total: 2,
+            session_id: session_id.clone(),
+        };
         assert_eq!(
             seen,
             vec![
@@ -767,11 +781,11 @@ mod tests {
                 countdown(1, 2, 2),
                 countdown(1, 2, 1),
                 SessionState::Capturing { shot: 1, total: 2 },
-                SessionState::Flash { shot: 1, total: 2 },
+                flash(1),
                 countdown(2, 2, 2),
                 countdown(2, 2, 1),
                 SessionState::Capturing { shot: 2, total: 2 },
-                SessionState::Flash { shot: 2, total: 2 },
+                flash(2),
                 review(5),
                 review(4),
                 review(3),
@@ -799,6 +813,38 @@ mod tests {
         })
         .await;
         assert_eq!(t0.elapsed(), Duration::from_secs(3));
+    }
+
+    /// The UI starts fetching and decoding a photo the moment it hears about it, so by then the
+    /// photo has to be fetchable, and the state has to say which session it belongs to.
+    #[tokio::test(start_paused = true)]
+    async fn flash_names_the_session_and_its_photo_is_already_in_the_store() {
+        let mut rig = rig(2, 1, 5);
+        rig.handle.start().await.unwrap();
+
+        let mut flashed = Vec::new();
+        loop {
+            match next(&mut rig.events).await {
+                SessionState::Flash {
+                    shot, session_id, ..
+                } => {
+                    assert!(
+                        rig.store.get(&session_id, shot).is_some(),
+                        "shot {shot} must be stored before Flash announces it"
+                    );
+                    flashed.push((shot, session_id));
+                }
+                SessionState::StripReview { session_id, .. } => {
+                    assert_eq!(
+                        flashed,
+                        vec![(1, session_id.clone()), (2, session_id)],
+                        "every flash carries the id of the strip that follows"
+                    );
+                    break;
+                }
+                _ => {}
+            }
+        }
     }
 
     #[tokio::test(start_paused = true)]
@@ -1151,8 +1197,16 @@ mod tests {
             }),
             serde_json::json!({"state": "error", "message": "boom", "recoverable": true})
         );
-        let round: SessionState =
-            serde_json::from_value(json(&SessionState::Flash { shot: 1, total: 3 })).unwrap();
-        assert_eq!(round, SessionState::Flash { shot: 1, total: 3 });
+        let flash = SessionState::Flash {
+            shot: 1,
+            total: 3,
+            session_id: "abc-1".into(),
+        };
+        assert_eq!(
+            json(&flash),
+            serde_json::json!({"state": "flash", "shot": 1, "total": 3, "session_id": "abc-1"})
+        );
+        let round: SessionState = serde_json::from_value(json(&flash)).unwrap();
+        assert_eq!(round, flash);
     }
 }

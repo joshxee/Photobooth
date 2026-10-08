@@ -68,7 +68,7 @@ describe("store", () => {
     s.applySession({ state: "attract" });
     s.applySession({ state: "arming" });
     s.applySession({ state: "capturing", shot: 1, total: 3 });
-    s.applySession({ state: "flash", shot: 1, total: 3 });
+    s.applySession({ state: "flash", shot: 1, total: 3, session_id: "x" });
     s.applySession({ state: "strip_review", session_id: "x", photos: [1, 2], auto_return_in: 9 });
     s.applySession({ state: "error", message: "bad", recoverable: false });
     expect(useBooth.getState().eventLog.map((e) => e.text)).toEqual([

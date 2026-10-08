@@ -21,7 +21,7 @@
       }
     ],
     "security": {
-      "csp": "default-src 'self'; img-src 'self' booth: http://booth.localhost blob:; connect-src ipc: http://ipc.localhost; style-src 'self'",
+      "csp": "default-src 'self'; img-src 'self' booth: http://booth.localhost blob:; connect-src ipc: http://ipc.localhost http://booth.localhost booth:; style-src 'self'",
       "assetProtocol": {
         "enable": false
       },

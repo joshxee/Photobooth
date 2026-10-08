@@ -39,6 +39,11 @@ pub fn parse_photo_url(uri: &str) -> Option<(String, u8)> {
 
 /// Builds the protocol response. Never caches: session ids are unique per run, but a stale
 /// cached photo of a cleared session must not be shown either.
+///
+/// Cross-origin reads are allowed (`*`): the page runs on `tauri.localhost` and the photos on
+/// `booth.localhost`, and a canvas that has drawn a photo from another origin without this is
+/// tainted and cannot be exported. The scheme is only reachable from this app's own WebView,
+/// and the photos are the same ones it already displays.
 pub fn respond(photos: &PhotoStore, uri: &str) -> Response<Cow<'static, [u8]>> {
     let photo = parse_photo_url(uri).and_then(|(session, shot)| photos.get(&session, shot));
     match photo {
@@ -46,10 +51,12 @@ pub fn respond(photos: &PhotoStore, uri: &str) -> Response<Cow<'static, [u8]>> {
             .status(StatusCode::OK)
             .header(header::CONTENT_TYPE, "image/jpeg")
             .header(header::CACHE_CONTROL, "no-store")
+            .header(header::ACCESS_CONTROL_ALLOW_ORIGIN, "*")
             .body(Cow::Owned(jpeg.to_vec())),
         None => Response::builder()
             .status(StatusCode::NOT_FOUND)
             .header(header::CACHE_CONTROL, "no-store")
+            .header(header::ACCESS_CONTROL_ALLOW_ORIGIN, "*")
             .body(Cow::Borrowed(&b""[..])),
     }
     .expect("static headers are valid")
@@ -105,6 +112,69 @@ mod tests {
         assert_eq!(response.headers()[header::CONTENT_TYPE], "image/jpeg");
         assert_eq!(response.headers()[header::CACHE_CONTROL], "no-store");
         assert_eq!(response.body().as_ref(), &[0xFF, 0xD8, 0xFF, 0xD9]);
+    }
+
+    /// The page and the photos are different origins (`tauri.localhost` vs `booth.localhost`).
+    /// Without this header a canvas that has drawn a photo is "tainted" and cannot be exported,
+    /// which is what the strip needs to keep a small, ready-decoded copy of each photo.
+    #[test]
+    fn photos_may_be_read_by_the_app_page_so_a_canvas_can_use_them() {
+        let photos = PhotoStore::new();
+        photos.put("s1", 1, Bytes::from_static(&[0xFF, 0xD8, 0xFF, 0xD9]));
+        for uri in [
+            "http://booth.localhost/photo/s1/1",
+            "booth://localhost/photo/s1/1",
+            "http://booth.localhost/photo/s1/9", // 404s too, so the page sees a plain failure
+        ] {
+            let response = respond(&photos, uri);
+            assert_eq!(
+                response.headers()[header::ACCESS_CONTROL_ALLOW_ORIGIN],
+                "*",
+                "{uri}"
+            );
+        }
+    }
+
+    /// The strip fetches each photo to prepare a small copy of it (fetch is governed by
+    /// `connect-src`, images by `img-src`). Pin both, and that nothing else was loosened.
+    #[test]
+    fn the_csp_lets_the_page_fetch_its_own_photos_and_stays_strict() {
+        let config: serde_json::Value =
+            serde_json::from_str(include_str!("../tauri.conf.json")).unwrap();
+        let csp = config["app"]["security"]["csp"]
+            .as_str()
+            .expect("a CSP is set");
+        let directive = |name: &str| -> Vec<&str> {
+            csp.split(';')
+                .map(str::trim)
+                .find_map(|d| d.strip_prefix(name))
+                .map(|rest| rest.split_whitespace().collect())
+                .unwrap_or_default()
+        };
+        let connect = directive("connect-src");
+        for source in [
+            "ipc:",
+            "http://ipc.localhost",
+            "http://booth.localhost",
+            "booth:",
+        ] {
+            assert!(
+                connect.contains(&source),
+                "connect-src must allow {source}: {csp}"
+            );
+        }
+        assert!(
+            directive("img-src").contains(&"blob:"),
+            "the small copies are blob: images"
+        );
+        assert_eq!(directive("default-src"), vec!["'self'"]);
+        assert!(
+            !csp.contains("unsafe-eval") && !csp.contains("unsafe-inline"),
+            "{csp}"
+        );
+        assert!(
+            !connect.contains(&"*") && !connect.contains(&"http:") && !connect.contains(&"https:")
+        );
     }
 
     #[test]

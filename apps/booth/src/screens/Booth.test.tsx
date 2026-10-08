@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { act, fireEvent, render, screen } from "@testing-library/react";
 
+import { resetPhotoPrefetcher, setPhotoPrefetcher } from "../ipc/photo";
 import { resetBooth, useBooth } from "../store/store";
 import { cameras, defaultSettings, flush, installBackend, removeBackend, until } from "../test/ipc";
 import { uiConfig } from "../uiConfig";
@@ -117,7 +118,7 @@ describe("session states", () => {
     await setSession({ state: "capturing", shot: 1, total: 3 });
     expect(screen.getByLabelText("Capturing")).toBeTruthy();
 
-    await setSession({ state: "flash", shot: 1, total: 3 });
+    await setSession({ state: "flash", shot: 1, total: 3, session_id: "s-1" });
     expect(screen.getByLabelText("Flash")).toBeTruthy();
 
     await setSession({
@@ -146,6 +147,60 @@ describe("session states", () => {
     const { container } = await mount();
     await setSession({ state: "arming" });
     expect(container.querySelector("main")?.getAttribute("data-state")).toBe("arming");
+  });
+});
+
+describe("photo prefetch", () => {
+  const prefetched: string[] = [];
+  const cleared: number[] = [];
+  beforeEach(() => {
+    prefetched.length = 0;
+    cleared.length = 0;
+    setPhotoPrefetcher({
+      prefetch: (sessionId, shot) => {
+        prefetched.push(`${sessionId}/${shot}`);
+        return Promise.resolve();
+      },
+      urlFor: (sessionId, shot) => `${sessionId}/${shot}`,
+      subscribe: () => () => undefined,
+      clear: () => void cleared.push(cleared.length),
+      size: 0,
+    });
+  });
+  afterEach(() => resetPhotoPrefetcher());
+
+  test("each photo is prefetched as soon as its shot is announced, so the strip finds it ready", async () => {
+    installBackend();
+    await mount();
+    await setSession({ state: "countdown", shot: 1, total: 3, remaining: 1 });
+    await setSession({ state: "capturing", shot: 1, total: 3 });
+    expect(prefetched).toEqual([]);
+
+    await setSession({ state: "flash", shot: 1, total: 3, session_id: "s-9" });
+    expect(prefetched).toEqual(["s-9/1"]);
+
+    await setSession({ state: "flash", shot: 2, total: 3, session_id: "s-9" });
+    expect(prefetched).toEqual(["s-9/1", "s-9/2"]);
+  });
+
+  test("going back to attract releases the held photos; a session's own states do not", async () => {
+    installBackend();
+    await mount();
+    const atStart = cleared.length; // an idempotent clear on the initial attract state is fine
+    await setSession({ state: "flash", shot: 1, total: 1, session_id: "s-9" });
+    await setSession({ state: "strip_review", session_id: "s-9", photos: [1], auto_return_in: 5 });
+    expect(cleared).toHaveLength(atStart);
+
+    await setSession({ state: "attract" });
+    expect(cleared).toHaveLength(atStart + 1);
+  });
+
+  test("leaving the booth releases them too", async () => {
+    installBackend();
+    const { unmount } = await mount();
+    await setSession({ state: "flash", shot: 1, total: 3, session_id: "s-9" });
+    unmount();
+    expect(cleared.length).toBeGreaterThanOrEqual(1);
   });
 });
 
@@ -237,6 +292,36 @@ describe("connection problems", () => {
     });
     expect(screen.getByText("Connecting to camera…")).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Retry connection" })).toBeNull();
+  });
+
+  test("the start pill is disabled while the banner is up, and usable again once the camera is ready", async () => {
+    const backend = installBackend();
+    await mount();
+    const pill = () => screen.getByRole("button", { name: "Tap to start photoshoot" }) as HTMLButtonElement;
+    expect(pill().disabled).toBe(false);
+
+    for (const status of [
+      { state: "error", message: "camera not in PC Remote mode?" },
+      { state: "disconnected" },
+      { state: "connecting" },
+    ] as const) {
+      act(() => {
+        useBooth.getState().applyCameraStatus({ camera: "test", status });
+      });
+      expect(pill().disabled).toBe(true);
+      fireEvent.click(pill());
+    }
+    await act(async () => {
+      await flush();
+    });
+    expect(backend.callsTo("session_start")).toHaveLength(0);
+
+    act(() => {
+      useBooth.getState().applyCameraStatus({ camera: "test", status: { state: "ready" } });
+    });
+    expect(pill().disabled).toBe(false);
+    fireEvent.click(pill());
+    await until(() => backend.callsTo("session_start").length === 1, "session_start");
   });
 
   test("a healthy camera shows no banner", async () => {

@@ -136,6 +136,49 @@ describe("App", () => {
     expect(screen.queryByRole("alert")).toBeNull();
   });
 
+  describe("camera problems are not announced twice", () => {
+    const CAMERA_PROBLEM = "Camera permission was denied.";
+
+    const toBooth = async () => {
+      fullBackend();
+      await mount();
+      await until(() => useBooth.getState().settings !== null, "settings loaded");
+      act(() => useBooth.getState().setScreen("booth"));
+      await act(async () => {
+        await flush();
+      });
+      act(() => {
+        useBooth.getState().applyCameraStatus({
+          camera: "test",
+          status: { state: "error", message: CAMERA_PROBLEM },
+        });
+      });
+    };
+
+    test("a toast that repeats the banner's message is hidden", async () => {
+      await toBooth();
+      act(() => useBooth.getState().setNotice(`camera I/O error: ${CAMERA_PROBLEM}`));
+      expect(screen.getByRole("status").textContent).toContain(CAMERA_PROBLEM);
+      expect(screen.queryByRole("alert")).toBeNull();
+    });
+
+    test("a different problem still gets its toast next to the banner", async () => {
+      await toBooth();
+      act(() => useBooth.getState().setNotice("the live view could not start"));
+      expect(screen.getByRole("alert").textContent).toContain("the live view could not start");
+    });
+
+    test("with no banner on screen (mid-session) the toast is the only place the problem shows", async () => {
+      await toBooth();
+      act(() => {
+        useBooth.getState().applySession({ state: "countdown", shot: 1, total: 3, remaining: 2 });
+        useBooth.getState().setNotice(`camera I/O error: ${CAMERA_PROBLEM}`);
+      });
+      expect(screen.queryByRole("status")).toBeNull();
+      expect(screen.getByRole("alert").textContent).toContain(CAMERA_PROBLEM);
+    });
+  });
+
   test("settings opens from the picker and returns", async () => {
     fullBackend();
     await mount();

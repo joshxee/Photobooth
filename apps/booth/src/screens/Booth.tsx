@@ -8,9 +8,10 @@ import {
   sessionTakeAnother,
   startLiveView,
 } from "../ipc";
+import { photoPrefetcher } from "../ipc/photo";
 import { setKeepScreenOn } from "../platform";
 import { errorMessage } from "../store/bridge";
-import { selectedCamera, selectedCameraStatus, useBooth } from "../store/store";
+import { cameraBanner, selectedCamera, selectedCameraStatus, useBooth } from "../store/store";
 import { Arming, Attract, Countdown, Flash, SessionError, StripReview } from "./BoothViews";
 import { DevPanel } from "./DevPanel";
 
@@ -80,6 +81,15 @@ export function Booth() {
     return () => void setKeepScreenOn(false);
   }, []);
 
+  // Each photo starts loading and decoding the moment it exists, during the next countdown, so
+  // the strip does not have to wait for three 24 MP JPEGs. They are let go of once the strip
+  // is done or the booth is left.
+  useEffect(() => {
+    if (session.state === "flash") void photoPrefetcher.prefetch(session.session_id, session.shot);
+    else if (session.state === "attract") photoPrefetcher.clear();
+  }, [session]);
+  useEffect(() => () => photoPrefetcher.clear(), []);
+
   const leave = useCallback(() => useBooth.getState().setScreen("select"), []);
   const guard = useCallback(
     (action: () => Promise<void>) => () =>
@@ -89,8 +99,7 @@ export function Booth() {
 
   const native = camera?.preview === "native";
   const mirror = settings?.mirror_preview ?? true;
-  const connectionProblem =
-    status?.state === "error" || status?.state === "disconnected" || status?.state === "connecting";
+  const banner = useBooth(cameraBanner);
 
   return (
     <main className={`booth booth--${native ? "native" : "channel"}`} data-state={session.state}>
@@ -102,6 +111,7 @@ export function Booth() {
         <Attract
           totalShots={settings?.number_of_photos ?? 3}
           onStart={() => sessionStart().catch((e) => useBooth.getState().setNotice(errorMessage(e)))}
+          disabled={banner !== null}
         />
       )}
       {session.state === "arming" && <Arming />}
@@ -130,15 +140,9 @@ export function Booth() {
         />
       )}
 
-      {session.state === "attract" && connectionProblem && (
+      {banner !== null && (
         <div className="banner" role="status">
-          <span>
-            {status?.state === "connecting"
-              ? "Connecting to camera…"
-              : status?.state === "error"
-                ? status.message
-                : "Camera disconnected"}
-          </span>
+          <span>{banner}</span>
           {status?.state !== "connecting" && (
             <button type="button" className="banner__button" onClick={() => void retry()}>
               Retry connection

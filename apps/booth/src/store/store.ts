@@ -127,3 +127,26 @@ export const selectedCameraStatus = (s: BoothState): CameraStatus | undefined =>
   const id = selectedCameraId(s);
   return id ? s.cameraStatus[id] : undefined;
 };
+
+/** What to tell the guest about a camera that cannot take a photo yet; null when it can (or is unknown). */
+export function problemText(status: CameraStatus | undefined): string | null {
+  switch (status?.state) {
+    case "connecting":
+      return "Connecting to camera…";
+    case "error":
+      return status.message;
+    case "disconnected":
+      return "Camera disconnected";
+    default:
+      return null;
+  }
+}
+
+/**
+ * The banner on the attract screen: shown exactly when the camera cannot take a photo yet. The
+ * start pill is disabled while it is up, and a toast that repeats it is suppressed.
+ */
+export const cameraBanner = (s: BoothState): string | null =>
+  s.screen === "booth" && s.session.state === "attract"
+    ? problemText(selectedCameraStatus(s))
+    : null;
