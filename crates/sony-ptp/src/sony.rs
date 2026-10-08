@@ -31,6 +31,11 @@ pub struct SonyConfig {
     /// How long to wait for live view to become active.
     pub live_view_timeout: Duration,
     /// Objects larger than this are fetched in chunks with `SDIO_GetPartialLargeObject`.
+    ///
+    /// **Off by default** (`u32::MAX`). Measured on a real A7 III: for a 10.4 MB JPEG the camera
+    /// *stalls the USB pipe* on `SDIO_GetPartialLargeObject(handle, 0, 0, 1 MiB)`, while a plain
+    /// `GetObject` of the handle is the standard way and is what is used instead. The chunked
+    /// path is kept (and tested) for bodies that need it, but must be opted into.
     pub chunk_threshold: u32,
     pub chunk_size: u32,
     /// Upper bound on objects consumed while looking for the JPEG (skips RAW companions).
@@ -47,7 +52,7 @@ impl Default for SonyConfig {
             image_timeout: Duration::from_secs(10),
             poll_interval: Duration::from_millis(50),
             live_view_timeout: Duration::from_secs(3),
-            chunk_threshold: 4 * 1024 * 1024,
+            chunk_threshold: u32::MAX,
             chunk_size: 1024 * 1024,
             max_objects_per_capture: 4,
         }
@@ -313,9 +318,29 @@ impl<T: Transport> Sony<T> {
     pub fn capture(&mut self) -> Result<Capture> {
         self.require_connected()?;
         self.drain_events()?;
+        // Never let a leftover object (the RAW companion of the last shot, or a photo from a
+        // capture that failed half-way) be mistaken for the picture about to be taken.
+        let stale = self.drain_pending()?;
+        if stale > 0 {
+            tracing::warn!(stale, "discarded objects left over from an earlier capture");
+        }
+        let started = Instant::now();
         self.shoot()?;
+        tracing::info!(
+            elapsed_ms = started.elapsed().as_millis() as u64,
+            "shutter released; waiting for the image"
+        );
         self.wait_for_image()?;
-        self.download_jpeg()
+        let capture = self.download_jpeg()?;
+        tracing::info!(
+            elapsed_ms = started.elapsed().as_millis() as u64,
+            filename = %capture.filename,
+            bytes = capture.jpeg.len(),
+            width = capture.width,
+            height = capture.height,
+            "capture complete"
+        );
+        Ok(capture)
     }
 
     /// S1 down → AF settle → S2 down → S2 up → S1 up, via a drop-guard.
@@ -327,6 +352,36 @@ impl<T: Transport> Sony<T> {
         sleep(af_settle);
         shutter.full_press()?;
         shutter.release()
+    }
+
+    /// Downloads and discards every object still waiting in the camera, returning how many.
+    ///
+    /// With RAW+JPEG quality the camera delivers the JPEG first and keeps the RAW pending; left
+    /// alone it is fetched (and thrown away) at the start of the *next* capture, costing seconds.
+    /// Cheap when nothing is pending (one property read).
+    pub fn drain_pending(&mut self) -> Result<u32> {
+        let mut drained = 0;
+        for _ in 0..self.cfg.max_objects_per_capture.max(8) {
+            match self.property_u16(prop::OBJECT_IN_MEMORY) {
+                Ok(v) if v >= OBJECT_IN_MEMORY_READY => {}
+                _ => break,
+            }
+            let response =
+                self.ptp
+                    .transaction(op::GET_OBJECT_INFO, &[handle::CAPTURED_IMAGE], None)?;
+            if !response.is_ok() {
+                break;
+            }
+            let info = ObjectInfo::parse(&response.data)?;
+            tracing::debug!(
+                filename = %info.filename,
+                size = info.compressed_size,
+                "discarding a pending object"
+            );
+            self.download_object(handle::CAPTURED_IMAGE, info.compressed_size)?;
+            drained += 1;
+        }
+        Ok(drained)
     }
 
     fn drain_events(&mut self) -> Result<()> {
@@ -343,16 +398,29 @@ impl<T: Transport> Sony<T> {
     /// Property read failures are tolerated while there is still time: the event or a retried
     /// `GetObjectInfo` may yet succeed.
     pub fn wait_for_image(&mut self) -> Result<()> {
-        let deadline = Instant::now() + self.cfg.image_timeout;
+        let started = Instant::now();
+        let deadline = started + self.cfg.image_timeout;
         loop {
             if let Some(ev) = self.ptp.poll_event(self.cfg.poll_interval)? {
+                tracing::debug!(code = ev.code, params = ?ev.params, "camera event");
                 let added = matches!(ev.code, event::SONY_OBJECT_ADDED | event::OBJECT_ADDED);
                 if added && ev.params.first() == Some(&handle::CAPTURED_IMAGE) {
+                    tracing::info!(
+                        waited_ms = started.elapsed().as_millis() as u64,
+                        "image ready (ObjectAdded event)"
+                    );
                     return Ok(());
                 }
             }
             match self.property_u16(prop::OBJECT_IN_MEMORY) {
-                Ok(v) if v >= OBJECT_IN_MEMORY_READY => return Ok(()),
+                Ok(v) if v >= OBJECT_IN_MEMORY_READY => {
+                    tracing::info!(
+                        waited_ms = started.elapsed().as_millis() as u64,
+                        object_in_memory = format_args!("{v:#06x}"),
+                        "image ready (ObjectInMemory)"
+                    );
+                    return Ok(());
+                }
                 Ok(_) => {}
                 Err(e @ Error::Io(_)) => return Err(e),
                 Err(e) => tracing::debug!(%e, "ObjectInMemory not readable; relying on events"),
@@ -386,6 +454,14 @@ impl<T: Transport> Sony<T> {
         let deadline = Instant::now() + self.cfg.image_timeout;
         for _ in 0..self.cfg.max_objects_per_capture {
             let info = self.object_info_with_retry(deadline)?;
+            tracing::info!(
+                filename = %info.filename,
+                format = format_args!("{:#06x}", info.format),
+                size = info.compressed_size,
+                width = info.width,
+                height = info.height,
+                "downloading the captured object"
+            );
             let bytes = self.download_object(handle::CAPTURED_IMAGE, info.compressed_size)?;
             if info.format == format::SONY_RAW {
                 tracing::debug!(filename = %info.filename, "discarding RAW companion");
@@ -410,6 +486,7 @@ impl<T: Transport> Sony<T> {
 
     fn download_object(&mut self, object: u32, size: u32) -> Result<Vec<u8>> {
         if size > self.cfg.chunk_threshold {
+            tracing::info!(size, chunk = self.cfg.chunk_size, "using chunked download");
             match self.download_chunked(object, size) {
                 Ok(bytes) => return Ok(bytes),
                 Err(Error::Response {

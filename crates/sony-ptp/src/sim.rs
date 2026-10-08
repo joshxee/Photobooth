@@ -33,6 +33,8 @@ pub struct SimConfig {
     pub send_object_added_event: bool,
     /// Produce an ARW before the JPEG (RAW+JPEG quality).
     pub raw_plus_jpeg: bool,
+    /// With `raw_plus_jpeg`, deliver the JPEG first and the ARW second (what a real A7 III does).
+    pub jpeg_first: bool,
     pub jpeg_payload_len: usize,
     pub image_width: u32,
     pub image_height: u32,
@@ -53,6 +55,7 @@ impl Default for SimConfig {
             image_ready_after_polls: 2,
             send_object_added_event: true,
             raw_plus_jpeg: false,
+            jpeg_first: false,
             jpeg_payload_len: 3_000,
             image_width: 6000,
             image_height: 4000,
@@ -74,6 +77,10 @@ pub enum Fault {
     WriteError { op: u16, nth: u32 },
     /// The bulk write panics (to prove drop-guards run while unwinding).
     PanicOnWrite { op: u16, nth: u32 },
+    /// The camera stalls the pipe on this command: it is accepted, then every transfer fails
+    /// with a stall until the host clears the halt (`Transport::reset`) — as a real endpoint
+    /// halt does.
+    PipeError { op: u16, nth: u32 },
 }
 
 /// One operation the camera received.
@@ -106,6 +113,8 @@ struct State {
     next_live_frame: u32,
     chunk_requests: u32,
     current_op: u16,
+    halted: bool,
+    resets: u32,
 }
 
 /// The transport the engine talks to.
@@ -167,6 +176,16 @@ impl SimHandle {
 
     pub fn chunk_requests(&self) -> u32 {
         lock(&self.state).chunk_requests
+    }
+
+    /// Objects the camera is still holding for the host.
+    pub fn pending_objects(&self) -> usize {
+        lock(&self.state).objects.len()
+    }
+
+    /// How many times the host cleared a halted endpoint.
+    pub fn resets(&self) -> u32 {
+        lock(&self.state).resets
     }
 
     pub fn session_open(&self) -> bool {
@@ -232,7 +251,8 @@ impl SimTransport {
             Fault::Respond { op, nth, .. }
             | Fault::Stall { op, nth }
             | Fault::WriteError { op, nth }
-            | Fault::PanicOnWrite { op, nth } => *op == operation && *nth == count,
+            | Fault::PanicOnWrite { op, nth }
+            | Fault::PipeError { op, nth } => *op == operation && *nth == count,
         })
     }
 
@@ -374,32 +394,41 @@ impl SimTransport {
                 if state.s1_down {
                     state.exposures += 1;
                     state.image_polls_left = Some(self.cfg.image_ready_after_polls);
-                    state.in_memory = false;
-                    state.objects.clear();
+                    // Like a real camera, objects nobody fetched stay queued (and
+                    // ObjectInMemory stays set) — a new exposure appends to them.
                     let n = state.exposures as u8;
-                    if self.cfg.raw_plus_jpeg {
-                        state.objects.push_back((
-                            ObjectInfo {
-                                format: format::SONY_RAW,
-                                compressed_size: 5_000,
-                                width: self.cfg.image_width,
-                                height: self.cfg.image_height,
-                                filename: format!("DSC{n:05}.ARW"),
-                            },
-                            vec![0xAA; 5_000],
-                        ));
-                    }
-                    let jpeg = jpeg_bytes(self.cfg.jpeg_payload_len, n);
-                    state.objects.push_back((
+                    let raw = (
+                        ObjectInfo {
+                            format: format::SONY_RAW,
+                            compressed_size: 5_000,
+                            width: self.cfg.image_width,
+                            height: self.cfg.image_height,
+                            filename: format!("DSC{n:05}.ARW"),
+                        },
+                        vec![0xAA; 5_000],
+                    );
+                    let jpeg_data = jpeg_bytes(self.cfg.jpeg_payload_len, n);
+                    let jpeg = (
                         ObjectInfo {
                             format: format::JPEG,
-                            compressed_size: jpeg.len() as u32,
+                            compressed_size: jpeg_data.len() as u32,
                             width: self.cfg.image_width,
                             height: self.cfg.image_height,
                             filename: format!("DSC{n:05}.JPG"),
                         },
-                        jpeg,
-                    ));
+                        jpeg_data,
+                    );
+                    match (self.cfg.raw_plus_jpeg, self.cfg.jpeg_first) {
+                        (false, _) => state.objects.push_back(jpeg),
+                        (true, false) => {
+                            state.objects.push_back(raw);
+                            state.objects.push_back(jpeg);
+                        }
+                        (true, true) => {
+                            state.objects.push_back(jpeg);
+                            state.objects.push_back(raw);
+                        }
+                    }
                 }
             }
             (prop::SHUTTER_FULL, 1) => state.s2_down = false,
@@ -467,6 +496,9 @@ impl Transport for SimTransport {
     fn write_bulk(&mut self, buf: &[u8], _timeout: Duration) -> Result<usize> {
         let container = Container::parse(buf)?;
         let mut state = lock(&self.state);
+        if state.halted {
+            return Err(Error::Stall("bulk write".to_owned()));
+        }
         match container.kind {
             ContainerType::Command => {
                 let operation = container.code;
@@ -478,6 +510,16 @@ impl Transport for SimTransport {
                 match self.fault(operation, count) {
                     Some(Fault::WriteError { .. }) => {
                         return Err(Error::Io("simulated bulk write failure".to_owned()));
+                    }
+                    Some(Fault::PipeError { .. }) => {
+                        state.ops.push(OpRecord {
+                            op: operation,
+                            params: container.params(),
+                            data: Vec::new(),
+                            txid: container.txid,
+                        });
+                        state.halted = true;
+                        return Ok(buf.len());
                     }
                     Some(Fault::PanicOnWrite { .. }) => {
                         drop(state);
@@ -524,6 +566,9 @@ impl Transport for SimTransport {
 
     fn read_bulk(&mut self, buf: &mut [u8], _timeout: Duration) -> Result<usize> {
         let mut state = lock(&self.state);
+        if state.halted {
+            return Err(Error::Stall("bulk read".to_owned()));
+        }
         if state.stalled {
             return Err(Error::Timeout("bulk read"));
         }
@@ -555,6 +600,8 @@ impl Transport for SimTransport {
         state.out.clear();
         state.events.clear();
         state.stalled = false;
+        state.halted = false;
+        state.resets += 1;
         Ok(())
     }
 }

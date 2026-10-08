@@ -14,10 +14,13 @@ mod state;
 #[cfg(target_os = "android")]
 use std::sync::Arc;
 
+use std::sync::atomic::{AtomicBool, Ordering};
+
 use photobooth_core::{CameraId, Timings};
 use tauri::{AppHandle, Emitter, Manager};
 use tokio::sync::broadcast::error::RecvError;
-use tracing_subscriber::filter::{LevelFilter, Targets};
+use tracing::Level;
+use tracing_subscriber::filter::filter_fn;
 use tracing_subscriber::fmt::MakeWriter;
 use tracing_subscriber::prelude::*;
 
@@ -43,20 +46,40 @@ fn console_writer() -> impl for<'a> MakeWriter<'a> + Send + Sync + 'static {
     logcat::Logcat
 }
 
+/// Presence of this file in the app data directory turns on full `sony_ptp` protocol tracing
+/// (every PTP command and response). Create it from a shell, e.g.
+/// `adb shell run-as com.jc.photobooth.tauri touch debug-ptp`, then restart the app.
+const PTP_TRACE_FLAG: &str = "debug-ptp";
+
+static PTP_TRACE: AtomicBool = AtomicBool::new(false);
+
+/// Per-target verbosity: our own crates at DEBUG, the PTP engine at TRACE when requested, and
+/// everything else at INFO.
+fn log_enabled(meta: &tracing::Metadata<'_>) -> bool {
+    let target = meta.target();
+    let max = if target.starts_with("sony_ptp") {
+        if PTP_TRACE.load(Ordering::Relaxed) {
+            Level::TRACE
+        } else {
+            Level::DEBUG
+        }
+    } else if target.starts_with("photobooth") {
+        Level::DEBUG
+    } else {
+        Level::INFO
+    };
+    *meta.level() <= max
+}
+
 fn init_tracing(logs: LogRingBuffer) {
-    let filter = Targets::new()
-        .with_default(LevelFilter::INFO)
-        .with_target("photobooth_lib", LevelFilter::DEBUG)
-        .with_target("photobooth_core", LevelFilter::DEBUG)
-        .with_target("sony_ptp", LevelFilter::DEBUG);
     let ring = tracing_subscriber::fmt::layer()
         .with_writer(logs)
         .with_ansi(false)
-        .with_filter(filter.clone());
+        .with_filter(filter_fn(log_enabled));
     let console = tracing_subscriber::fmt::layer()
         .with_writer(console_writer())
         .with_ansi(false)
-        .with_filter(filter);
+        .with_filter(filter_fn(log_enabled));
     // Ignore the error: a subscriber may already be installed (e.g. in tests).
     let _ = tracing_subscriber::registry()
         .with(ring)
@@ -169,6 +192,10 @@ pub fn run() {
         .setup(move |app| {
             let data_dir = app.path().app_data_dir()?;
             std::fs::create_dir_all(&data_dir)?;
+            if data_dir.join(PTP_TRACE_FLAG).exists() {
+                PTP_TRACE.store(true, Ordering::Relaxed);
+                tracing::info!("PTP protocol tracing is on ({PTP_TRACE_FLAG} flag present)");
+            }
             let (state, session_task) = AppState::new(
                 data_dir.join(SETTINGS_FILE),
                 platform_slots(app.handle()),

@@ -37,6 +37,7 @@ pub mod rc {
     pub const OPERATION_NOT_SUPPORTED: u16 = 0x2005;
     pub const INVALID_OBJECT_HANDLE: u16 = 0x2009;
     pub const DEVICE_PROP_NOT_SUPPORTED: u16 = 0x200A;
+    pub const ACCESS_DENIED: u16 = 0x200F;
     pub const DEVICE_BUSY: u16 = 0x2019;
     pub const SESSION_ALREADY_OPEN: u16 = 0x201E;
 }
@@ -92,6 +93,7 @@ pub fn response_name(code: u16) -> &'static str {
         rc::OPERATION_NOT_SUPPORTED => "OperationNotSupported",
         rc::INVALID_OBJECT_HANDLE => "InvalidObjectHandle",
         rc::DEVICE_PROP_NOT_SUPPORTED => "DevicePropNotSupported",
+        rc::ACCESS_DENIED => "AccessDenied",
         rc::DEVICE_BUSY => "DeviceBusy",
         rc::SESSION_ALREADY_OPEN => "SessionAlreadyOpen",
         _ => "unknown response",

@@ -4,15 +4,11 @@ A transport-agnostic PTP engine with Sony's SDIO extensions, for driving a Sony 
 **PC Remote** USB mode. Nothing like it existed in the old KMP app (its only Sony path was
 Wi-Fi JSON-RPC).
 
-> **Verification status — read this first.** In the session that wrote this page the camera
-> was cabled to the *tablet*, not the development machine, and no Android SDK was available
-> to run the app there. So **nothing on this page has been exercised against a real A7 III
-> yet.** What *is* verified: the engine is self-consistent, byte-correct on the framing it
-> defines, and robust to the failure modes listed below — against a byte-level simulated
-> camera (`sim.rs`) that encodes the protocol facts the task handed us. The protocol facts
-> themselves are taken from libgphoto2 and public reverse-engineering notes (Sony has not
-> published the protocol). Treat the **"Unverified assumptions"** section as the checklist
-> for the first real-hardware run.
+> **Verification status — first real-hardware run: 2026-10-08.** A Sony **ILCE-7M3 (firmware 4.0)**
+> cabled to an Android tablet, driven through the app over the Android USB-fd path (the camera is
+> not attached to the dev PC, so nothing was run from the desktop). Everything below marked
+> **Verified on hardware** was observed in the device log with PTP tracing on. The first run
+> *failed*, and the failure is documented honestly in "What the real camera taught us".
 
 ## Camera-side setup
 
@@ -33,18 +29,19 @@ Do this before connecting:
 GetDeviceInfo (txid 0)                → model, supported ops (must include SDIO_Connect)
 OpenSession(1) (txid 0, then 1,2,…)
 SDIO_Connect(1,0,0) → SDIO_Connect(2,0,0)
-SDIO_GetExtDeviceInfo(0xC8)           → retried (≤ 20×) while the answer is empty; normal
+SDIO_GetExtDeviceInfo(0xC8)           → on the A7 III it simply blocks ~1 s, then answers (retried ≤ 20× if empty)
 SDIO_Connect(3,0,0)                   → connected
 ```
 
-**Capture:** drain stale events → S1 down (`0xD2C1` ← `0x0002`) → ~300 ms AF settle → S2
+**Capture:** drain stale events and any **pending objects** left in the camera → S1 down (`0xD2C1` ← `0x0002`) → ~300 ms AF settle → S2
 down (`0xD2C2` ← `0x0002`) → S2 up (`0x0001`) → S1 up. Then wait for the image: an
 `ObjectAdded` event (`0xC201`, param `0xFFFFC001`) **or** `ObjectInMemory` (`0xD215`) ≥
 `0x8000`, whichever comes first. Then `GetObjectInfo(0xFFFFC001)` (retried on
-`InvalidObjectHandle`/`DeviceBusy`) and `GetObject(0xFFFFC001)`; objects larger than 4 MiB use
-`SDIO_GetPartialLargeObject(handle, offset_lo, offset_hi, len)` in 1 MiB chunks, falling
-back to `GetObject` if the camera refuses. A RAW (`0xB101`) object is consumed and discarded,
-and the loop continues until a JPEG arrives (≤ 4 objects).
+`InvalidObjectHandle`/`DeviceBusy`) and a plain `GetObject(0xFFFFC001)` **whatever the size**
+(chunked `SDIO_GetPartialLargeObject` stalls the A7 III's pipe, so it is opt-in — see below). A
+RAW (`0xB101`) object that arrives *before* the JPEG is consumed and discarded; one that arrives
+*after* it (this body's order) is left in the camera and cleared by `drain_pending` — before the
+next shutter press, and in the background right after the capture.
 
 **The shutter drop-guard.** S1/S2 are held by a guard whose `Drop` releases **S2 before S1**.
 The "held" flag is set *before* each press is sent, so a press that errors after the camera
@@ -57,9 +54,10 @@ press, a timeout while waiting for the image, and a **panic** mid-sequence (via
 (`offset`,`size` as the first two LE u32s) only if it points at a well-formed JPEG, otherwise
 by scanning for the first SOI and the last EOI. It is **best-effort**: `SonyCamera` runs it in
 a blocking loop with a cooperative stop flag, steps aside whenever a capture is pending,
-restarts via a watchdog (3 s without a frame, ≤ 3 restarts), and ends the stream after 5
-consecutive failures. Capture never depends on it (there is a test with live view
-permanently inactive).
+restarts via a watchdog (3 s without a frame, ≤ 3 restarts), **backs off (50 ms → 1 s) when the
+camera refuses a frame with `AccessDenied`** (it does so intermittently) without ever giving
+up, and ends the stream after 5 consecutive *other* failures. Capture never depends on it
+(there is a test with live view permanently inactive).
 
 ## Transport layering
 
@@ -82,47 +80,94 @@ it in `cargo test` with `ReplayTransport`. The test `a_recorded_session_replays_
 proves the loop works on a simulated session; `replay_catches_a_change_in_wire_behaviour`
 proves any divergence fails loudly.
 
-## Unverified assumptions (resolve on the first real run)
+## What the real camera taught us (2026-10-08)
 
-Each is isolated so a wrong guess is a one-line fix, and each has a graceful fallback.
+**Verified on hardware**
 
-1. **Property reads.** `SDIO_GetAllExtDevicePropInfo` (`0x9209`) is believed to return a
-   dataset of property records. The parser tries four layouts (with/without an 8-byte leading
-   count; one or two value lists in enumeration forms) and accepts only one that consumes the
-   buffer exactly; on failure it falls back to plain `GetDevicePropValue (0x1015)`. The layout
-   that works is logged at `debug` level (`parsed extended property info`) — **record it here**.
-2. **`SDIO_Connect` parameters.** Sent as `(phase, 0, 0)`. Older bodies needed key exchange;
-   the A7 III is believed not to.
-3. **`SDIO_GetExtDeviceInfo` param `0xC8`** and "empty ⇒ retry" semantics.
-4. **Event delivery.** Whether `ObjectAdded (0xC201)` actually arrives on the interrupt
-   endpoint for this body. If not, polling `0xD215` is sufficient — both paths are covered.
-5. **Live-view envelope.** The `(offset, size)` header guess; the scan fallback does not
-   depend on it.
-6. **RAW+JPEG handling.** That the RAW must be *downloaded* (not just skipped) to advance the
-   buffer, and that the JPEG then appears at the same `0xFFFFC001` handle.
-7. **Large JPEGs.** A 24 MP JPEG may exceed 4 MiB; the chunked path (offset split low word
-   first) is untested against the camera.
-8. **`SDIO_OpenSession (0x9210)`** is defined but not used; newer bodies need it, the A7 III
-   is believed not to.
-9. **Timeouts.** Defaults are 5 s command / 15 s data per transfer; real-world values unknown.
+| Item | Observed |
+|------|----------|
+| Handshake | `GetDeviceInfo` (245 B) → `OpenSession` → `SDIO_Connect(1,0,0)` → `SDIO_Connect(2,0,0)` → `SDIO_GetExtDeviceInfo(0xC8)` (blocks ~1 s, then returns 132 B — *not* a run of empty retries) → `SDIO_Connect(3,0,0)`. Model `ILCE-7M3`, version `4.0`. |
+| Stale session | `OpenSession` answers `0x201E` (SessionAlreadyOpen) if a previous app process left one open; close-and-reopen works. |
+| Property dataset (`SDIO_GetAllExtDevicePropInfo`, `0x9209`) | **8-byte leading count, one value list per enumeration**, 60 records, 1.5–1.6 KB. This is now the parser's first layout; the others stay as a safety net. |
+| Shutter | `SDIO_ControlDevice` `0xD2C1`/`0xD2C2` ← `0x0002`/`0x0001` accepted; S1 down → 300 ms → S2 down → S2 up (6–17 ms later) → S1 up. The camera fires. |
+| Image ready | `0xC201` ObjectAdded event (param `0xFFFFC001`) arrives **~1.3 s** after the shutter; `0xC203` property-changed events stream in the meantime. `ObjectInMemory` also reads `0x8001`. |
+| `GetObjectInfo(0xFFFFC001)` | Answers in ~20 ms: format `0x3801` JPEG, size ~10.9–11.1 MB, filename `C_2035xx.JPG`. **Width/height are 0**, so dimensions come from the JPEG's SOF marker (6000×4000). |
+| Download | A plain `GetObject(0xFFFFC001)` of an 11 MB JPEG takes ~0.4 s. A full capture is ~2.0 s from shutter to JPEG in hand. |
+| Live view | `GetObject(0xFFFFC002)` returns 46–52 KB JPEG envelopes at ~28 fps **but is refused with `0x200F` (AccessDenied) intermittently**. |
+
+**What was wrong (found by a failed first capture)**
+
+1. **`SDIO_GetPartialLargeObject` stalls the USB pipe.** For the 10.4 MB JPEG the engine switched to
+   the chunked path (the handoff notes said ">4 MB ⇒ chunked") and sent
+   `SDIO_GetPartialLargeObject [0xFFFFC001, 0, 0, 1048576]`; the camera **stalled the pipe**
+   (`LIBUSB_ERROR_PIPE`) 4 ms later and the session errored with "Pipe error". Chunked download is
+   now **off by default**; a plain `GetObject` is used regardless of size. (The chunked code and its
+   tests remain for bodies that need it; whether the parameter shape was wrong or the command is
+   simply unsupported on this body is not known.)
+2. **The error said nothing useful.** "Pipe error" does not say which command. Transport errors now
+   name the operation (`SDIO_GetPartialLargeObject failed: Pipe error`), a stall is a distinct
+   `Error::Stall`, and the engine **clears the endpoint halt** afterwards (a halted endpoint refuses
+   all later traffic).
+3. **Live view was handled wrongly twice.** First, a successful *activation* reset the failure
+   counter, so a camera that reports live view "on" but refuses frames was hammered forever (82
+   requests in 25 s). Then my fix treated `AccessDenied` as permanent, which killed the stream after
+   five frames — the user saw a **frozen preview**. It is now treated as transient: back off
+   (50 ms → 1 s) and resume when frames flow.
+4. **RAW+JPEG leaves the RAW behind.** This body delivers the **JPEG first, then the ~49 MB ARW**.
+   Returning on the JPEG left the ARW queued, so the *next* capture downloaded and discarded it first
+   (+1.7 s) — and a photo left behind by any failed capture could have been returned as the *next*
+   shot. The engine now drains any pending objects before pressing the shutter (one property read
+   when nothing is pending) and `SonyCamera` clears the RAW companion in the background right after a
+   capture.
+5. **A misleading hint.** A photo that never arrived was reported as "camera not in PC Remote mode?",
+   although the handshake had just succeeded. It now says the camera did not deliver the photo and to
+   check focus and *Still Img. Save Dest.* An earlier attempt hit exactly this timeout (identical
+   shutter sequence, no `ObjectAdded` event); the cause was **not established** — focus priority is the
+   likely suspect (the camera may refuse to fire when AF has not locked within the 300 ms settle) but
+   that is a hypothesis.
+
+**Still unverified**
+
+- Live-view stability over minutes (the refusal pattern is intermittent and not understood);
+  `ObjectInMemory` semantics beyond what the event path showed.
+- RAW-only quality, other firmware, and `SDIO_OpenSession (0x9210)` (not needed on this body).
+- Whether a blind 300 ms AF settle is enough in dim light; a focus-confirmation property would be
+  better but its code has not been verified.
+
+## Diagnosing on the device
+
+`adb logcat -s Photobooth` shows the app's log. For the full PTP conversation (every command and
+response) create a flag file and restart the app:
+
+```bash
+adb shell run-as com.jc.photobooth.tauri touch debug-ptp   # trace on
+adb shell run-as com.jc.photobooth.tauri rm debug-ptp      # trace off
+```
+
+Tracing at live-view rates overruns logcat's small ring buffer; read the log right after the event.
+Capture milestones (`shutter released`, `image ready`, `downloading the captured object`,
+`capture complete`) are at INFO and always on.
 
 ## On-device checklist (camera on the tablet)
 
 Run once the Android build exists (see `Native-Camera-Plugin.md` and `Tauri-App.md`):
 
-- [ ] Camera menu set per the table above; cable the camera to the tablet.
-- [ ] The app's USB-permission dialog appears; accept it.
-- [ ] `GetDeviceInfo` returns the model (`ILCE-7M3`) and lists `0x9201` among operations.
-- [ ] Handshake completes; note how many `GetExtDeviceInfo` retries it took.
-- [ ] A capture produces a JPEG; the SD card also has the picture.
-- [ ] Record the property-dataset layout from the debug log (assumption 1).
-- [ ] Shutter released after every capture (camera does not keep firing).
-- [ ] Unplug mid-countdown: session shows a recoverable error, not a hang.
-- [ ] Wrong mode (USB Connection = Mass Storage): error mentions PC Remote.
-- [ ] Live view: frames for at least 30 s; note any freeze (known issue on A7-generation
-      bodies); confirm a capture still works while frozen.
-- [ ] RAW+JPEG quality: only the JPEG reaches the strip.
-- [ ] Capture a transcript with `--record` equivalent and commit it as a replay fixture.
+Status as of the first hardware run (2026-10-08); ✅ = observed in the device log, ⬜ = not yet run.
+
+- ✅ Camera menu set per the table above; camera cabled to the tablet.
+- ✅ The app's USB-permission dialog appears and is accepted.
+- ✅ `GetDeviceInfo` returns `ILCE-7M3`; the handshake completes.
+- ✅ A capture produces a 6000×4000 JPEG (11 MB) in ~2 s (after the chunked-download fix).
+- ✅ Property-dataset layout recorded: 8-byte count, one value list per enumeration.
+- ✅ Shutter is released after every capture.
+- ⬜ The SD card also holds the picture (Still Img. Save Dest. = PC+Camera).
+- ⬜ A full 3-shot session on the Sony from attract to strip, with the RAW cleanup (in progress).
+- ⬜ Unplug mid-countdown: recoverable error, not a hang.
+- ⬜ Wrong mode (USB Connection = Mass Storage): the error mentions PC Remote.
+- ⬜ Live view for 30+ s without freezing; a capture still works while it is refusing frames.
+- ⬜ JPEG-only quality (no RAW companion) behaves identically.
+- ⬜ Record a real-session transcript and commit it as a replay fixture (needs the desktop `shoot`
+  example or an on-device recorder; the Android path has no recorder yet).
 
 ## Known limitations
 
@@ -132,4 +177,9 @@ Run once the Android build exists (see `Native-Camera-Plugin.md` and `Tauri-App.
 - **Desktop USB on Windows** needs a WinUSB driver bound to the camera (e.g. Zadig); the
   `desktop-usb` feature is compile- and unit-tested here but not exercised.
 - **One camera, one session.** Hot-swapping cameras mid-session is out of scope.
-- **No coverage percentage is claimed.** 66 tests (54 without the `core-camera` adapter).
+- **RAW+JPEG makes each capture slower on the wire** (the ~49 MB RAW is downloaded and discarded
+  in the background). JPEG-only quality avoids it; whether to keep RAW on the SD card is a
+  camera-menu choice the app cannot influence.
+- **No coverage percentage is claimed.** 82 `sony-ptp` tests (54 without the `core-camera`
+  adapter), all against the simulator or recorded transcripts — the hardware findings above were
+  observed by hand, not by an automated test.

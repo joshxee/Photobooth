@@ -306,6 +306,142 @@ fn a_missing_image_times_out_and_leaves_the_shutter_released() {
     assert!(!sim.shutter_held());
 }
 
+// ----- stalls and large downloads --------------------------------------------------------
+
+#[test]
+fn a_stalled_command_names_the_operation_clears_the_halt_and_recovers() {
+    let (mut sony, sim) = connected(SimConfig {
+        faults: vec![Fault::PipeError {
+            op: op::GET_OBJECT_INFO,
+            nth: 1,
+        }],
+        ..SimConfig::default()
+    });
+    let err = sony.capture().unwrap_err();
+    assert!(
+        matches!(&err, Error::Stall(what) if what.contains("GetObjectInfo")),
+        "the error must say which command stalled; got {err}"
+    );
+    assert_eq!(sim.resets(), 1, "the halted endpoint was cleared");
+    assert!(!sim.shutter_held());
+
+    // Without the halt being cleared every later transfer would also fail.
+    sony.capture()
+        .expect("the camera is usable again after the halt is cleared");
+}
+
+#[test]
+fn large_images_use_a_plain_get_object_by_default() {
+    // A real A7 III stalls on SDIO_GetPartialLargeObject for a 10 MB JPEG, so the default is
+    // the standard whole-object download no matter how big the image is.
+    let (mut sony, sim) = connected(SimConfig {
+        jpeg_payload_len: 5_000_000,
+        max_transfer: 4096,
+        ..SimConfig::default()
+    });
+    let photo = sony.capture().unwrap();
+    assert_eq!(photo.jpeg.len(), 5_000_004);
+    assert_eq!(sim.chunk_requests(), 0);
+    assert_eq!(sim.count(op::GET_OBJECT), 1);
+}
+
+#[test]
+fn zero_object_dimensions_fall_back_to_the_jpeg_header() {
+    // The real camera reports ImagePixWidth/Height as 0 in ObjectInfo.
+    let (mut sony, _) = connected(SimConfig {
+        image_width: 0,
+        image_height: 0,
+        ..SimConfig::default()
+    });
+    let photo = sony.capture().unwrap();
+    // The simulated JPEG has no SOF marker, so the fallback yields (0, 0) rather than panicking.
+    assert_eq!((photo.width, photo.height), (0, 0));
+}
+
+// ----- RAW+JPEG: the JPEG comes first and the RAW is left pending --------------------------
+
+fn jpeg_first_config() -> SimConfig {
+    SimConfig {
+        raw_plus_jpeg: true,
+        jpeg_first: true,
+        ..SimConfig::default()
+    }
+}
+
+#[test]
+fn with_jpeg_first_the_raw_is_left_pending_until_drained() {
+    let (mut sony, sim) = connected(jpeg_first_config());
+    let photo = sony.capture().unwrap();
+    assert_eq!(
+        photo.filename, "DSC00001.JPG",
+        "the JPEG is returned as soon as it arrives"
+    );
+    assert_eq!(
+        sim.pending_objects(),
+        1,
+        "the RAW companion is still in the camera"
+    );
+
+    assert_eq!(sony.drain_pending().unwrap(), 1);
+    assert_eq!(sim.pending_objects(), 0);
+    assert_eq!(sony.drain_pending().unwrap(), 0, "nothing left: a no-op");
+}
+
+#[test]
+fn a_leftover_raw_is_discarded_before_the_next_shutter_press_never_returned_as_the_photo() {
+    let (mut sony, sim) = connected(jpeg_first_config());
+    sony.capture().unwrap();
+    let second = sony.capture().unwrap();
+    assert_eq!(
+        second.filename, "DSC00002.JPG",
+        "the second photo is the second exposure, not a leftover"
+    );
+
+    // The stale RAW (shot 1's) was fetched *before* the second half-press, not during the wait:
+    // two downloads (shot 1's JPEG and its RAW) precede it, and only shot 2's JPEG follows.
+    let ops = sim.ops();
+    let is_half_press_down = |r: &crate::sim::OpRecord| {
+        r.op == op::SDIO_CONTROL_DEVICE
+            && r.params == [u32::from(prop::SHUTTER_HALF)]
+            && r.data == DOWN.to_le_bytes()
+    };
+    let second_press = ops
+        .iter()
+        .enumerate()
+        .filter(|(_, r)| is_half_press_down(r))
+        .map(|(i, _)| i)
+        .nth(1)
+        .expect("a second half-press");
+    let downloads =
+        |range: &[crate::sim::OpRecord]| range.iter().filter(|r| r.op == op::GET_OBJECT).count();
+    assert_eq!(downloads(&ops[..second_press]), 2);
+    assert_eq!(downloads(&ops[second_press..]), 1);
+}
+
+#[test]
+fn a_photo_left_behind_by_a_failed_capture_is_not_returned_by_the_next_one() {
+    // The first capture fails after the camera already took the picture (the download stalls).
+    let (mut sony, sim) = connected(SimConfig {
+        faults: vec![Fault::PipeError {
+            op: op::GET_OBJECT_INFO,
+            nth: 1,
+        }],
+        ..SimConfig::default()
+    });
+    assert!(sony.capture().is_err());
+    assert_eq!(
+        sim.pending_objects(),
+        1,
+        "the failed shot's JPEG is still queued"
+    );
+
+    let next = sony.capture().unwrap();
+    assert_eq!(
+        next.filename, "DSC00002.JPG",
+        "must be the new exposure, not the photo from the failed attempt"
+    );
+}
+
 // ----- shutter safety -------------------------------------------------------------------
 
 #[test]

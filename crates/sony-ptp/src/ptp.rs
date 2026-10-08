@@ -126,7 +126,54 @@ impl<T: Transport> Ptp<T> {
     }
 
     /// Runs one transaction and returns the response whatever its code.
+    ///
+    /// A transport failure is logged with the operation that was in flight and, for I/O errors,
+    /// the operation is named in the error text — "Pipe error" alone says nothing about *which*
+    /// command a camera stalled on.
     pub fn transaction(
+        &mut self,
+        operation: u16,
+        params: &[u32],
+        data_out: Option<&[u8]>,
+    ) -> Result<Response> {
+        match self.run_transaction(operation, params, data_out) {
+            Err(Error::Stall(what)) => {
+                // A halted endpoint refuses all further traffic until the halt is cleared, so a
+                // single rejected command would otherwise wedge every operation after it.
+                tracing::warn!(
+                    operation = operation_name(operation),
+                    ?params,
+                    what,
+                    "camera stalled the USB pipe; clearing the halt"
+                );
+                self.leftover.clear();
+                if let Err(reset_err) = self.transport.reset() {
+                    tracing::warn!(%reset_err, "clearing the halt failed");
+                }
+                Err(Error::Stall(format!(
+                    "{} failed: {what}",
+                    operation_name(operation)
+                )))
+            }
+            Err(err @ (Error::Io(_) | Error::Timeout(_))) => {
+                tracing::warn!(
+                    operation = operation_name(operation),
+                    ?params,
+                    %err,
+                    "PTP transaction failed"
+                );
+                Err(match err {
+                    Error::Io(message) => {
+                        Error::Io(format!("{} failed: {message}", operation_name(operation)))
+                    }
+                    other => other,
+                })
+            }
+            other => other,
+        }
+    }
+
+    fn run_transaction(
         &mut self,
         operation: u16,
         params: &[u32],
@@ -178,7 +225,12 @@ impl<T: Transport> Ptp<T> {
                             "response transaction id mismatch"
                         );
                     }
-                    tracing::trace!(code = container.code, data_len = data.len(), "ptp ←");
+                    tracing::trace!(
+                        operation = operation_name(operation),
+                        code = container.code,
+                        data_len = data.len(),
+                        "ptp ←"
+                    );
                     return Ok(Response {
                         code: container.code,
                         params: container.params(),

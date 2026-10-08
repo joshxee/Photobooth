@@ -33,6 +33,10 @@ const FRAME_PACING: Duration = Duration::from_millis(30);
 const WATCHDOG: Duration = Duration::from_secs(3);
 const MAX_RESTARTS: u32 = 3;
 const MAX_CONSECUTIVE_FAILURES: u32 = 5;
+/// Backoff between live-view attempts while the camera refuses frames (it answers `AccessDenied`
+/// intermittently): start short, double up to the cap. Never gives up — the camera is alive.
+const DENIED_BACKOFF_START: Duration = Duration::from_millis(50);
+const DENIED_BACKOFF_MAX: Duration = Duration::from_secs(1);
 
 struct Shared<T: Transport> {
     /// `None` once [`SonyCamera::release`] has dropped the engine (and with it the transport).
@@ -121,9 +125,16 @@ impl<T: Transport + 'static> SonyCamera<T> {
 /// most likely means the camera is in the wrong USB mode.
 pub fn map_error(err: &Error) -> CameraError {
     match err {
+        // The handshake already succeeded if we got as far as waiting for a photo, so blaming
+        // the USB mode would be wrong; say what actually did not happen.
+        Error::Timeout(what) if what.starts_with("captured image") => CameraError::Protocol(
+            "The camera did not deliver the photo. Check that it can focus on the subject and              that Still Img. Save Dest. is PC+Camera."
+                .to_owned(),
+        ),
         Error::Timeout(what) => {
             CameraError::Protocol(format!("timed out ({what}): {PC_REMOTE_HINT}"))
         }
+        Error::Stall(what) => CameraError::Io(format!("the camera stalled the USB pipe ({what})")),
         Error::Io(message) => CameraError::Io(message.clone()),
         Error::Response { code, .. } if *code == rc::DEVICE_BUSY => CameraError::Busy,
         Error::NotConnected | Error::NotFound => CameraError::NotConnected,
@@ -133,7 +144,10 @@ pub fn map_error(err: &Error) -> CameraError {
 
 /// Whether an error leaves the USB pipe in an unknown state (needs a fresh handshake).
 fn needs_reconnect(err: &Error) -> bool {
-    matches!(err, Error::Timeout(_) | Error::Io(_) | Error::NotConnected)
+    matches!(
+        err,
+        Error::Timeout(_) | Error::Io(_) | Error::Stall(_) | Error::NotConnected
+    )
 }
 
 fn join_error(err: tokio::task::JoinError) -> CameraError {
@@ -241,6 +255,17 @@ impl<T: Transport + 'static> Camera for SonyCamera<T> {
         .map_err(join_error)?;
 
         let capture = result.map_err(|e| map_error(&e))?;
+        // The photo is in hand; clear the RAW companion (if any) out of the camera now, in the
+        // background, so it does not delay the next shot. The engine mutex orders it before
+        // the next capture.
+        let shared = self.shared.clone();
+        drop(tokio::task::spawn_blocking(move || {
+            match with_engine(&shared, |engine| engine.drain_pending()) {
+                Ok(0) => {}
+                Ok(n) => tracing::debug!(objects = n, "cleared the camera's pending objects"),
+                Err(err) => tracing::warn!(%err, "clearing the camera's pending objects failed"),
+            }
+        }));
         Ok(CapturedPhoto {
             jpeg: Bytes::from(capture.jpeg),
             width: capture.width,
@@ -265,6 +290,7 @@ fn live_loop<T: Transport>(
 ) {
     let mut active = false;
     let mut failures = 0u32;
+    let mut denied_for: Option<Duration> = None;
     let mut restarts = 0u32;
     let mut last_progress = Instant::now();
 
@@ -286,12 +312,15 @@ fn live_loop<T: Transport>(
 
         match step {
             Ok(Step::Activated) => {
+                // Not a success: only a delivered frame clears the failure count. Otherwise a
+                // camera that reports live view "on" but refuses every frame would reset the
+                // counter each cycle and be hammered forever.
                 active = true;
-                failures = 0;
                 last_progress = Instant::now();
             }
             Ok(Step::Frame(jpeg)) => {
                 failures = 0;
+                denied_for = None;
                 last_progress = Instant::now();
                 if let Err(mpsc::error::TrySendError::Closed(_)) =
                     frames.try_send(Bytes::from(jpeg))
@@ -301,10 +330,26 @@ fn live_loop<T: Transport>(
                 std::thread::sleep(FRAME_PACING);
             }
             Ok(Step::NoFrame) => std::thread::sleep(FRAME_PACING),
+            // The camera is alive but not handing out a frame right now. Not a failure, and not
+            // a reason to restart anything: wait, with growing pauses, and try again.
+            Err(Error::Response { code, .. }) if code == rc::ACCESS_DENIED => {
+                if denied_for.is_none() {
+                    tracing::debug!(
+                        "live view frame refused (AccessDenied); retrying with backoff"
+                    );
+                }
+                let pause = denied_for.map_or(DENIED_BACKOFF_START, |p: Duration| {
+                    (p * 2).min(DENIED_BACKOFF_MAX)
+                });
+                denied_for = Some(pause);
+                last_progress = Instant::now();
+                std::thread::sleep(pause);
+            }
             Err(err) => {
                 failures += 1;
                 tracing::warn!(%err, failures, "live view step failed");
                 if failures >= MAX_CONSECUTIVE_FAILURES {
+                    tracing::warn!("giving up on live view after repeated failures");
                     break;
                 }
                 active = false;
@@ -599,6 +644,128 @@ mod tests {
         let (cam, _, _) = camera_with_drop_flag();
         cam.release().await;
         cam.release().await;
+    }
+
+    fn count_live_view_requests(sim: &SimHandle) -> usize {
+        sim.ops()
+            .iter()
+            .filter(|r| {
+                r.op == crate::codes::op::GET_OBJECT && r.params.first() == Some(&0xFFFF_C002)
+            })
+            .count()
+    }
+
+    fn deny_live_view(count: u32) -> Vec<Fault> {
+        (1..=count)
+            .map(|nth| Fault::Respond {
+                op: crate::codes::op::GET_OBJECT,
+                nth,
+                code: rc::ACCESS_DENIED,
+            })
+            .collect()
+    }
+
+    /// The real camera answers `AccessDenied` for live-view frames intermittently, so a refusal
+    /// must not end the stream: frames resume as soon as the camera allows them.
+    #[tokio::test]
+    async fn live_view_recovers_when_the_camera_stops_refusing_frames() {
+        let (cam, sim) = camera(SimConfig {
+            faults: deny_live_view(3),
+            ..SimConfig::default()
+        });
+        cam.connect().await.unwrap();
+        let mut frames = cam.start_live_view().await.unwrap();
+        let frame = tokio::time::timeout(Duration::from_secs(5), next(&mut frames))
+            .await
+            .expect("a frame arrives after the refusals")
+            .expect("the stream is still open");
+        assert!(frame.starts_with(&[0xFF, 0xD8]));
+        assert!(
+            count_live_view_requests(&sim) >= 4,
+            "three refusals, then a frame"
+        );
+    }
+
+    #[tokio::test]
+    async fn live_view_backs_off_instead_of_hammering_a_camera_that_keeps_refusing() {
+        let (cam, sim) = camera(SimConfig {
+            faults: deny_live_view(10_000),
+            ..SimConfig::default()
+        });
+        cam.connect().await.unwrap();
+        let _frames = cam.start_live_view().await.unwrap();
+        tokio::time::sleep(Duration::from_millis(800)).await;
+        let asked = count_live_view_requests(&sim);
+        assert!(
+            (2..=8).contains(&asked),
+            "50+100+200+400 ms of backoff allows only a handful of requests in 800 ms; got {asked}"
+        );
+        // And a capture is not starved or broken by the refusals.
+        cam.stop_live_view().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn a_photo_that_never_arrives_is_not_blamed_on_the_usb_mode() {
+        let (cam, _) = camera(SimConfig {
+            image_ready_after_polls: u32::MAX,
+            send_object_added_event: false,
+            ..SimConfig::default()
+        });
+        cam.connect().await.unwrap();
+        let err = cam.capture().await.unwrap_err();
+        let CameraError::Protocol(message) = &err else {
+            panic!("expected a protocol error, got {err:?}");
+        };
+        assert!(message.contains("did not deliver the photo"), "{message}");
+        assert!(
+            !message.contains("PC Remote"),
+            "the handshake already worked: {message}"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_stall_during_capture_reports_which_command_and_the_camera_recovers() {
+        let (cam, sim) = camera(SimConfig {
+            faults: vec![Fault::PipeError {
+                op: crate::codes::op::GET_OBJECT_INFO,
+                nth: 1,
+            }],
+            ..SimConfig::default()
+        });
+        cam.connect().await.unwrap();
+        let err = cam.capture().await.unwrap_err();
+        assert!(
+            matches!(&err, CameraError::Io(m) if m.contains("GetObjectInfo") && m.contains("stalled")),
+            "{err:?}"
+        );
+        assert_eq!(sim.resets(), 1);
+        // A stall means the pipe state is unknown: the camera reports an error until reconnected.
+        assert!(matches!(*cam.status().borrow(), CameraStatus::Error(_)));
+        cam.connect().await.expect("a fresh handshake recovers it");
+        cam.capture().await.expect("and captures work again");
+    }
+
+    #[tokio::test]
+    async fn live_view_gives_up_after_repeated_failures_even_though_activation_succeeds() {
+        let faults = (1..=5)
+            .map(|nth| Fault::Respond {
+                op: crate::codes::op::GET_OBJECT,
+                nth,
+                code: rc::GENERAL_ERROR,
+            })
+            .collect();
+        let (cam, sim) = camera(SimConfig {
+            faults,
+            ..SimConfig::default()
+        });
+        cam.connect().await.unwrap();
+        let mut frames = cam.start_live_view().await.unwrap();
+        assert!(next(&mut frames).await.is_none());
+        assert_eq!(
+            count_live_view_requests(&sim),
+            5,
+            "stops after MAX_CONSECUTIVE_FAILURES, not never"
+        );
     }
 
     #[test]

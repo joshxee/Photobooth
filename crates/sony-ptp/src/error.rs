@@ -12,6 +12,12 @@ pub enum Error {
     #[error("USB I/O error: {0}")]
     Io(String),
 
+    /// The camera stalled a USB endpoint (`LIBUSB_ERROR_PIPE`): it rejected a command it
+    /// understood but would not carry out. The halt is cleared automatically; the text names
+    /// the operation that provoked it.
+    #[error("camera stalled the USB pipe ({0})")]
+    Stall(String),
+
     /// A transfer or poll did not complete in time. On a Sony body this very often means the
     /// camera is not in *PC Remote* USB mode.
     #[error("timed out waiting for the camera ({0})")]

@@ -75,6 +75,7 @@ impl<C: UsbContext> RusbTransport<C> {
     fn map(err: rusb::Error, what: &'static str) -> Error {
         match err {
             rusb::Error::Timeout => Error::Timeout(what),
+            rusb::Error::Pipe => Error::Stall(what.to_owned()),
             other => io(other),
         }
     }

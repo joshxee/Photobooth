@@ -1,11 +1,12 @@
 //! Parsing of Sony's "all extended device property info" dataset (`SDIO_GetAllExtDevicePropInfo`).
 //!
-//! The layout is reconstructed from libgphoto2 and is **not an official specification**, so the
+//! The layout was reconstructed from libgphoto2 and is **not an official specification**, so the
 //! parser is deliberately tolerant: it tries a small set of plausible layouts and accepts the
-//! first that consumes the buffer exactly, which makes an accidental mis-parse very unlikely
-//! while surviving the two details I could not pin down from memory (a leading record count,
-//! and whether enumerations carry one value list or two). The layout that worked on a real
-//! camera is logged at debug level so it can be pinned in `wiki/Wired-Camera-Protocol.md`.
+//! first that consumes the buffer exactly, which makes an accidental mis-parse very unlikely.
+//!
+//! **Confirmed on a real A7 III (firmware 4.0):** an 8-byte leading record count and **one**
+//! value list per enumeration (`Layout { prefix: 8, enum_lists: 1 }`), 60 records in 1.5–1.6 KB.
+//! That layout is tried first; the others are kept as a safety net for other bodies/firmware.
 
 use crate::container::Reader;
 use crate::error::{Error, Result};
@@ -29,21 +30,22 @@ pub struct Layout {
 }
 
 const LAYOUTS: [Layout; 4] = [
+    // Confirmed on hardware.
+    Layout {
+        prefix: 8,
+        enum_lists: 1,
+    },
     Layout {
         prefix: 8,
         enum_lists: 2,
     },
     Layout {
         prefix: 0,
-        enum_lists: 2,
-    },
-    Layout {
-        prefix: 8,
         enum_lists: 1,
     },
     Layout {
         prefix: 0,
-        enum_lists: 1,
+        enum_lists: 2,
     },
 ];
 
@@ -148,8 +150,8 @@ pub fn current_u16(data: &[u8], code: u16) -> Result<u16> {
         .ok_or_else(|| Error::Protocol(format!("property {code:#06x} is not a 16-bit value")))
 }
 
-/// Encodes a dataset in the primary layout (8-byte count, two-list enumerations) from
-/// `(code, current)` pairs of u16 properties; used by the simulated camera in tests.
+/// Encodes a dataset in the layout confirmed on a real camera (8-byte count, one value list per
+/// enumeration) from `(code, current)` pairs of u16 properties; used by the simulated camera.
 pub fn encode_u16_props(props: &[(u16, u16)]) -> Vec<u8> {
     let mut out = Vec::new();
     out.extend_from_slice(&(props.len() as u64).to_le_bytes());
@@ -163,8 +165,6 @@ pub fn encode_u16_props(props: &[(u16, u16)]) -> Vec<u8> {
         out.push(2); // enumeration form
         out.extend_from_slice(&1u16.to_le_bytes());
         out.extend_from_slice(&value.to_le_bytes());
-        out.extend_from_slice(&1u16.to_le_bytes());
-        out.extend_from_slice(&value.to_le_bytes());
     }
     out
 }
@@ -174,13 +174,30 @@ mod tests {
     use super::*;
 
     #[test]
-    fn parses_the_primary_layout() {
+    fn parses_the_layout_confirmed_on_real_hardware() {
         let data = encode_u16_props(&[(0xD215, 0x8001), (0xD221, 1)]);
         let (props, layout) = parse_all_ext_prop_info(&data).unwrap();
         assert_eq!(layout, LAYOUTS[0]);
         assert_eq!(props.len(), 2);
         assert_eq!(current_u16(&data, 0xD215).unwrap(), 0x8001);
         assert_eq!(current_u16(&data, 0xD221).unwrap(), 1);
+    }
+
+    #[test]
+    fn a_two_list_enumeration_layout_is_still_understood() {
+        // The other plausible layout stays supported as a safety net.
+        let mut data = 1u64.to_le_bytes().to_vec();
+        data.extend_from_slice(&[0x15, 0xD2, 0x04, 0x00, 1, 1]); // D215, UINT16
+        data.extend_from_slice(&0u16.to_le_bytes()); // default
+        data.extend_from_slice(&0x8001u16.to_le_bytes()); // current
+        data.push(2); // enumeration
+        for _ in 0..2 {
+            data.extend_from_slice(&1u16.to_le_bytes());
+            data.extend_from_slice(&0x8001u16.to_le_bytes());
+        }
+        let (props, layout) = parse_all_ext_prop_info(&data).unwrap();
+        assert_eq!(layout, LAYOUTS[1]);
+        assert_eq!(props[0].current, Some(0x8001));
     }
 
     #[test]
