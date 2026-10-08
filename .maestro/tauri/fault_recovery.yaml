@@ -2,12 +2,12 @@ appId: com.jc.photobooth.tauri
 ---
 # Requires a build that includes the dev capability (tauri.dev.conf.json): the Dev panel is
 # absent otherwise.
-- stopApp
-- launchApp
+- launchApp:
+    stopApp: false
 - extendedWaitUntil:
     visible: "Select Camera"
     timeout: 20000
-- tapOn: "Test Camera"
+- tapOn: "Test Camera.*"
 - tapOn: "Continue →"
 - extendedWaitUntil:
     visible: "Tap to start photoshoot"

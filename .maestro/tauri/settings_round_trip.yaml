@@ -1,7 +1,7 @@
 appId: com.jc.photobooth.tauri
 ---
-- stopApp
-- launchApp
+- launchApp:
+    stopApp: false
 - extendedWaitUntil:
     visible: "Select Camera"
     timeout: 20000

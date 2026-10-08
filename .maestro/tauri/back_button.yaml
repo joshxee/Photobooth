@@ -1,12 +1,12 @@
 appId: com.jc.photobooth.tauri
 ---
 # The hardware Back button leaves the booth instead of closing the app.
-- stopApp
-- launchApp
+- launchApp:
+    stopApp: false
 - extendedWaitUntil:
     visible: "Select Camera"
     timeout: 20000
-- tapOn: "Test Camera"
+- tapOn: "Test Camera.*"
 - tapOn: "Continue →"
 - extendedWaitUntil:
     visible: "Tap to start photoshoot"

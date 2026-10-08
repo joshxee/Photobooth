@@ -88,11 +88,18 @@ Deliberate differences:
 
 Maestro reads the WebView's **accessibility tree**, not pixels, so every interactive element
 has visible text or an `aria-label`: `Settings` (gear), `Back`, `Continue →`, `Dismiss`,
-slider/checkbox/text `aria-label`s equal to their visible label, `Dev` toggle. Use
-`tapOn: "<exact text>"`; prefer text over coordinates. Pills that fill (`Tap to start
-photoshoot`, `Take another strip →`) need `extendedWaitUntil` ≥ 4 s after the tap for the
-fill plus the backend transition.
+slider/checkbox/text `aria-label`s equal to their visible label, `Dev` toggle. Prefer text over
+coordinates. Pills that fill (`Tap to start photoshoot`, `Take another strip →`) need
+`extendedWaitUntil` ≥ 4 s after the tap for the fill plus the backend transition.
 
+Maestro matches the **whole** text of an accessibility node as a regex, and it merges what a
+control contains, so a few selectors must be patterns (learned running the flows on the tablet):
+
+| On screen | Maestro sees | Selector |
+|-----------|--------------|----------|
+| A camera card | one node: `Test Camera Test mode • Fast capture • No hardware required` | `"Test Camera.*"` |
+| `{n} SHOTS` | two nodes: `3` and ` SHOTS` | `".*SHOTS"` |
+| The strip caption | one long node starting `VIRTUAL PHOTO STRIP SAVED — COPIES…` | `"VIRTUAL PHOTO STRIP SAVED.*"` |
 ## Developer panel
 
 Visible only when the selected camera is the test camera **and** the backend accepts the

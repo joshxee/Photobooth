@@ -1,11 +1,11 @@
 appId: com.jc.photobooth.tauri
 ---
-- stopApp
-- launchApp
+- launchApp:
+    stopApp: false
 - extendedWaitUntil:
     visible: "Select Camera"
     timeout: 20000
-- tapOn: "Test Camera"
+- tapOn: "Test Camera.*"
 - tapOn: "Continue →"
 - extendedWaitUntil:
     visible: "Tap to start photoshoot"
@@ -20,7 +20,7 @@ appId: com.jc.photobooth.tauri
 - extendedWaitUntil:
     visible: "Looking good."
     timeout: 40000
-- assertVisible: "VIRTUAL PHOTO STRIP SAVED"
+- assertVisible: "VIRTUAL PHOTO STRIP SAVED.*"
 - assertVisible: "Take another strip →"
 - assertVisible: "RETURNING TO PHOTOBOOTH"
 - takeScreenshot: 03_strip_review

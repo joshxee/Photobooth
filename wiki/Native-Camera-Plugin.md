@@ -106,22 +106,31 @@ Three `rusb` facts, verified against its source, that `AndroidUsbTransport::from
 
 Needs an Android build (see `Android-Build.md`) and the tablet:
 
-- [ ] First launch: the CAMERA permission prompt appears when the Device Camera is connected;
-      denying it shows the "Allow it in Settings…" message, not a crash.
-- [ ] **Preview visible under the React overlay** on the attract screen; the "Tap to start" pill
-      and text stay legible; the strip-review screen (opaque) covers it.
-- [ ] Preview **orientation** is upright in portrait and landscape; mirror on/off in Settings
-      flips it.
-- [ ] A capture produces a JPEG with correct orientation; **no `photobooth-*.jpg` remains in the
-      app's cache dir** afterwards (`adb shell run-as com.jc.photobooth ls cache`).
-- [ ] Hardware Back from the booth returns to the camera picker (does not close the app).
-- [ ] Plugging the Sony in shows the **USB permission dialog**; "Always open" works; the app
-      launches from the attach intent.
-- [ ] fd handoff: the Sony handshake completes and `GetDeviceInfo` reports `ILCE-7M3`
-      (see `Wired-Camera-Protocol.md`).
-- [ ] Unplug the camera mid-session → a recoverable error, and replugging works without
-      restarting the app (the old connection is torn down in the right order).
-- [ ] Rotate the device with the preview running; background and foreground the app.
+Xiaomi Pad, Android 14 (HyperOS/MIUI), 2026-10-09. ✅ = observed, ⬜ = not yet.
+
+- ✅ First launch: the CAMERA permission prompt appears when the Device Camera is connected.
+  ⬜ Denying it shows the "Allow it in Settings…" message (not exercised).
+- ✅ **Preview visible under the React overlay** on the attract screen; the "Tap to start" pill
+  and text stay legible; the strip-review screen (opaque) covers it.
+- ✅ Rotating the device with the app running works (user-observed). ⬜ Mirror on/off in Settings
+  flipping the preview, and portrait-vs-landscape preview orientation specifically, were not
+  checked separately.
+- ✅ A capture produces a JPEG; **no `photobooth-*.jpg` remains in the app's cache dir**
+  afterwards (`adb shell run-as com.jc.photobooth.tauri ls cache`).
+- ✅ Hardware Back from the booth returns to the camera picker (Maestro `back_button.yaml`
+  sends the Back key). The immersive mode hides the navigation bar, so on the tablet Back is only
+  reachable by swiping up from the bottom edge: by design for a kiosk.
+- ◐ Plugging the Sony in showed the **USB permission dialog** once; it has not reappeared
+  reliably since. Nothing depends on it: the app polls `usbList` and requests permission itself
+  (that path worked on the real camera), so the attach intent only adds auto-launch and a
+  remembered grant. Android does not re-prompt once "Always" was chosen or when the app is already in
+  front, which would explain the "flaky" impression; not confirmed with a log.
+- ✅ fd handoff: the Sony handshake completes and `GetDeviceInfo` reports `ILCE-7M3`
+  (see `Wired-Camera-Protocol.md`).
+- ◐ Unplugging the camera while idle: live view gave up after five `No such device` failures and
+  the camera went to the error state. ⬜ Unplug **mid-countdown** and replugging without restarting
+  the app (the old connection is torn down in the right order).
+- ⬜ Background and foreground the app with the preview running.
 
 ## Known limitations
 
