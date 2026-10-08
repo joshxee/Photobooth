@@ -28,9 +28,16 @@ edits are **not** regenerated, so re-apply them if you ever re-run `init`:
 | same | `USB_DEVICE_ATTACHED` intent filter + `<meta-data … @xml/device_filter>` on the main activity | Plugging in the camera offers to open the booth, and "always open" grants USB permission without a dialog |
 | `app/src/main/res/xml/device_filter.xml` (new) | `<usb-device vendor-id="1356" />` | `1356` is `0x054C`, Sony, in decimal (the filter requires decimal) |
 | `app/build.gradle.kts` | `signingConfigs` reading `keystore.properties` | Release/upload signing with secrets kept out of git (below) |
-| same | debug `applicationIdSuffix = ".tauri"` | Debug builds install **beside** the existing Kotlin app (same base id, different signing key) instead of failing with `INSTALL_FAILED_UPDATE_INCOMPATIBLE` |
 | `app/src/debug/res/values/strings.xml` (new) | launcher label "Photobooth (Tauri)" | Tells the two apps apart on the tablet |
 | `.gitignore` | `*.jks`, `*.keystore` | Never commit a keystore (`keystore.properties` is already ignored) |
+
+**Not a hand-edit — the debug application-id suffix.** Debug builds install **beside** the existing
+Kotlin app (same base id, different signing key) instead of failing with
+`INSTALL_FAILED_UPDATE_INCOMPATIBLE`. It is set with `bundle.android.debugApplicationIdSuffix`
+(`".tauri"`) in `tauri.conf.json`; the Tauri CLI writes it into `app/build.gradle.kts` on every
+build and **deletes a hand-edited line** — which is how this was found (a hand-edit worked for one
+build, then silently vanished and the APK collided with the existing app again). The launcher label
+("Photobooth (Tauri)") comes from the debug source set listed above.
 
 The camera permission and `uses-feature camera` come from the **plugin's** manifest and are merged
 automatically; `INTERNET` is Tauri's default.

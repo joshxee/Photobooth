@@ -91,12 +91,14 @@ jobs:
           distribution: temurin
           java-version: "17"
 
-      - uses: android-actions/setup-android@v3
-
+      # ubuntu-latest ships an Android SDK (ANDROID_HOME). `android-actions/setup-android` is not
+      # used: it tries to install a legacy `tools` package that no longer exists on the image.
       - name: Android SDK, build tools and NDK
         run: |
+          SDKMANAGER="$(ls -d "$ANDROID_HOME"/cmdline-tools/*/bin/sdkmanager | tail -1)"
+          yes | "$SDKMANAGER" --licenses > /dev/null || true
           # The generated project (src-tauri/gen/android) uses compileSdk 37; the plugin uses 36.
-          sdkmanager "platforms;android-36" "platforms;android-37.0"             "build-tools;36.0.0" "build-tools;37.0.0" "platform-tools" "ndk;28.0.13004108"
+          "$SDKMANAGER" "platforms;android-36" "platforms;android-37.0"             "build-tools;36.0.0" "build-tools;37.0.0" "platform-tools" "ndk;28.0.13004108"
           echo "NDK_HOME=$ANDROID_HOME/ndk/28.0.13004108" >> "$GITHUB_ENV"
 
       - uses: dtolnay/rust-toolchain@stable

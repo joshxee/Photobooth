@@ -48,10 +48,10 @@ android {
     }
     buildTypes {
         getByName("debug") {
+            // Written by the Tauri CLI from `bundle.android.debugApplicationIdSuffix` in
+            // tauri.conf.json (it rewrites this line on every build, so a hand-edit is lost).
+            // Debug builds install next to the existing Kotlin app instead of replacing it.
             applicationIdSuffix = ".tauri"
-            // Hand-edit (see wiki/Android-Build.md): debug builds install *next to* the existing
-            // Kotlin app (same base id, different signing key) instead of replacing it; the
-            // launcher label is overridden in src/debug/res. Release keeps com.jc.photobooth.
             manifestPlaceholders["usesCleartextTraffic"] = "true"
             isDebuggable = true
             isJniDebuggable = true
