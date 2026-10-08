@@ -178,6 +178,29 @@ impl<T: Transport> Drop for ShutterGuard<'_, T> {
     }
 }
 
+/// See [`Sony::describe_props`]. A free function so it can run while the shutter guard holds the
+/// transport. Only the dataset call lists everything; a body that lacks it is not asked again.
+fn describe_ext_props<T: Transport>(ptp: &mut Ptp<T>, mode: PropMode) -> String {
+    if mode == PropMode::Standard {
+        return "unavailable: this camera has no property dataset".to_owned();
+    }
+    let response = match ptp.call(op::SDIO_GET_ALL_EXT_DEVICE_PROP_INFO, &[], None) {
+        Ok(response) => response,
+        Err(err) => return format!("unavailable: {err}"),
+    };
+    match props::parse_all_ext_prop_info(&response.data) {
+        Ok((mut records, _)) => {
+            records.sort_by_key(|r| r.code);
+            records
+                .iter()
+                .filter_map(|r| r.current.map(|v| format!("{:04x}={v:x}", r.code)))
+                .collect::<Vec<_>>()
+                .join(" ")
+        }
+        Err(err) => format!("unreadable: {err}"),
+    }
+}
+
 fn control<T: Transport>(ptp: &mut Ptp<T>, code: u16, value: u16) -> Result<()> {
     ptp.call(
         op::SDIO_CONTROL_DEVICE,
@@ -315,28 +338,7 @@ impl<T: Transport> Sony<T> {
     /// Taken before each shot and again when no image appears, so a failed shot can be compared
     /// with a good one; never an error (a failure to read is part of the picture).
     fn describe_props(&mut self) -> String {
-        // Only the dataset call lists everything; a body that lacks it is not asked again.
-        if self.prop_mode == PropMode::Standard {
-            return "unavailable: this camera has no property dataset".to_owned();
-        }
-        let response = match self
-            .ptp
-            .call(op::SDIO_GET_ALL_EXT_DEVICE_PROP_INFO, &[], None)
-        {
-            Ok(response) => response,
-            Err(err) => return format!("unavailable: {err}"),
-        };
-        match props::parse_all_ext_prop_info(&response.data) {
-            Ok((mut records, _)) => {
-                records.sort_by_key(|r| r.code);
-                records
-                    .iter()
-                    .filter_map(|r| r.current.map(|v| format!("{:04x}={v:x}", r.code)))
-                    .collect::<Vec<_>>()
-                    .join(" ")
-            }
-            Err(err) => format!("unreadable: {err}"),
-        }
+        describe_ext_props(&mut self.ptp, self.prop_mode)
     }
 
     fn prop_via_ext_info(&mut self, code: u16) -> Result<u16> {
@@ -410,9 +412,20 @@ impl<T: Transport> Sony<T> {
 
     fn shoot_with(&mut self, af_settle: Duration) -> Result<()> {
         self.require_connected()?;
+        let mode = self.prop_mode;
         let mut shutter = ShutterGuard::new(&mut self.ptp);
         shutter.half_press()?;
         sleep(af_settle);
+        // The only moment the camera's focus state can be seen: after release it is gone, and a
+        // good shot and a failed one look identical. Costs one property read (~55 ms).
+        if tracing::enabled!(tracing::Level::DEBUG) {
+            let held = describe_ext_props(shutter.ptp, mode);
+            tracing::debug!(
+                af_settle_ms = af_settle.as_millis() as u64,
+                state = %held,
+                "camera state with the shutter half-pressed, before the full press"
+            );
+        }
         shutter.full_press()?;
         shutter.release()
     }

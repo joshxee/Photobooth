@@ -20,6 +20,7 @@ Do this before connecting:
 | Still Img. Save Dest. | **PC+Camera** | The SD card stays the archive (no app-side retention). Never "PC Only" |
 | Drive Mode | Single Shooting | Continuous would keep firing if the shutter were ever held |
 | Quality | JPEG or RAW+JPEG | RAW-only yields no JPEG for the strip (the engine reports this) |
+| Focus | **Manual focus** on the spot where guests stand, *or* Priority Set in AF-S / AF-C = **Release** | With the default AF priority the camera does not fire when it cannot focus: it accepts every remote command and takes no picture, and the app times out with "did not deliver the photo". Menu names are as on the A7 III from memory; not checked on this body |
 | Airplane Mode | On | Disables Wi-Fi |
 | Power Save | Off | The camera must not sleep mid-event |
 
@@ -151,8 +152,19 @@ proves any divergence fails loudly.
    front of the lens (a person moving, the cable being handled), a camera-side state, or the
    quick S2 tap. To settle it, the engine now logs the camera's **whole property set** before every
    shot (`camera state before the shot`, debug) and again on each timeout (`state=` in the warning,
-   `code=value` in hex) so a failed shot can be diffed against a good one, and the camera's screen
-   (focus frame colour, beep) at the moment of failure is worth noting.
+   `code=value` in hex) so a failed shot can be diffed against a good one.
+
+   **Fourth round (the user deliberately aimed the camera where it could not focus): five of five
+   failures, and the automatic repeat rescued none of them.** The user's reading is that the
+   camera could not focus in time, and everything fits it: commands accepted, no exposure, no
+   difference in the camera's state. The property diff cannot confirm it, though: across three
+   failed and two good shots, the 60 properties read *after* the half-press was released are
+   identical except `5007` (FNumber), so no focus state survives release. Hence a further snapshot
+   is taken with the shutter **half-pressed**, just before the full press
+   (`camera state with the shutter half-pressed`). If a property differs there between a
+   focusable and an unfocusable scene, the engine can wait for it, fail in ~1–2 s with "could not
+   focus" instead of ~10 s, and stop guessing. Until then the remedy is on the camera (see
+   "Camera-side setup": manual focus, or release priority).
 7. **Live view died quietly.** The live-view loop gives up after five consecutive failures
    (an unplug), but it did not update the camera's status: it kept saying `Ready`, so no error was
    shown, `connect()` (a no-op for a Ready camera) could not rebuild it, and after a manual
