@@ -63,6 +63,41 @@ impl<R: tauri::Runtime> UsbBackend for PhotoboothCamera<R> {
     }
 }
 
+/// Lets the app hand an `AppHandle` to [`UsbSonyCamera`] instead of an owned handle to the
+/// plugin's managed state.
+#[async_trait]
+impl<R: tauri::Runtime> UsbBackend for tauri::AppHandle<R> {
+    async fn list(&self) -> Result<Vec<UsbDeviceInfo>, String> {
+        crate::PhotoboothCameraExt::photobooth_camera(self)
+            .list()
+            .await
+    }
+
+    async fn request_permission(&self, device_name: &str) -> Result<bool, String> {
+        UsbBackend::request_permission(
+            crate::PhotoboothCameraExt::photobooth_camera(self),
+            device_name,
+        )
+        .await
+    }
+
+    async fn open(&self, device_name: &str) -> Result<i32, String> {
+        UsbBackend::open(
+            crate::PhotoboothCameraExt::photobooth_camera(self),
+            device_name,
+        )
+        .await
+    }
+
+    async fn close(&self, device_name: &str) -> Result<(), String> {
+        UsbBackend::close(
+            crate::PhotoboothCameraExt::photobooth_camera(self),
+            device_name,
+        )
+        .await
+    }
+}
+
 /// Turns a file descriptor into a PTP [`Transport`]. A trait so tests can substitute a
 /// simulated camera for libusb.
 pub trait TransportFactory: Send + Sync {

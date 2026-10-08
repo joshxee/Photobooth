@@ -62,6 +62,41 @@ impl<R: tauri::Runtime> NativeBackend for PhotoboothCamera<R> {
     }
 }
 
+/// Lets the app hand an `AppHandle` (cheap to clone, `'static`) to [`NativeCamera`] instead of
+/// an owned handle to the plugin's managed state.
+#[async_trait]
+impl<R: tauri::Runtime> NativeBackend for tauri::AppHandle<R> {
+    async fn check_permission(&self) -> Result<PermissionState, String> {
+        crate::PhotoboothCameraExt::photobooth_camera(self)
+            .check_permission()
+            .await
+    }
+
+    async fn request_permission(&self) -> Result<PermissionState, String> {
+        crate::PhotoboothCameraExt::photobooth_camera(self)
+            .request_permission()
+            .await
+    }
+
+    async fn start_preview(&self, request: StartPreviewRequest) -> Result<(), String> {
+        crate::PhotoboothCameraExt::photobooth_camera(self)
+            .start_preview(request)
+            .await
+    }
+
+    async fn stop_preview(&self) -> Result<(), String> {
+        crate::PhotoboothCameraExt::photobooth_camera(self)
+            .stop_preview()
+            .await
+    }
+
+    async fn capture(&self) -> Result<CaptureResponse, String> {
+        crate::PhotoboothCameraExt::photobooth_camera(self)
+            .capture()
+            .await
+    }
+}
+
 pub struct NativeCamera<B: NativeBackend + 'static> {
     backend: Arc<B>,
     /// Whether the guest should see a mirror image; read each time the preview starts so a

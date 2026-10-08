@@ -18,6 +18,7 @@ async-trait = "0.1"
 bytes = "1"
 futures-util = "0.3"
 photobooth-core = { path = "../../../crates/photobooth-core" }
+tauri-plugin-photobooth-camera = { path = "../../../plugins/tauri-plugin-photobooth-camera" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tauri = { version = "2", features = [] }
@@ -26,6 +27,14 @@ tokio = { version = "1", features = ["sync", "time", "rt", "macros"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", default-features = false, features = ["fmt", "std", "registry", "ansi"] }
 
+# The native camera and the Sony USB camera exist only on Android; their glue is compiled there
+# (and, so it is checked and tested, in unit tests everywhere).
+[target.'cfg(target_os = "android")'.dependencies]
+android_log-sys = "0.3"
+tauri-plugin-photobooth-camera = { path = "../../../plugins/tauri-plugin-photobooth-camera", features = ["core-camera", "sony-transport"] }
+
 [dev-dependencies]
+sony-ptp = { path = "../../../crates/sony-ptp", features = ["sim"] }
+tauri-plugin-photobooth-camera = { path = "../../../plugins/tauri-plugin-photobooth-camera", features = ["core-camera", "sony-transport"] }
 tempfile = "3"
 tokio = { version = "1", features = ["sync", "time", "rt", "macros", "test-util"] }

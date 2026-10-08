@@ -1,24 +1,47 @@
 //! Photobooth: a Tauri v2 app whose Rust core owns all business logic. The WebView only
 //! renders state it receives over IPC.
 
+#[cfg(any(target_os = "android", test))]
+mod android;
 mod commands;
 mod dto;
+#[cfg(target_os = "android")]
+mod logcat;
 mod logs;
 mod protocol;
 mod state;
+
+#[cfg(target_os = "android")]
+use std::sync::Arc;
 
 use photobooth_core::{CameraId, Timings};
 use tauri::{AppHandle, Emitter, Manager};
 use tokio::sync::broadcast::error::RecvError;
 use tracing_subscriber::filter::{LevelFilter, Targets};
+use tracing_subscriber::fmt::MakeWriter;
 use tracing_subscriber::prelude::*;
 
 use crate::dto::{CameraStatusEvent, PreviewKind};
 use crate::logs::LogRingBuffer;
-use crate::state::{AppState, CameraSlot, Unavailable};
+#[cfg(target_os = "android")]
+use crate::state::AlwaysAvailable;
+#[cfg(not(target_os = "android"))]
+use crate::state::Unavailable;
+use crate::state::{AppState, CameraSlot};
 
 const SETTINGS_FILE: &str = "settings.json";
 const LOG_LINES: usize = 500;
+
+/// Where console logs go: stderr on desktop, logcat on Android (stderr is not captured there).
+#[cfg(not(target_os = "android"))]
+fn console_writer() -> impl for<'a> MakeWriter<'a> + Send + Sync + 'static {
+    std::io::stderr
+}
+
+#[cfg(target_os = "android")]
+fn console_writer() -> impl for<'a> MakeWriter<'a> + Send + Sync + 'static {
+    logcat::Logcat
+}
 
 fn init_tracing(logs: LogRingBuffer) {
     let filter = Targets::new()
@@ -30,16 +53,20 @@ fn init_tracing(logs: LogRingBuffer) {
         .with_writer(logs)
         .with_ansi(false)
         .with_filter(filter.clone());
-    let stderr = tracing_subscriber::fmt::layer().with_filter(filter);
+    let console = tracing_subscriber::fmt::layer()
+        .with_writer(console_writer())
+        .with_ansi(false)
+        .with_filter(filter);
     // Ignore the error: a subscriber may already be installed (e.g. in tests).
     let _ = tracing_subscriber::registry()
         .with(ring)
-        .with(stderr)
+        .with(console)
         .try_init();
 }
 
 /// Cameras that depend on the platform. On desktop only the test camera works; the others are
 /// listed as unavailable with a reason rather than erroring.
+#[cfg(not(target_os = "android"))]
 fn platform_slots(_app: &AppHandle) -> Vec<CameraSlot> {
     let tablet_only = "Only available on the Android tablet";
     vec![
@@ -54,6 +81,39 @@ fn platform_slots(_app: &AppHandle) -> Vec<CameraSlot> {
             name: "Sony A7 III (USB)",
             preview: PreviewKind::Channel,
             provider: Box::new(Unavailable::new(CameraId::SONY_USB, tablet_only)),
+        },
+    ]
+}
+
+/// On Android: the device camera (CameraX behind the WebView) and the wired Sony. The Sony is
+/// not built here — there is no device at startup — but lazily when it is connected; until a
+/// cable is plugged in `camera_list` reports it as unavailable with a reason.
+#[cfg(target_os = "android")]
+fn platform_slots(app: &AppHandle) -> Vec<CameraSlot> {
+    use tauri_plugin_photobooth_camera::camera::NativeCamera;
+    use tauri_plugin_photobooth_camera::usb::{AndroidUsbFactory, UsbSonyCamera};
+
+    let backend = Arc::new(app.clone());
+    let settings_source = app.clone();
+    let device = Arc::new(NativeCamera::new(backend.clone(), move || {
+        // Read when the preview starts, so a settings change applies without a restart.
+        settings_source
+            .try_state::<AppState>()
+            .map_or(true, |state| state.settings().mirror_preview)
+    }));
+    let sony = Arc::new(UsbSonyCamera::new(backend, Arc::new(AndroidUsbFactory)));
+    vec![
+        CameraSlot {
+            id: CameraId::DEVICE,
+            name: "Device Camera",
+            preview: PreviewKind::Native,
+            provider: Box::new(AlwaysAvailable(device)),
+        },
+        CameraSlot {
+            id: CameraId::SONY_USB,
+            name: "Sony A7 III (USB)",
+            preview: PreviewKind::Channel,
+            provider: Box::new(android::SonyUsbProvider(sony)),
         },
     ]
 }
@@ -98,6 +158,7 @@ pub fn run() {
     init_tracing(logs.clone());
 
     tauri::Builder::default()
+        .plugin(tauri_plugin_photobooth_camera::init())
         // Photos are served from memory only; nothing is ever read from disk.
         .register_uri_scheme_protocol("booth", |ctx, request| {
             match ctx.app_handle().try_state::<AppState>() {
