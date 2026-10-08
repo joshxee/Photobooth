@@ -86,8 +86,23 @@ is what stops pieces from different threads interleaving (found by a concurrency
 
 Verified on Windows (WebView2) with the test camera by driving the real app: camera picker →
 live view → complete 3-shot sessions → photos over `booth://` → injected capture failure and
-recovery → injected disconnect and retry → settings persisted to disk. Android specifics are
-in `Android-Build.md` and `Native-Camera-Plugin.md`.
+recovery → injected disconnect and retry → settings persisted to disk.
+
+**Capability gating was tested on a release-style binary** (`tauri build --debug --no-bundle`,
+default capability only, strict production CSP), not just reasoned about:
+
+| Probe from the WebView | Result |
+|------------------------|--------|
+| `settings_get`, `camera_list` | allowed |
+| `test_inject`, `logs_recent` | **rejected** by Tauri ("not allowed … allow-test-inject") |
+| plugin `usb_list` (a Rust-only command) | **rejected** ("Command not found") — not reachable at all |
+| plugin `window_set_immersive` | allowed by capability; returns "only available on Android" on desktop |
+| Dev toggle in the UI | absent |
+| Geist fonts, live-view canvas, `booth://` images under the strict CSP | all work |
+
+Android specifics are in `Android-Build.md` and `Native-Camera-Plugin.md`. **Not yet run on the
+tablet:** the debug APK builds and the Kotlin plugin compiles, but the on-device checklist below
+is outstanding.
 
 ## On-device acceptance checklist (10 steps)
 
