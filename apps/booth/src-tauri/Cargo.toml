@@ -1,0 +1,31 @@
+[package]
+name = "photobooth"
+version = "0.1.0"
+description = "Photobooth"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[lib]
+name = "photobooth_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+async-trait = "0.1"
+bytes = "1"
+futures-util = "0.3"
+photobooth-core = { path = "../../../crates/photobooth-core" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tauri = { version = "2", features = [] }
+thiserror = "2"
+tokio = { version = "1", features = ["sync", "time", "rt", "macros"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", default-features = false, features = ["fmt", "std", "registry", "ansi"] }
+
+[dev-dependencies]
+tempfile = "3"
+tokio = { version = "1", features = ["sync", "time", "rt", "macros", "test-util"] }

@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/photobooth-core", "crates/sony-ptp"]
+members = ["crates/photobooth-core", "crates/sony-ptp", "apps/booth/src-tauri"]
 
 [workspace.package]
 edition = "2021"
