@@ -109,7 +109,10 @@ Needs an Android build (see `Android-Build.md`) and the tablet:
 Xiaomi Pad, Android 14 (HyperOS/MIUI), 2026-10-09. ✅ = observed, ⬜ = not yet.
 
 - ✅ First launch: the CAMERA permission prompt appears when the Device Camera is connected.
-  ⬜ Denying it shows the "Allow it in Settings…" message (not exercised).
+  ✅ Denying it (permission revoked and marked user-fixed over adb, so no dialog) shows
+  "Camera permission was denied. Allow it in Settings → Apps → Photobooth → Permissions." in the
+  banner with *Retry connection*; no crash. Polish: a red toast repeats the same text ("camera
+  I/O error: …"), and *Tap to start* stays active with no camera.
 - ✅ **Preview visible under the React overlay** on the attract screen; the "Tap to start" pill
   and text stay legible; the strip-review screen (opaque) covers it.
 - ✅ Rotating the device with the app running works (user-observed). ⬜ Mirror on/off in Settings
@@ -130,13 +133,19 @@ Xiaomi Pad, Android 14 (HyperOS/MIUI), 2026-10-09. ✅ = observed, ⬜ = not yet
 - ◐ Unplugging the camera: live view gave up after five `No such device` failures, but the camera
   status stayed `Ready` (no banner, nothing could recover it) and, after unplug → replug → *Try
   again* mid-session, the preview stayed dead. Both fixed on 2026-10-09 (status goes to `Error`;
-  `AppState` resumes live view once the camera is back) and covered by tests, **not yet re-run on
-  the tablet**. See `Wired-Camera-Protocol.md`, findings 6–7.
-- ⬜ Background and foreground the app with the preview running.
+  `AppState` resumes live view once the camera is back) and covered by tests. On the tablet the
+  resume was seen three times (after the reconnect that follows a failed shot: "live view ended …
+  live view resumed"); the unplug → replug → *Try again* sequence itself has **not** been re-run.
+  See `Wired-Camera-Protocol.md`, findings 6–7.
+- ✅ Background (Home key, 8 s) and foreground with the preview running, for both the Device
+  Camera (preview live again, different scene) and the Test Camera (frames keep streaming: the
+  colour advanced between screenshots; process alive, no crash). Backgrounding *during* a session
+  was not tried.
 
 ## Known limitations
 
-- Kotlin is uncompiled (see above); expect first-build fixes.
+- The Kotlin plugin compiles and runs on a Xiaomi Pad (Android 14, HyperOS); other devices and
+  Android versions are untested.
 - `windowed` in `camStartPreview` is accepted but not implemented (fullscreen only).
 - Only one CameraX preview at a time; the front camera is always used by `NativeCamera`.
 - The plugin's `guest-js` is a typed reference API; the app keeps its own thin copy in
