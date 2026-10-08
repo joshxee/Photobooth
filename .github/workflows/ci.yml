@@ -81,9 +81,6 @@ jobs:
     name: Android debug APK
     runs-on: ubuntu-latest
     needs: [rust, frontend]
-    # `bun tauri android init` generates src-tauri/gen/android, which is committed. Until it
-    # exists there is nothing to build, so the job stays dormant instead of failing.
-    if: ${{ hashFiles('apps/booth/src-tauri/gen/android/**') != '' }}
     steps:
       - uses: actions/checkout@v4
 
@@ -98,7 +95,8 @@ jobs:
 
       - name: Android SDK, build tools and NDK
         run: |
-          sdkmanager "platforms;android-36" "build-tools;36.0.0" "platform-tools" "ndk;28.0.13004108"
+          # The generated project (src-tauri/gen/android) uses compileSdk 37; the plugin uses 36.
+          sdkmanager "platforms;android-36" "platforms;android-37.0"             "build-tools;36.0.0" "build-tools;37.0.0" "platform-tools" "ndk;28.0.13004108"
           echo "NDK_HOME=$ANDROID_HOME/ndk/28.0.13004108" >> "$GITHUB_ENV"
 
       - uses: dtolnay/rust-toolchain@stable
