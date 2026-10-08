@@ -1,0 +1,45 @@
+[package]
+name = "sony-ptp"
+version = "0.1.0"
+description = "Transport-agnostic PTP engine with Sony SDIO extensions (A7 III PC Remote)"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[features]
+default = []
+# libusb-backed transport. Works on desktop and, via `from_handle`, over an Android USB fd.
+rusb-transport = ["dep:rusb"]
+# Desktop USB convenience (device discovery by vendor id).
+desktop-usb = ["rusb-transport"]
+# `SonyCamera<T>`: implements `photobooth_core::Camera`.
+sim = []
+core-camera = [
+    "dep:photobooth-core",
+    "dep:async-trait",
+    "dep:bytes",
+    "dep:tokio",
+    "dep:tokio-stream",
+]
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+tracing = "0.1"
+
+async-trait = { version = "0.1", optional = true }
+bytes = { version = "1", optional = true }
+photobooth-core = { path = "../photobooth-core", optional = true }
+rusb = { version = "0.9", features = ["vendored"], optional = true }
+tokio = { version = "1", features = ["sync", "time", "rt", "macros"], optional = true }
+tokio-stream = { version = "0.1", optional = true }
+
+[dev-dependencies]
+tempfile = "3"
+futures-core = "0.3"
+tokio = { version = "1", features = ["sync", "time", "rt", "macros", "test-util"] }
+
+[[example]]
+name = "shoot"
+required-features = ["desktop-usb"]

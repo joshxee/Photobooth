@@ -258,7 +258,7 @@ impl Camera for MockCamera {
                 "injected failure (force_fail_next_capture)".to_owned(),
             ));
         }
-        if config.fail_every_n > 0 && attempt % config.fail_every_n == 0 {
+        if config.fail_every_n > 0 && attempt.is_multiple_of(config.fail_every_n) {
             return Err(CameraError::CaptureFailed(format!(
                 "injected failure (every {} captures)",
                 config.fail_every_n
