@@ -234,7 +234,23 @@ impl<T: Transport + 'static> Camera for SonyCamera<T> {
         self.shared.capture_pending.store(true, Ordering::SeqCst);
         let shared = self.shared.clone();
         let result = tokio::task::spawn_blocking(move || {
-            let result = with_engine(&shared, |engine| engine.capture());
+            let result = with_engine(&shared, |engine| {
+                let capture = engine.capture()?;
+                // A RAW+JPEG body hands over the JPEG first and keeps the ~49 MB RAW queued.
+                // Clear it before reporting back, under the same lock: done later it would hold
+                // the camera for ~2 s *during the next countdown* and freeze the preview, and
+                // left alone it would delay the next shutter press instead. The photo is
+                // already in hand, so a failure here is logged, not returned; a dead camera
+                // surfaces on the next operation.
+                match engine.drain_pending() {
+                    Ok(0) => {}
+                    Ok(n) => tracing::debug!(objects = n, "cleared the camera's pending objects"),
+                    Err(err) => {
+                        tracing::warn!(%err, "clearing the camera's pending objects failed");
+                    }
+                }
+                Ok(capture)
+            });
             shared.capture_pending.store(false, Ordering::SeqCst);
             // Settle status here, not in the awaiting task (see module docs).
             let next = match &result {
@@ -255,17 +271,6 @@ impl<T: Transport + 'static> Camera for SonyCamera<T> {
         .map_err(join_error)?;
 
         let capture = result.map_err(|e| map_error(&e))?;
-        // The photo is in hand; clear the RAW companion (if any) out of the camera now, in the
-        // background, so it does not delay the next shot. The engine mutex orders it before
-        // the next capture.
-        let shared = self.shared.clone();
-        drop(tokio::task::spawn_blocking(move || {
-            match with_engine(&shared, |engine| engine.drain_pending()) {
-                Ok(0) => {}
-                Ok(n) => tracing::debug!(objects = n, "cleared the camera's pending objects"),
-                Err(err) => tracing::warn!(%err, "clearing the camera's pending objects failed"),
-            }
-        }));
         Ok(CapturedPhoto {
             jpeg: Bytes::from(capture.jpeg),
             width: capture.width,
@@ -404,6 +409,25 @@ mod tests {
         assert_eq!(*status.borrow(), CameraStatus::Ready);
         assert_eq!(sim.exposures(), 1);
         assert_eq!(cam.id(), CameraId::SONY_USB);
+    }
+
+    #[tokio::test]
+    async fn the_raw_companion_is_cleared_before_capture_returns_so_the_preview_is_not_held_up() {
+        let (cam, sim) = camera(SimConfig {
+            raw_plus_jpeg: true,
+            jpeg_first: true,
+            ..SimConfig::default()
+        });
+        cam.connect().await.unwrap();
+
+        let photo = cam.capture().await.unwrap();
+        assert!(photo.jpeg.starts_with(&[0xFF, 0xD8]));
+        assert_eq!(
+            sim.pending_objects(),
+            0,
+            "nothing may be left for a background task to fetch while the next countdown runs"
+        );
+        assert_eq!(*cam.status().borrow(), CameraStatus::Ready);
     }
 
     #[tokio::test]

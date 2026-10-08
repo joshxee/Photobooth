@@ -89,6 +89,10 @@ setting, `apps/booth/scripts/build-android-debug.ps1` lets the CLI compile, copi
 apps\booth\scripts\build-android-debug.ps1 -Install   # builds, then adb install -r
 ```
 
+Run it with **PowerShell 7 (`pwsh`)**. Windows PowerShell 5.1 turns the build tools' stderr progress
+lines into terminating errors, and the script dies right after "Using installed NDK". `adb` must be
+on `PATH` for `-Install` (it lives in `%LOCALAPPDATA%\Android\Sdk\platform-tools`).
+
 ### Windows gotchas hit while building this
 
 - **Use `bun x tauri …`, not `bun tauri …` / `bun run tauri …`.** `bun run` sets `npm_execpath`

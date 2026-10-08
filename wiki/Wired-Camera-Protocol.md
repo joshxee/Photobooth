@@ -41,7 +41,7 @@ down (`0xD2C2` ← `0x0002`) → S2 up (`0x0001`) → S1 up. Then wait for the i
 (chunked `SDIO_GetPartialLargeObject` stalls the A7 III's pipe, so it is opt-in — see below). A
 RAW (`0xB101`) object that arrives *before* the JPEG is consumed and discarded; one that arrives
 *after* it (this body's order) is left in the camera and cleared by `drain_pending` — before the
-next shutter press, and in the background right after the capture.
+next shutter press, and by `SonyCamera` right after the JPEG arrives, before the capture returns.
 
 **The shutter drop-guard.** S1/S2 are held by a guard whose `Drop` releases **S2 before S1**.
 The "held" flag is set *before* each press is sent, so a press that errors after the camera
@@ -117,8 +117,12 @@ proves any divergence fails loudly.
    Returning on the JPEG left the ARW queued, so the *next* capture downloaded and discarded it first
    (+1.7 s) — and a photo left behind by any failed capture could have been returned as the *next*
    shot. The engine now drains any pending objects before pressing the shutter (one property read
-   when nothing is pending) and `SonyCamera` clears the RAW companion in the background right after a
-   capture.
+   when nothing is pending) and `SonyCamera` clears the RAW companion before the capture returns.
+   A first version did that in a background task; the second 3-shot run on the tablet showed why
+   that is wrong: the ~2.3 s download holds the camera, so the live preview froze for the first two
+   seconds of every following countdown (gaps of 3.4–4.4 s in the frame log). Doing it inside the
+   capture trades that for a longer "capturing" phase and keeps the countdown preview live and the
+   shutter on time.
 5. **A misleading hint.** A photo that never arrived was reported as "camera not in PC Remote mode?",
    although the handshake had just succeeded. It now says the camera did not deliver the photo and to
    check focus and *Still Img. Save Dest.* An earlier attempt hit exactly this timeout (identical
@@ -161,7 +165,9 @@ Status as of the first hardware run (2026-10-08); ✅ = observed in the device l
 - ✅ Property-dataset layout recorded: 8-byte count, one value list per enumeration.
 - ✅ Shutter is released after every capture.
 - ⬜ The SD card also holds the picture (Still Img. Save Dest. = PC+Camera).
-- ⬜ A full 3-shot session on the Sony from attract to strip, with the RAW cleanup (in progress).
+- ✅ Three consecutive RAW+JPEG captures (1.9–2.0 s each, 6000×4000) with the RAW discarded each time; live view ran at ~20 fps with ~19 % of frames refused (`AccessDenied`) and no gap over 0.11 s outside a capture.
+- ⬜ The same session read through to the strip on screen (the logs do not record the UI).
+- ✅ Unplug while idle: live view gave up after five `No such device` failures (~0.5 s) and the camera went to the error state.
 - ⬜ Unplug mid-countdown: recoverable error, not a hang.
 - ⬜ Wrong mode (USB Connection = Mass Storage): the error mentions PC Remote.
 - ⬜ Live view for 30+ s without freezing; a capture still works while it is refusing frames.
@@ -178,8 +184,8 @@ Status as of the first hardware run (2026-10-08); ✅ = observed in the device l
   `desktop-usb` feature is compile- and unit-tested here but not exercised.
 - **One camera, one session.** Hot-swapping cameras mid-session is out of scope.
 - **RAW+JPEG makes each capture slower on the wire** (the ~49 MB RAW is downloaded and discarded
-  in the background). JPEG-only quality avoids it; whether to keep RAW on the SD card is a
+  inside the capture, ~2.3 s). JPEG-only quality avoids it; whether to keep RAW on the SD card is a
   camera-menu choice the app cannot influence.
-- **No coverage percentage is claimed.** 82 `sony-ptp` tests (54 without the `core-camera`
+- **No coverage percentage is claimed.** 83 `sony-ptp` tests (54 without the `core-camera`
   adapter), all against the simulator or recorded transcripts — the hardware findings above were
   observed by hand, not by an automated test.
