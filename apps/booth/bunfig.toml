@@ -1,0 +1,5 @@
+[test]
+# Two separate preload files, on purpose: ES `import`s are hoisted, so a single file that
+# both registers happy-dom and imports Testing Library would load Testing Library first,
+# when `document` does not exist yet.
+preload = ["./src/test/register.ts", "./src/test/setup.ts"]
