@@ -47,6 +47,27 @@ Slash commands: `/build-android`, `/build-desktop`, `/build-web`, `/clean`.
 
 Slash commands: `/test`, `/test-platform`, `/test-watch`.
 
+## Device Testing (Windows PC + Xiaomi tablet)
+
+When developing on the Windows PC with the Xiaomi Pad 6 (`adb devices -l` shows `device:pipa`), this is the
+suggested way to test on the device. The aim is to test without the user stepping in. Rationale:
+`wiki/Android-Build.md` → "adb over Wi-Fi".
+
+- **Connect over Wi-Fi, not USB.** The Sony is cabled to the tablet's only USB-C port, so adb uses Android
+  Wireless debugging (already paired with this PC). Run `pwsh apps/booth/scripts/connect-tablet.ps1` first.
+  Don't ask the user to swap cables.
+- **Can't find the tablet?** Ask the user to turn on Settings → Additional settings → Developer options →
+  Wireless debugging. Re-pair (`-Pair <code>`) only for a new PC. Don't `adb connect ip:port` by hand: it
+  races adb's mDNS auto-connect, lists the tablet twice, and every plain `adb` command then fails.
+- `adb` is not on PATH: `$env:LOCALAPPDATA\Android\Sdk\platform-tools\adb.exe`.
+- **Build + install:** `pwsh apps/booth/scripts/build-android-debug.ps1 -Install` (PowerShell 7). It connects first.
+- **Drive the app with plain adb, not Maestro.** Use `exec-out screencap -p`, `shell input tap x y`
+  (2880×1800 landscape), `input keyevent`, `am start -n com.jc.photobooth.tauri/com.jc.photobooth.MainActivity`,
+  `uiautomator dump`, `logcat -s Photobooth` and `run-as com.jc.photobooth.tauri`. Maestro makes MIUI show an
+  "Install via USB" prompt on every run, so keep Maestro (`.maestro/tauri/`) for CI and emulators.
+- **Never uninstall `com.jc.photobooth`** (the user's Kotlin app, different signing key). The Tauri debug
+  build is `com.jc.photobooth.tauri`.
+
 ## Source Set Structure
 
 ```

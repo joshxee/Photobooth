@@ -9,6 +9,10 @@ Run one or more Maestro flows located under `.maestro/flows/` against the connec
 
 ## When to use
 
+**Not on the Xiaomi development tablet.** There, Maestro's helper app triggers an "Install via USB" prompt on
+every run, so it cannot run unattended. Use plain adb over Wi-Fi instead (see "Device Testing" in
+`CLAUDE.md`). Use Maestro for CI and emulators/virtual devices. The Tauri flows are in `.maestro/tauri/`.
+
 - After the orchestrator finishes a code change that affects UI/navigation.
 - When verifying a fix (e.g. portrait strip layout, permission deeplink).
 - When running a regression suite (`run_all.sh`).
