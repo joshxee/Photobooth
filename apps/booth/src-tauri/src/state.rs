@@ -334,7 +334,10 @@ impl AppState {
     pub async fn connect_camera(&self) -> Result<(), CommandError> {
         let camera = self.active_camera()?;
         tracing::info!(camera = %camera.id(), "connecting");
-        camera.connect().await?;
+        if let Err(err) = camera.connect().await {
+            tracing::warn!(camera = %camera.id(), %err, "connect failed");
+            return Err(err.into());
+        }
         Ok(())
     }
 

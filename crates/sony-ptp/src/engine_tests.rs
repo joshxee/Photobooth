@@ -67,7 +67,7 @@ fn camera_in_the_wrong_usb_mode_gets_a_pc_remote_hint() {
     });
     let err = sony.connect().unwrap_err();
     assert!(
-        matches!(&err, Error::Protocol(m) if m.contains("PC Remote")),
+        matches!(&err, Error::WrongUsbMode(m) if m.contains("PC Remote")),
         "got {err}"
     );
     assert!(!sony.is_connected());

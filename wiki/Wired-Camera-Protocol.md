@@ -214,11 +214,20 @@ Status as of the first hardware run (2026-10-08); ✅ = observed in the device l
   camera status did not change** (an earlier version of this page wrongly said it went to the error
   state), so no banner appeared and nothing could recover it. Fixed 2026-10-09, see below; the fix
   is covered by a simulator test but not yet re-run on the tablet.
-- ◐ Unplug mid-countdown (2026-10-09): the capture failed with a recoverable error as expected,
-  and replugging then *Try again* reconnected (`CloseSession` on the dead transport failed,
-  the new one handshook in 15 ms), but **the preview stayed dead** and a later shot timed out.
-  Both fixed (below); not yet re-run on the tablet.
-- ⬜ Wrong mode (USB Connection = Mass Storage): the error mentions PC Remote.
+- ✅ Unplug mid-countdown → replug → *Try again* (2026-10-09, build of `4a6894c`, from the device
+  log): shot 1 captured at 17:29:02; the cable was pulled ~2 s later. Live view gave up after five
+  `No such device` failures in 0.4 s, the session reported `camera disconnected recoverable=true`
+  (status went to `Error`). *Try again* 6 s later: `CloseSession` on the dead transport failed
+  and was ignored, the camera was found again, `live view resumed` 1 s after that. The new session
+  captured three shots (1.8–1.9 s each, no timeout, no shutter repeat needed) and the booth ended
+  on the attract screen with the preview live. Earlier failures (dead preview, timed-out shot) did
+  not recur. Not verified from the log: what the banner said during the outage.
+- ✅ Wrong mode (USB Connection = Mass Storage, 2026-10-09): connecting fails at once (the USB
+  device has no still-image interface), the banner mentions PC Remote with *Retry connection*, and
+  the start pill is disabled. The first run showed the text prefixed "malformed PTP data:", which
+  is wrong (nothing was malformed); it is now its own error, `WrongUsbMode`, shown without the
+  prefix. The failure also left no line in the log; `connect_camera` now logs `connect failed`.
+  Both changes are covered by tests but not yet re-run on the tablet.
 - ⬜ Live view for 30+ s without freezing; a capture still works while it is refusing frames.
 - ⬜ JPEG-only quality (no RAW companion) behaves identically.
 - ⬜ Record a real-session transcript and commit it as a replay fixture (needs the desktop `shoot`
