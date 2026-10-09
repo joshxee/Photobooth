@@ -207,7 +207,16 @@ Status as of the first hardware run (2026-10-08); ✅ = observed in the device l
 - ✅ A capture produces a 6000×4000 JPEG (11 MB) in ~2 s (after the chunked-download fix).
 - ✅ Property-dataset layout recorded: 8-byte count, one value list per enumeration.
 - ✅ Shutter is released after every capture.
-- ⬜ The SD card also holds the picture (Still Img. Save Dest. = PC+Camera).
+- ✅ The SD card also holds the picture (Still Img. Save Dest. = PC+Camera, 2026-10-09): a 3-shot
+  session logged `C_203593`, `C_203594`, `C_203595`, and the same three files were in the camera's
+  image library afterwards (user-observed).
+- ◐ Shot repeat in the field (same session): shot 3's first press produced no image for 3 s
+  (only `0xc203`/`0xd21d` property-change events), so the engine pressed again with a longer AF
+  settle (1.2 s instead of 0.3 s) and the photo arrived: 6.7 s instead of ~1.8 s, no error shown.
+  In the half-pressed state dump, property `d213` was `1` on the failed press and `6` on the
+  retry; that is consistent with autofocus not having locked on the first press, but what `d213`
+  means was not confirmed. Waiting for `d213` to change instead of a fixed settle would avoid the
+  4.8 s penalty; not done.
 - ✅ Three consecutive RAW+JPEG captures (1.9–2.0 s each, 6000×4000) with the RAW discarded each time; live view ran at ~20 fps with ~19 % of frames refused (`AccessDenied`) and no gap over 0.11 s outside a capture.
 - ✅ A full 3-shot RAW+JPEG session on the latest build (RAW cleared inside the capture): the preview stayed live through every countdown and the strip showed all three photos (user-observed).
 - ◐ Unplug while idle: live view gave up after five `No such device` failures (~0.5 s). **The
