@@ -18,7 +18,8 @@
   Build without the dev capability (no developer panel), i.e. closer to a release build.
 
 .PARAMETER Install
-  Install on the connected device afterwards (adb install -r).
+  Install on the device afterwards (adb install -r), connecting over Wi-Fi first if needed
+  (see connect-tablet.ps1).
 #>
 param(
   [switch]$NoDev,
@@ -73,5 +74,7 @@ try {
 $apk = Join-Path $android "app\build\outputs\apk\arm64\debug\app-arm64-debug.apk"
 Write-Host "==> APK: $apk"
 if ($Install) {
+  # Reaches the tablet over Wi-Fi when the camera has its USB port; a no-op on a cabled device.
+  & (Join-Path $PSScriptRoot "connect-tablet.ps1")
   & (Join-Path $sdk "platform-tools\adb.exe") install -r $apk
 }
