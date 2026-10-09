@@ -11,7 +11,9 @@ patterns (see "Accessibility and Maestro selectors" in `wiki/Frontend.md`).
 
 > **Which tool to use.** On the Xiaomi tablet used for development, **prefer plain adb for local
 > testing** (`adb exec-out screencap -p`, `adb shell input tap …` / `keyevent`, `am start`,
-> `uiautomator dump`, `logcat -s Photobooth`). Maestro makes the tablet show an "Install via USB"
+> `uiautomator dump`, `logcat -s Photobooth`). Connect it over Wi-Fi with
+> `apps/booth/scripts/connect-tablet.ps1` so the Sony can stay plugged in (see "Device Testing" in
+> `CLAUDE.md`). Maestro makes the tablet show an "Install via USB"
 > prompt for its helper app that must be accepted by hand on every run, so it cannot run
 > unattended there. These flows are for **CI and emulators/virtual devices**, where that prompt is
 > expected not to appear (not yet tried; CI does not run them yet).

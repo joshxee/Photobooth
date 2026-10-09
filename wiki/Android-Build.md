@@ -115,6 +115,39 @@ bun x tauri android dev --host --config src-tauri/tauri.dev.conf.json   # needs 
 `chrome://inspect` on the dev machine with the tablet attached (debug builds enable WebView
 debugging). Rust logs: `adb logcat -s Photobooth`.
 
+## adb over Wi-Fi (camera attached)
+
+The camera cable takes the tablet's only USB-C port and puts the tablet in **USB host** mode, so it
+cannot also be an adb device for the PC. Before this, every on-device check meant unplugging the
+camera, so the user had to step in during each test. Android 11+ **Wireless debugging** removes
+that: adb reaches the tablet over the LAN while the camera stays plugged in.
+
+```powershell
+pwsh apps/booth/scripts/connect-tablet.ps1 -Pair 123456   # once per PC: code from "Pair device with pairing code"
+pwsh apps/booth/scripts/connect-tablet.ps1                # any other time; build-android-debug.ps1 -Install calls it
+```
+
+Why it is shaped this way:
+
+- **Pairing over legacy `adb tcpip 5555`.** `tcpip` needs a USB cable to start and is lost on
+  every reboot, which is exactly the cable we are trying to avoid. The tablet remembers a paired PC
+  key, so the cable is never needed again.
+- **mDNS, never a stored port.** The tablet picks a new port every time Wireless debugging is turned
+  on. adb (platform-tools 37) finds the paired tablet over mDNS and **connects by itself**. After
+  `adb kill-server` the tablet was back within about 3 s with nobody touching it.
+- **The script waits instead of connecting at once.** Calling `adb connect ip:port` while adb was
+  also connecting by itself listed the tablet twice (`ip:port` *and*
+  `adb-<id>._adb-tls-connect._tcp`). Every plain `adb` command then failed with "more than one
+  device". The script waits for the automatic connection, connects by hand only if it does not come,
+  and removes duplicate entries (it keeps the mDNS name, which survives port changes).
+
+Verified on the Xiaomi Pad 6 with the Sony attached (2026-10-09): `screencap` (~0.6 s), `input`,
+`logcat -s Photobooth` (live PTP logs) and auto-reconnect all work over Wi-Fi. The PC was on
+Ethernet and the tablet on Wi-Fi, both on the same router subnet.
+
+Not yet observed: whether MIUI turns Wireless debugging off after a reboot, a Wi-Fi change or a
+long screen-off. If it does, the fix is to turn the toggle back on. Pairing survives.
+
 ## CI
 
 `.github/workflows/ci.yml` runs Rust fmt/clippy/test, the frontend typecheck/tests/build, and — once
