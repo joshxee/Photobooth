@@ -111,6 +111,18 @@ describe("bridge", () => {
     detach();
   });
 
+  test("forwards the open-palm updates", async () => {
+    const fake = backend();
+    const detach = await startBridge();
+    expect(useBooth.getState().gesture).toBeNull();
+
+    const update = { palm: { x: 0.1, y: 0.2, w: 0.3, h: 0.4 }, holding: true, hold_ms: 1000 };
+    await fake.emit("gesture://state", update);
+    await until(() => useBooth.getState().gesture?.holding === true, "gesture event");
+    expect(useBooth.getState().gesture).toEqual(update);
+    detach();
+  });
+
   test("a stale snapshot never overwrites a newer session event", async () => {
     const fake = backend();
     fake.on("session_state", async () => {

@@ -3,6 +3,30 @@
 
 use serde::{Deserialize, Serialize};
 
+/// A rectangle in a live-view frame, as fractions of its width and height.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+pub struct FrameRegion {
+    pub x: f32,
+    pub y: f32,
+    pub w: f32,
+    pub h: f32,
+}
+
+/// One live-view frame for the gesture detector. The frame is a small JPEG (tens of KB), so it
+/// travels as base64 in the JSON bridge; photos never do.
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub struct GestureRequest {
+    pub frame: String,
+    /// Where to look: the guest's box.
+    pub region: FrameRegion,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Deserialize)]
+pub struct GestureResponse {
+    /// The open palm found inside the region, if any, in whole-frame coordinates.
+    pub palm: Option<FrameRegion>,
+}
+
 /// Sony's USB vendor id (`0x054C`), the filter for `usbList`.
 pub const SONY_VENDOR_ID: u16 = 0x054C;
 

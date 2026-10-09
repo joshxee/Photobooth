@@ -8,9 +8,10 @@ use async_trait::async_trait;
 use bytes::Bytes;
 use futures_util::{FutureExt, StreamExt};
 use photobooth_core::{
-    Camera, CameraId, CameraStatus, DevPanelTrigger, FrameStream, MockCamera, MockCameraHandle,
-    PhotoStore, Session, SessionContext, SessionHandle, SessionState, SessionTask, Settings,
-    SettingsPatch, SettingsStore, StartTrigger, TapTrigger, Timings,
+    run_sampler, Camera, CameraId, CameraStatus, DetectorError, DevPanelTrigger, FrameStream,
+    GestureTrigger, GestureUpdate, MockCamera, MockCameraHandle, PalmDetector, PhotoStore, Region,
+    Session, SessionContext, SessionHandle, SessionState, SessionTask, Settings, SettingsPatch,
+    SettingsStore, StartTrigger, StartTriggerKind, TapTrigger, Timings,
 };
 #[cfg(any(not(target_os = "android"), test))]
 use photobooth_core::{CameraError, CapturedPhoto};
@@ -162,6 +163,16 @@ pub struct AppState {
     session: SessionHandle,
     tap: Arc<TapTrigger>,
     dev: Arc<DevPanelTrigger>,
+    gesture: Arc<GestureTrigger>,
+    /// The newest live-view frame, for the gesture sampler. Written by whichever forwarder is
+    /// running; the sampler reads it at its own pace.
+    latest_frame: Arc<watch::Sender<Option<Bytes>>>,
+    /// Where the guest's box is in the frame, as last reported by the UI.
+    gesture_region: Arc<Mutex<Region>>,
+    /// What the UI draws for gesture start; forwarded as `gesture://state`.
+    gesture_updates: Arc<watch::Sender<GestureUpdate>>,
+    /// A palm put in the box from the developer panel.
+    injected_palm: Arc<InjectedPalm>,
     mock: MockCameraHandle,
     live: tokio::sync::Mutex<Option<JoinHandle<()>>>,
     logs: LogRingBuffer,
@@ -198,7 +209,16 @@ impl AppState {
         let photos = PhotoStore::new();
         let tap = TapTrigger::new();
         let dev = DevPanelTrigger::new();
-        let triggers: Vec<Arc<dyn StartTrigger>> = vec![tap.clone(), dev.clone()];
+        let gesture = GestureTrigger::new();
+        let gesture_updates = Arc::new(
+            watch::channel(GestureUpdate {
+                palm: None,
+                holding: false,
+                hold_ms: gesture.hold_ms(),
+            })
+            .0,
+        );
+        let triggers: Vec<Arc<dyn StartTrigger>> = vec![tap.clone(), dev.clone(), gesture.clone()];
         let (session, task) = Session::build(shared.clone(), photos.clone(), timings, triggers);
 
         (
@@ -209,6 +229,11 @@ impl AppState {
                 session,
                 tap,
                 dev,
+                gesture,
+                latest_frame: Arc::new(watch::channel(None).0),
+                gesture_region: Arc::new(Mutex::new(Region::FULL)),
+                gesture_updates,
+                injected_palm: Arc::new(InjectedPalm::default()),
                 mock,
                 live: tokio::sync::Mutex::new(None),
                 logs,
@@ -355,7 +380,12 @@ impl AppState {
     pub async fn start_live_view(&self, sink: Box<dyn FrameSink>) -> Result<(), CommandError> {
         let camera = self.active_camera()?;
         let stream = camera.start_live_view().await?;
-        let task = tokio::spawn(keep_live_view_running(camera, stream, sink));
+        let task = tokio::spawn(keep_live_view_running(
+            camera,
+            stream,
+            sink,
+            self.latest_frame.clone(),
+        ));
         if let Some(previous) = self.live.lock().await.replace(task) {
             previous.abort();
         }
@@ -369,6 +399,46 @@ impl AppState {
         if let Ok(camera) = self.active_camera() {
             let _ = camera.stop_live_view().await;
         }
+    }
+
+    // ----- gesture start ----------------------------------------------------------------
+
+    /// The UI reports where the guest's box sits in the camera frame. Until it does, the whole
+    /// frame counts.
+    pub fn set_gesture_region(&self, region: Region) {
+        *lock(&self.gesture_region) = region;
+    }
+
+    /// Every gesture update for the UI (the highlight and the hold ring).
+    pub fn subscribe_gesture(&self) -> watch::Receiver<GestureUpdate> {
+        self.gesture_updates.subscribe()
+    }
+
+    /// The open-palm sampler: looks for a palm in the box on the newest live-view frame and
+    /// starts a session when one is held. `native` is the platform's recognizer (none on
+    /// desktop); a palm put in the box from the developer panel always counts. Spawn it once on
+    /// the app's runtime. It looks only while the setting asks for gestures and the booth is
+    /// on the attract screen; the tap button works either way.
+    pub fn gesture_sampler(
+        &self,
+        native: Option<Arc<dyn PalmDetector>>,
+    ) -> impl std::future::Future<Output = ()> + Send + 'static {
+        let shared = self.shared.clone();
+        let session = self.session.clone();
+        let region = self.gesture_region.clone();
+        let mut detectors: Vec<Arc<dyn PalmDetector>> = vec![self.injected_palm.clone()];
+        detectors.extend(native);
+        run_sampler(
+            self.latest_frame.subscribe(),
+            Arc::new(FirstPalm(detectors)),
+            self.gesture.clone(),
+            self.gesture_updates.clone(),
+            move || {
+                lock(&shared.settings).start_trigger == StartTriggerKind::Gesture
+                    && session.state() == SessionState::Attract
+            },
+            move || *lock(&region),
+        )
     }
 
     // ----- session ----------------------------------------------------------------------
@@ -400,6 +470,7 @@ impl AppState {
             Fault::SlowNextCapture { ms } => self.mock.force_slow_next_capture(ms),
             Fault::SkipCountdown => self.session.skip_countdown().await?,
             Fault::StartSession => self.dev.fire(),
+            Fault::HoldPalm { on } => self.injected_palm.set(on),
             Fault::ResetSettings => {
                 self.reset_settings()?;
             }
@@ -408,13 +479,79 @@ impl AppState {
     }
 }
 
+/// A palm that the developer panel puts in the box: fills the middle of whatever region it is
+/// asked to look in. Lets the whole gesture path be exercised without a hand or a recognizer.
+///
+/// It lets go by itself after [`INJECTED_PALM_FOR`]: a palm that stayed on after a test left the
+/// box green and, because a hand that never leaves cannot start a second session, blocked the
+/// next one.
+#[derive(Default)]
+struct InjectedPalm(Mutex<Option<tokio::time::Instant>>);
+
+/// How long a palm put in the box from the developer panel stays there.
+const INJECTED_PALM_FOR: std::time::Duration = std::time::Duration::from_secs(5);
+
+impl InjectedPalm {
+    fn set(&self, on: bool) {
+        *lock(&self.0) = on.then(|| tokio::time::Instant::now() + INJECTED_PALM_FOR);
+    }
+
+    fn present(&self) -> bool {
+        lock(&self.0).is_some_and(|until| tokio::time::Instant::now() < until)
+    }
+}
+
+#[async_trait]
+impl PalmDetector for InjectedPalm {
+    async fn find_palm(
+        &self,
+        _jpeg: Bytes,
+        within: Region,
+    ) -> Result<Option<Region>, DetectorError> {
+        Ok(self.present().then(|| Region {
+            x: within.x + within.w * 0.25,
+            y: within.y + within.h * 0.25,
+            w: within.w * 0.5,
+            h: within.h * 0.5,
+        }))
+    }
+}
+
+/// Asks each detector in turn and returns the first palm found. A failing detector is skipped
+/// while another can still answer.
+struct FirstPalm(Vec<Arc<dyn PalmDetector>>);
+
+#[async_trait]
+impl PalmDetector for FirstPalm {
+    async fn find_palm(
+        &self,
+        jpeg: Bytes,
+        within: Region,
+    ) -> Result<Option<Region>, DetectorError> {
+        let mut failure = None;
+        for detector in &self.0 {
+            match detector.find_palm(jpeg.clone(), within).await {
+                Ok(Some(palm)) => return Ok(Some(palm)),
+                Ok(None) => {}
+                Err(err) => failure = Some(err),
+            }
+        }
+        failure.map_or(Ok(None), Err)
+    }
+}
+
 /// Forwards `stream` to `sink` until the stream ends. `false` means the consumer went away.
-async fn forward_frames(mut stream: FrameStream, sink: &mut dyn FrameSink) -> bool {
+async fn forward_frames(
+    mut stream: FrameStream,
+    sink: &mut dyn FrameSink,
+    latest: &watch::Sender<Option<Bytes>>,
+) -> bool {
     while let Some(mut frame) = stream.next().await {
         // Keep-latest: drop anything that queued up while we were busy.
         while let Some(Some(newer)) = stream.next().now_or_never() {
             frame = newer;
         }
+        latest.send_replace(Some(frame.clone()));
         if !sink.send(frame) {
             return false;
         }
@@ -433,11 +570,12 @@ async fn keep_live_view_running(
     camera: Arc<dyn Camera>,
     first: FrameStream,
     mut sink: Box<dyn FrameSink>,
+    latest: Arc<watch::Sender<Option<Bytes>>>,
 ) {
     let mut status = camera.status();
     let mut stream = first;
     loop {
-        if !forward_frames(stream, sink.as_mut()).await {
+        if !forward_frames(stream, sink.as_mut(), &latest).await {
             return;
         }
         tracing::info!("live view ended; it resumes when the camera is ready again");
@@ -841,11 +979,124 @@ mod tests {
         let frames: Vec<Bytes> = (0u8..6).map(|i| Bytes::from(vec![i])).collect();
         let stream: FrameStream = Box::pin(futures_util::stream::iter(frames));
         let (tx, mut rx) = mpsc::unbounded_channel();
-        let consumer_open = forward_frames(stream, &mut Slow(tx)).await;
+        let latest = watch::channel(None).0;
+        let consumer_open = forward_frames(stream, &mut Slow(tx), &latest).await;
         assert!(consumer_open);
         let delivered: Vec<Bytes> = std::iter::from_fn(|| rx.try_recv().ok()).collect();
         // Everything was already queued, so only the last frame is worth sending.
         assert_eq!(delivered, vec![Bytes::from(vec![5u8])]);
+        assert_eq!(
+            *latest.borrow(),
+            Some(Bytes::from(vec![5u8])),
+            "the sampler sees it too"
+        );
+    }
+
+    /// A rig whose test camera is connected, with the sampler running and live view on.
+    async fn gesture_rig(trigger: &str) -> (Rig, mpsc::UnboundedReceiver<Bytes>) {
+        let rig = rig();
+        rig.state.select_camera(CameraId::TEST).await.unwrap();
+        rig.state
+            .update_settings(patch(&format!(r#"{{"start_trigger":"{trigger}"}}"#)))
+            .unwrap();
+        rig.state.connect_camera().await.unwrap();
+        tokio::spawn(rig.state.gesture_sampler(None));
+        let (tx, rx) = mpsc::unbounded_channel();
+        rig.state
+            .start_live_view(Box::new(ChannelSink(tx)))
+            .await
+            .unwrap();
+        (rig, rx)
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_held_palm_starts_a_session_when_gestures_are_on() {
+        let (rig, _frames) = gesture_rig("gesture").await;
+        let mut events = rig.state.subscribe_session();
+        rig.state
+            .inject(Fault::HoldPalm { on: true })
+            .await
+            .unwrap();
+        until(&mut events, |s| matches!(s, SessionState::Arming)).await;
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn the_ui_is_told_about_the_palm_and_the_hold_while_it_is_held() {
+        let (rig, _frames) = gesture_rig("gesture").await;
+        let mut updates = rig.state.subscribe_gesture();
+        rig.state
+            .inject(Fault::HoldPalm { on: true })
+            .await
+            .unwrap();
+        loop {
+            updates.changed().await.unwrap();
+            let update = *updates.borrow_and_update();
+            if update.holding {
+                let palm = update.palm.expect("the palm is highlighted");
+                assert!(Region::FULL.contains(palm.center().0, palm.center().1));
+                assert_eq!(update.hold_ms, 1200);
+                break;
+            }
+        }
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn the_box_the_ui_reports_is_where_the_palm_is_looked_for() {
+        let (rig, _frames) = gesture_rig("gesture").await;
+        let boxed = Region::new(0.5, 0.2, 0.4, 0.6).unwrap();
+        rig.state.set_gesture_region(boxed);
+        let mut updates = rig.state.subscribe_gesture();
+        rig.state
+            .inject(Fault::HoldPalm { on: true })
+            .await
+            .unwrap();
+        loop {
+            updates.changed().await.unwrap();
+            if let Some(palm) = updates.borrow_and_update().palm {
+                let (cx, cy) = palm.center();
+                assert!(boxed.contains(cx, cy), "{palm:?} should sit in {boxed:?}");
+                break;
+            }
+        }
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_palm_put_in_the_box_from_the_dev_panel_lets_go_by_itself() {
+        let (rig, _frames) = gesture_rig("gesture").await;
+        // A session may well start meanwhile (a held palm does that); only the palm matters here.
+        rig.state
+            .inject(Fault::HoldPalm { on: true })
+            .await
+            .unwrap();
+        assert!(rig.state.injected_palm.present());
+        tokio::time::sleep(INJECTED_PALM_FOR + Duration::from_secs(1)).await;
+        assert!(
+            !rig.state.injected_palm.present(),
+            "it expired without a 'palm away'"
+        );
+        rig.state
+            .inject(Fault::HoldPalm { on: true })
+            .await
+            .unwrap();
+        rig.state
+            .inject(Fault::HoldPalm { on: false })
+            .await
+            .unwrap();
+        assert!(
+            !rig.state.injected_palm.present(),
+            "and 'palm away' still works"
+        );
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_held_palm_does_nothing_when_gestures_are_off() {
+        let (rig, _frames) = gesture_rig("tap").await;
+        rig.state
+            .inject(Fault::HoldPalm { on: true })
+            .await
+            .unwrap();
+        tokio::time::sleep(Duration::from_secs(5)).await;
+        assert_eq!(rig.state.session_state(), SessionState::Attract);
     }
 
     #[tokio::test(start_paused = true)]

@@ -61,6 +61,23 @@ class StartPreviewArgs {
 }
 
 @InvokeArg
+class RegionArgs {
+    var x: Float = 0f
+    var y: Float = 0f
+    var w: Float = 1f
+    var h: Float = 1f
+}
+
+@InvokeArg
+class GestureArgs {
+    /** A live-view JPEG, base64-encoded. */
+    lateinit var frame: String
+
+    /** Where to look: the guest's box, as fractions of the frame. */
+    lateinit var region: RegionArgs
+}
+
+@InvokeArg
 class FlagArgs {
     var on: Boolean = false
 }
@@ -99,6 +116,10 @@ class PhotoboothCameraPlugin(private val activity: Activity) : Plugin(activity) 
     private var usbReceiver: BroadcastReceiver? = null
     private var backCallback: OnBackPressedCallback? = null
 
+    /** Recognizing is slow and stateful; one thread, one call at a time, off the bridge thread. */
+    private val gestureExecutor = java.util.concurrent.Executors.newSingleThreadExecutor()
+    private val palmFinder by lazy { PalmFinder(activity.applicationContext) }
+
     private var previewView: PreviewView? = null
     private var cameraProvider: ProcessCameraProvider? = null
     private var imageCapture: ImageCapture? = null
@@ -119,8 +140,44 @@ class PhotoboothCameraPlugin(private val activity: Activity) : Plugin(activity) 
         backCallback?.remove()
         backCallback = null
         runCatching { tearDownPreview() }
+        gestureExecutor.execute { palmFinder.close() }
+        gestureExecutor.shutdown()
         openDevices.values.toList().forEach { closeDevice(it) }
         openDevices.clear()
+    }
+
+    // ---------------------------------------------------------------------------------------
+    // Gesture start
+    // ---------------------------------------------------------------------------------------
+
+    /**
+     * Looks for an open palm inside `region` of one live-view JPEG. Resolves `{palm}` with the
+     * palm's box as fractions of the whole frame, or `{}` when there is none. Rust decides what
+     * a held palm means; this only finds hands.
+     */
+    @Command
+    fun gestureDetect(invoke: Invoke) {
+        val args = invoke.parseArgs(GestureArgs::class.java)
+        gestureExecutor.execute {
+            try {
+                val jpeg = android.util.Base64.decode(args.frame, android.util.Base64.DEFAULT)
+                val region = FrameRegion(args.region.x, args.region.y, args.region.w, args.region.h)
+                val palm = palmFinder.find(jpeg, region)
+                val result = JSObject()
+                if (palm != null) {
+                    val box = JSObject()
+                    box.put("x", palm.x.toDouble())
+                    box.put("y", palm.y.toDouble())
+                    box.put("w", palm.w.toDouble())
+                    box.put("h", palm.h.toDouble())
+                    result.put("palm", box)
+                }
+                invoke.resolve(result)
+            } catch (e: Exception) {
+                Log.w(TAG, "gesture detection failed", e)
+                invoke.reject("Gesture detection failed: ${e.message}", e)
+            }
+        }
     }
 
     // ---------------------------------------------------------------------------------------

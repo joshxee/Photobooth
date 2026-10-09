@@ -160,6 +160,20 @@ export function Settings() {
           </label>
         </div>
 
+        <div className="setting">
+          <label className="setting__label setting__label--row">
+            <span>Open-Palm Start</span>
+            <input
+              type="checkbox"
+              checked={settings.start_trigger === "gesture"}
+              aria-label="Open-Palm Start"
+              onChange={(e) =>
+                void apply({ start_trigger: e.currentTarget.checked ? "gesture" : "tap" })
+              }
+            />
+          </label>
+        </div>
+
         {settings.selected_camera === "test" && (
           <fieldset className="settings__group">
             <legend>Test Camera</legend>

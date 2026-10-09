@@ -51,6 +51,8 @@ pub enum Fault {
     StartSession,
     /// Restores default settings.
     ResetSettings,
+    /// Puts a palm in (or takes it out of) the guest's box, as if a hand were held up.
+    HoldPalm { on: bool },
 }
 
 /// Command failure, serialized to the WebView as a plain string.
@@ -113,6 +115,10 @@ mod tests {
         assert_eq!(parse(r#"{"kind":"skip_countdown"}"#), Fault::SkipCountdown);
         assert_eq!(parse(r#"{"kind":"start_session"}"#), Fault::StartSession);
         assert_eq!(parse(r#"{"kind":"reset_settings"}"#), Fault::ResetSettings);
+        assert_eq!(
+            parse(r#"{"kind":"hold_palm","on":true}"#),
+            Fault::HoldPalm { on: true }
+        );
         assert!(serde_json::from_str::<Fault>(r#"{"kind":"explode"}"#).is_err());
         assert!(serde_json::from_str::<Fault>(r#"{"kind":"slow_next_capture"}"#).is_err());
     }
