@@ -1,0 +1,44 @@
+appId: com.jc.photobooth.tauri
+---
+- launchApp:
+    stopApp: false
+- extendedWaitUntil:
+    visible: "Select Camera"
+    timeout: 20000
+- tapOn: "Test Camera.*"
+- tapOn: "Continue →"
+- extendedWaitUntil:
+    visible: "Tap to start photoshoot"
+    timeout: 15000
+- takeScreenshot: 01_attract
+# the pill is disabled while the camera is connecting (or has a problem): wait until it is enabled
+- tapOn:
+    text: "Tap to start photoshoot"
+    enabled: true
+# the pill fills for ~3 s, then the countdown begins
+- extendedWaitUntil:
+    visible: "Look at the lens"
+    timeout: 15000
+- takeScreenshot: 02_countdown
+- extendedWaitUntil:
+    visible: "Looking good."
+    timeout: 40000
+- assertVisible: "VIRTUAL PHOTO STRIP SAVED.*"
+- assertVisible: "Take another strip →"
+- assertVisible: "RETURNING TO PHOTOBOOTH"
+- takeScreenshot: 03_strip_review
+
+# take another strip: a fresh session starts
+- tapOn: "Take another strip →"
+- extendedWaitUntil:
+    visible: "Look at the lens"
+    timeout: 20000
+- extendedWaitUntil:
+    visible: "Looking good."
+    timeout: 40000
+
+# the strip returns to attract on its own after ~12 s
+- extendedWaitUntil:
+    visible: "Tap to start photoshoot"
+    timeout: 30000
+- takeScreenshot: 04_auto_return

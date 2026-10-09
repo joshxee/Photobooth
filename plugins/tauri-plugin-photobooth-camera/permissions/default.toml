@@ -1,0 +1,10 @@
+"$schema" = "schemas/schema.json"
+
+[default]
+description = "Window behaviour (keep awake, immersive) and the back-button listener used by the booth UI. Camera and USB commands are not exposed to the WebView."
+permissions = [
+  "allow-window-set-keep-screen-on",
+  "allow-window-set-immersive",
+  "allow-register-listener",
+  "allow-remove-listener",
+]

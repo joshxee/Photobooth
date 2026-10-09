@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-logs-recent"
+description = "Enables the logs_recent command without any pre-configured scope."
+commands.allow = ["logs_recent"]
+
+[[permission]]
+identifier = "deny-logs-recent"
+description = "Denies the logs_recent command without any pre-configured scope."
+commands.deny = ["logs_recent"]

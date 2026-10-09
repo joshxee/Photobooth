@@ -1,0 +1,12 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "dev",
+  "description": "Developer panel only. Enabled via tauri.dev.conf.json; never part of a release build.",
+  "windows": [
+    "main"
+  ],
+  "permissions": [
+    "allow-test-inject",
+    "allow-logs-recent"
+  ]
+}

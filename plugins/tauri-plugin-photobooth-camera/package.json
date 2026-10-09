@@ -1,0 +1,12 @@
+{
+  "name": "tauri-plugin-photobooth-camera-api",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Typed JS API for the Photobooth camera plugin (window behaviour and plugin events only).",
+  "main": "./guest-js/index.ts",
+  "types": "./guest-js/index.ts",
+  "peerDependencies": {
+    "@tauri-apps/api": "^2"
+  }
+}
