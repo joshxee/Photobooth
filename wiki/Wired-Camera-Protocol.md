@@ -227,7 +227,11 @@ Status as of the first hardware run (2026-10-08); ✅ = observed in the device l
   the start pill is disabled. The first run showed the text prefixed "malformed PTP data:", which
   is wrong (nothing was malformed); it is now its own error, `WrongUsbMode`, shown without the
   prefix. The failure also left no line in the log; `connect_camera` now logs `connect failed`.
-  Both changes are covered by tests but not yet re-run on the tablet.
+  Re-run on the tablet after the fix: the banner now reads "USB device has no still-image interface
+  with bulk in/out and interrupt endpoints; is the camera in PC Remote mode?" and logcat has
+  `connect failed ... err=camera I/O error: USB device has no still-image interface ...` (on
+  Android the open fails in the plugin's `establish`, which wraps it as `CameraError::Io`, so the
+  log label says I/O although the cause is the USB mode).
 - ⬜ Live view for 30+ s without freezing; a capture still works while it is refusing frames.
 - ✅ JPEG-only quality (camera set to Extra fine, 2026-10-09): four captures, each one 10–13 MB
   6000×4000 JPEG, no RAW object, 1.8–1.9 s end to end (vs ~2.3 s with the RAW companion). An
