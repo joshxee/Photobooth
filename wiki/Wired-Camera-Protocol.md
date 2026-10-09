@@ -229,7 +229,9 @@ Status as of the first hardware run (2026-10-08); ✅ = observed in the device l
   prefix. The failure also left no line in the log; `connect_camera` now logs `connect failed`.
   Both changes are covered by tests but not yet re-run on the tablet.
 - ⬜ Live view for 30+ s without freezing; a capture still works while it is refusing frames.
-- ⬜ JPEG-only quality (no RAW companion) behaves identically.
+- ✅ JPEG-only quality (camera set to Extra fine, 2026-10-09): four captures, each one 10–13 MB
+  6000×4000 JPEG, no RAW object, 1.8–1.9 s end to end (vs ~2.3 s with the RAW companion). An
+  unplug/replug mid-session was handled the same way.
 - ⬜ Record a real-session transcript and commit it as a replay fixture (needs the desktop `shoot`
   example or an on-device recorder; the Android path has no recorder yet).
 
