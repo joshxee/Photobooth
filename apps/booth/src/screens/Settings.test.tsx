@@ -109,6 +109,18 @@ describe("Settings", () => {
     expect(backend.callsTo("settings_set")[0]?.args).toEqual({ patch: { mirror_preview: false } });
   });
 
+  test("open-palm start is a checkbox that switches the start trigger", async () => {
+    const backend = backendThatApplies();
+    render(<Settings />);
+    const toggle = screen.getByLabelText("Open-Palm Start") as HTMLInputElement;
+    expect(toggle.checked).toBe(false);
+    fireEvent.click(toggle);
+    await until(() => backend.callsTo("settings_set").length === 1, "toggle sent");
+    expect(backend.callsTo("settings_set")[0]?.args).toEqual({
+      patch: { start_trigger: "gesture" },
+    });
+  });
+
   test("a value the backend rejects becomes a notice", async () => {
     installBackend({
       settings_set: () => {

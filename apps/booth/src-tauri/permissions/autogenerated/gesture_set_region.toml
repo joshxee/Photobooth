@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-gesture-set-region"
+description = "Enables the gesture_set_region command without any pre-configured scope."
+commands.allow = ["gesture_set_region"]
+
+[[permission]]
+identifier = "deny-gesture-set-region"
+description = "Denies the gesture_set_region command without any pre-configured scope."
+commands.deny = ["gesture_set_region"]

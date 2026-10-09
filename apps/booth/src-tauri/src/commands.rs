@@ -2,7 +2,7 @@
 //! the names here must match `build.rs` (which gates them) and the capability files.
 
 use bytes::Bytes;
-use photobooth_core::{CameraId, SessionState, Settings, SettingsPatch};
+use photobooth_core::{CameraId, Region, SessionState, Settings, SettingsPatch};
 use tauri::ipc::{Channel, InvokeResponseBody};
 use tauri::State;
 
@@ -51,6 +51,21 @@ pub async fn live_view_start(
 #[tauri::command]
 pub async fn live_view_stop(state: State<'_, AppState>) -> CommandResult<()> {
     state.stop_live_view().await;
+    Ok(())
+}
+
+/// The UI reports where the guest's palm box sits in the camera frame (fractions, unmirrored).
+#[tauri::command]
+pub fn gesture_set_region(
+    state: State<'_, AppState>,
+    x: f32,
+    y: f32,
+    w: f32,
+    h: f32,
+) -> CommandResult<()> {
+    let region = Region::new(x, y, w, h)
+        .ok_or_else(|| CommandError::new("the palm box must lie inside the camera frame"))?;
+    state.set_gesture_region(region);
     Ok(())
 }
 

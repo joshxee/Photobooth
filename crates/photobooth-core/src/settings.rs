@@ -15,7 +15,7 @@ use crate::camera::CameraId;
 pub enum StartTriggerKind {
     #[default]
     Tap,
-    /// Reserved for the open-palm gesture trigger; rejected by validation until it exists.
+    /// A raised open palm also starts a session. The tap button keeps working.
     Gesture,
 }
 
@@ -160,12 +160,6 @@ impl Settings {
             return Err(SettingsError::Invalid {
                 field: "selected_camera",
                 reason: "must not be empty".to_owned(),
-            });
-        }
-        if self.start_trigger == StartTriggerKind::Gesture {
-            return Err(SettingsError::Invalid {
-                field: "start_trigger",
-                reason: "the gesture trigger is not available yet".to_owned(),
             });
         }
         check_range(
@@ -340,18 +334,12 @@ mod tests {
     }
 
     #[test]
-    fn gesture_trigger_is_reserved() {
+    fn gesture_trigger_is_accepted() {
         let s = Settings {
             start_trigger: StartTriggerKind::Gesture,
             ..Settings::default()
         };
-        assert!(matches!(
-            s.validate(),
-            Err(SettingsError::Invalid {
-                field: "start_trigger",
-                ..
-            })
-        ));
+        assert!(s.validate().is_ok());
     }
 
     #[test]

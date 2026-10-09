@@ -90,6 +90,25 @@ Three `rusb` facts, verified against its source, that `AndroidUsbTransport::from
   devices as `usbAttached`/`usbDetached`.
 - **Mirroring.** `PreviewView` already mirrors a front camera, so the plugin flips only when the
   requested mirroring differs from that natural state. Captures are never mirrored.
+- **Gesture detection** (`gestureDetect`, Rust-only like `usb*`/`cam*`): Rust sends one live-view
+  JPEG as base64 plus the box; `PalmFinder` crops the box **plus 50 % margin** (a hand pushed at
+  the camera is bigger than the box, and a hand cut off at the crop edge is not found), runs
+  MediaPipe's `GestureRecognizer` (4 hands) and returns the largest *open hand* whose centre is in
+  the box, as a frame-fraction rectangle. A palm is **only** what MediaPipe labels `Open_Palm`: a
+  looser rule (any hand with 4+ fingers extended by the landmarks) was tried and started sessions
+  from the back of a hand or a hand hanging at the guest's side, so it was removed. The finger
+  count is still logged (`fingers=`) to see what the classifier is deciding. Deliberately eager: **IMAGE mode** (every frame detected from scratch,
+  because the video/live-stream modes track the hands they found first and stick to them, which
+  is what stopped the old app starting), 2 hands, thresholds 0.3, one executor thread.
+  `gesture_recognizer.task` (8 MB) and `tasks-vision:0.10.14` are the old app's. **Verified on the
+  tablet with the Sony (2026-10-09):** frames are 1024×680; the box maps to the right place (the
+  saved crop matches the box on screen); a real raised hand was recognised and started real
+  captures; ~12 detections/s at 40–90 ms each; with a hand in view about half the frames hit
+  (so the 500 ms gap tolerance matters). **Weak spot:** a hand close to the lens is out of focus on
+  the Sony's live view and the recogniser misses blurred hands. One log line a second
+  (`PhotoboothCamera: gesture: last second calls= withHands= palms= | …`); to also keep the last
+  frame and crop for inspection, `adb shell run-as com.jc.photobooth.tauri mkdir cache/gesture-debug`
+  and pull `cache/gesture-debug/{frame,crop}.jpg` (live-view frames of guests: debug only).
 - **Immersive mode / keep-awake** use `WindowInsetsControllerCompat` and `FLAG_KEEP_SCREEN_ON`.
 
 ## Why not `getUserMedia`/other designs — and what was rejected

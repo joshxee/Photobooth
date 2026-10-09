@@ -26,6 +26,8 @@ mod mobile;
 
 #[cfg(feature = "core-camera")]
 pub mod camera;
+#[cfg(feature = "core-camera")]
+pub mod gesture;
 #[cfg(feature = "sony-transport")]
 pub mod usb;
 

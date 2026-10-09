@@ -47,6 +47,14 @@ impl<R: Runtime> PhotoboothCamera<R> {
         Err(Error::Unsupported("the native camera"))
     }
 
+    pub async fn gesture_detect(
+        &self,
+        _frame: String,
+        _region: FrameRegion,
+    ) -> Result<GestureResponse> {
+        Err(Error::Unsupported("gesture detection"))
+    }
+
     pub async fn cam_capture(&self) -> Result<CaptureResponse> {
         Err(Error::Unsupported("the native camera"))
     }

@@ -1,8 +1,18 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { act, fireEvent, render, screen } from "@testing-library/react";
+import { createRef } from "react";
 
+import type { GestureUpdate } from "../ipc/types";
 import { uiConfig } from "../uiConfig";
-import { Arming, Attract, Countdown, Flash, SessionError, StripReview } from "./BoothViews";
+import {
+  Arming,
+  Attract,
+  Countdown,
+  Flash,
+  PalmHighlight,
+  SessionError,
+  StripReview,
+} from "./BoothViews";
 
 const original = uiConfig.fillMs;
 beforeEach(() => {
@@ -19,9 +29,8 @@ describe("Attract", () => {
     let started = 0;
     const { container } = render(<Attract totalShots={4} onStart={() => (started += 1)} />);
 
-    expect(screen.getByText("KNOCKBOX · PHOTOBOOTH")).toBeTruthy();
-    expect(screen.getByRole("heading").textContent).toBe("Welcome to the booth —raise your hand");
-    expect(screen.getByText("or")).toBeTruthy();
+    expect(screen.queryByText("KNOCKBOX · PHOTOBOOTH")).toBeNull(); // no brand line
+    expect(screen.getByRole("heading").textContent).toBe("Welcome to the booth");
     expect(screen.getByText("4 SHOTS")).toBeTruthy();
     expect(container.querySelectorAll(".pips__pip")).toHaveLength(4);
 
@@ -29,6 +38,78 @@ describe("Attract", () => {
     expect(started).toBe(0);
     await sleep(40);
     expect(started).toBe(1);
+  });
+});
+
+describe("Attract with a palm box", () => {
+  const guide = (update: GestureUpdate | null) => ({
+    update,
+    boxRef: createRef<HTMLDivElement>(),
+  });
+  const palm = { x: 0.1, y: 0.1, w: 0.2, h: 0.3 };
+
+  test("asks for a palm in the box and keeps a small tap button as the fallback", async () => {
+    let started = 0;
+    const { container } = render(
+      <Attract totalShots={3} onStart={() => (started += 1)} palm={guide(null)} />,
+    );
+
+    expect(screen.getByRole("heading").textContent).toBe(
+      "Put your palm in the box to start the photobooth",
+    );
+    expect(screen.getByRole("img", { name: /palm up inside this box/ })).toBeTruthy();
+    expect(container.querySelector(".palmbox")?.className).toBe("palmbox");
+    expect(screen.queryByText("Tap to start photoshoot")).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Tap here to start" }));
+    await sleep(40);
+    expect(started).toBe(1);
+  });
+
+  test("the box turns green when a palm is seen and the ring runs while it is held", () => {
+    const { container, rerender } = render(
+      <Attract
+        totalShots={3}
+        onStart={() => {}}
+        palm={guide({ palm, holding: false, hold_ms: 1000 })}
+      />,
+    );
+    const box = () => container.querySelector(".palmbox") as HTMLElement;
+    expect(box().classList.contains("is-seen")).toBe(true);
+    expect(box().classList.contains("is-holding")).toBe(false);
+    expect(screen.queryByText("GOT IT")).toBeNull(); // no status text pretending to be a button
+
+    rerender(
+      <Attract
+        totalShots={3}
+        onStart={() => {}}
+        palm={guide({ palm, holding: true, hold_ms: 1500 })}
+      />,
+    );
+    expect(box().classList.contains("is-holding")).toBe(true);
+    expect(box().style.getPropertyValue("--hold-ms")).toBe("1500ms");
+
+    rerender(
+      <Attract
+        totalShots={3}
+        onStart={() => {}}
+        palm={guide({ palm: null, holding: false, hold_ms: 1000 })}
+      />,
+    );
+    expect(box().className).toBe("palmbox");
+  });
+
+  test("the highlight is a dot at the centre of the palm, not a ring or a box", () => {
+    const { container } = render(<PalmHighlight rect={{ x: 0.2, y: 0.4, w: 0.1, h: 0.2 }} />);
+    const el = container.querySelector(".palm-highlight") as HTMLElement;
+    expect(el.style.left).toBe("25%");
+    expect(el.style.top).toBe("50%");
+    expect(el.style.width).toBe(""); // a fixed small size from the stylesheet, whatever the hand's
+  });
+
+  test("the box carries no text label", () => {
+    const { container } = render(<Attract totalShots={3} onStart={() => {}} palm={guide(null)} />);
+    expect(container.querySelector(".palmbox")?.textContent).toBe("");
   });
 });
 
