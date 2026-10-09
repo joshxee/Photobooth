@@ -130,13 +130,10 @@ Xiaomi Pad, Android 14 (HyperOS/MIUI), 2026-10-09. ✅ = observed, ⬜ = not yet
   front, which would explain the "flaky" impression; not confirmed with a log.
 - ✅ fd handoff: the Sony handshake completes and `GetDeviceInfo` reports `ILCE-7M3`
   (see `Wired-Camera-Protocol.md`).
-- ◐ Unplugging the camera: live view gave up after five `No such device` failures, but the camera
-  status stayed `Ready` (no banner, nothing could recover it) and, after unplug → replug → *Try
-  again* mid-session, the preview stayed dead. Both fixed on 2026-10-09 (status goes to `Error`;
-  `AppState` resumes live view once the camera is back) and covered by tests. On the tablet the
-  resume was seen three times (after the reconnect that follows a failed shot: "live view ended …
-  live view resumed"); the unplug → replug → *Try again* sequence itself has **not** been re-run.
-  See `Wired-Camera-Protocol.md`, findings 6–7.
+- ✅ Unplugging the camera: live view gives up after five `No such device` failures, the status
+  goes to `Error`, and `AppState` resumes live view once the camera is back. Re-run on the tablet
+  2026-10-09 (unplug mid-countdown → replug → *Try again*): the preview resumed and the next
+  three shots succeeded. See `Wired-Camera-Protocol.md`.
 - ✅ Background (Home key, 8 s) and foreground with the preview running, for both the Device
   Camera (preview live again, different scene) and the Test Camera (frames keep streaming: the
   colour advanced between screenshots; process alive, no crash). Backgrounding *during* a session

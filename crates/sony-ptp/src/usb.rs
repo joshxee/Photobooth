@@ -65,7 +65,7 @@ impl<C: UsbContext> RusbTransport<C> {
                 }
             }
         }
-        Err(Error::Protocol(
+        Err(Error::WrongUsbMode(
             "USB device has no still-image interface with bulk in/out and interrupt endpoints; \
              is the camera in PC Remote mode?"
                 .to_owned(),

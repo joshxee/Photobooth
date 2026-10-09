@@ -252,7 +252,7 @@ impl<T: Transport> Sony<T> {
         let info = DeviceInfo::parse(&self.ptp.call(op::GET_DEVICE_INFO, &[], None)?.data)?;
         tracing::info!(model = %info.model, version = %info.device_version, "camera found");
         if !info.supports(op::SDIO_CONNECT) {
-            return Err(Error::Protocol(format!(
+            return Err(Error::WrongUsbMode(format!(
                 "{} does not offer Sony's remote-control operations; set USB Connection to PC Remote",
                 if info.model.is_empty() { "camera" } else { &info.model }
             )));

@@ -31,6 +31,12 @@ pub enum Error {
     #[error("malformed PTP data: {0}")]
     Protocol(String),
 
+    /// The device is attached but is not offering the camera's remote-control interface, which
+    /// on a Sony body means the USB Connection menu is not set to PC Remote. The text is shown
+    /// to the user as is.
+    #[error("{0}")]
+    WrongUsbMode(String),
+
     /// No suitable USB device was found.
     #[error("no Sony camera found")]
     NotFound,
@@ -54,7 +60,7 @@ impl Error {
 
     /// Whether this looks like "the camera is not in PC Remote mode", which deserves a hint.
     pub fn suggests_wrong_usb_mode(&self) -> bool {
-        matches!(self, Error::Timeout(_))
+        matches!(self, Error::Timeout(_) | Error::WrongUsbMode(_))
     }
 }
 

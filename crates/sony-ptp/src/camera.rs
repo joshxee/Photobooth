@@ -134,6 +134,7 @@ pub fn map_error(err: &Error) -> CameraError {
         Error::Timeout(what) => {
             CameraError::Protocol(format!("timed out ({what}): {PC_REMOTE_HINT}"))
         }
+        Error::WrongUsbMode(message) => CameraError::Protocol(message.clone()),
         Error::Stall(what) => CameraError::Io(format!("the camera stalled the USB pipe ({what})")),
         // libusb's wording for a device that has been unplugged.
         Error::Io(message) if message.contains("No such device") => CameraError::Disconnected,
@@ -471,6 +472,19 @@ mod tests {
             "{err}"
         );
         assert!(matches!(*cam.status().borrow(), CameraStatus::Error(_)));
+    }
+
+    #[tokio::test]
+    async fn the_wrong_mode_message_does_not_claim_the_data_was_malformed() {
+        let (cam, _) = camera(SimConfig {
+            pc_remote: false,
+            ..SimConfig::default()
+        });
+        let CameraError::Protocol(message) = cam.connect().await.unwrap_err() else {
+            panic!("expected a protocol error");
+        };
+        assert!(!message.contains("malformed"), "{message}");
+        assert!(message.contains("PC Remote"), "{message}");
     }
 
     #[tokio::test]
