@@ -1,51 +1,42 @@
 # CLAUDE.md
 
-Guidance for Claude Code working in this repo.
+Tauri v2 photobooth for Android tablets: a Rust core, a React WebView, and one Android camera plugin.
 
-## Project Overview
+## Layout
 
-**Kotlin Multiplatform** photobooth app (Android, iOS, Desktop/JVM, Web JS+Wasm) using **Compose Multiplatform**. Package `com.jc.photobooth`.
+| Path | What |
+|------|------|
+| `crates/photobooth-core` | `Camera` trait, session FSM, settings, in-memory photo store, mock camera (pure Rust) |
+| `crates/sony-ptp` | Sony A7 III over PTP/USB, `Transport` trait, replay/recording |
+| `plugins/tauri-plugin-photobooth-camera` | Kotlin CameraX + USB host, Rust `NativeCamera` |
+| `apps/booth/src-tauri` | Tauri app: commands, `AppState`, `booth://` protocol, capabilities, `gen/android` (committed, hand-edited) |
+| `apps/booth` | React 19 + TS UI, **bun only** (no npm, no Vite) |
+| `composeApp/`, `iosApp/`, `.maestro/flows/` | Legacy Kotlin Multiplatform app. Frozen until cutover; don't change it unless asked |
 
-## Knowledge Graph (READ FIRST)
-
-This repo has a graphify-built knowledge graph. **Before grepping or globbing for structural questions, read `graphify-out/GRAPH_REPORT.md`** — it has god nodes, community labels, and surprising connections. For deep traversal use:
-
-- `/graphify query "<question>"` — BFS traversal of `graph.json`
-- `/graphify path "NodeA" "NodeB"` — shortest path between concepts
-- `/graphify explain "NodeName"` — node + neighbors
-
-**Rebuild after a feature lands** (or after a refactor that adds/renames files):
-
-```bash
-/graphify --update    # incremental — only re-extracts changed files
-```
-
-The graph (`graph.json`, `GRAPH_REPORT.md`, `manifest.json`, `cost.json`, `.graphify_labels.json`) is committed. The HTML viz and per-machine caches are gitignored.
-
-## Build & Run
-
-| Target | Command |
-|--------|---------|
-| Android | `./gradlew :composeApp:assembleDebug` |
-| Desktop (JVM) | `./gradlew :composeApp:run` |
-| Web (Wasm) | `./gradlew :composeApp:wasmJsBrowserDevelopmentRun` |
-| Web (JS) | `./gradlew :composeApp:jsBrowserDevelopmentRun` |
-| iOS | open `iosApp/` in Xcode |
-
-Slash commands: `/build-android`, `/build-desktop`, `/build-web`, `/clean`.
-
-## Test
+## Check before committing (same as CI)
 
 ```bash
-./gradlew allTests                            # all platforms (run before commits)
-./gradlew :composeApp:jvmTest                 # desktop only
-./gradlew :composeApp:testDebugUnitTest       # android only
-./gradlew :composeApp:jsTest                  # web JS only
-./gradlew :composeApp:wasmJsTest              # web Wasm only
-./gradlew allTests --continuous               # watch mode
+cargo fmt --all -- --check
+cargo clippy -p <crate> --all-targets --all-features -- -D warnings   # no allow() suppressions
+cargo test -p <crate>
+cd apps/booth && bun run typecheck && bun test && bun run build
 ```
 
-Slash commands: `/test`, `/test-platform`, `/test-watch`.
+The `photobooth` crate embeds `apps/booth/dist`, so run `bun run build` before building or testing it.
+
+## Rules
+
+- Business logic lives in Rust. The WebView only renders state and sends intent.
+- Never write photos to disk. They stay in `PhotoStore` memory for one session.
+- `test_inject` and `logs_recent` are available only through the `dev` capability.
+- Use `bun x tauri …`, not `bun run tauri` (it panics in `android init`).
+- If you change something hardware-facing, update its wiki page and label anything not run on the tablet as unverified.
+
+## Docs
+
+Read `wiki/` only for the area you're touching. It holds the reasons behind decisions, not structure:
+`Tauri-Migration-Plan.md` (settled decisions, don't re-argue them), `Tauri-Workstreams.md` (contracts),
+`Android-Build.md`, `Frontend.md`, `Tauri-App.md`, `Core-Domain.md`, `Wired-Camera-Protocol.md`, `Native-Camera-Plugin.md`.
 
 ## Device Testing (Windows PC + Xiaomi tablet)
 
@@ -67,46 +58,3 @@ suggested way to test on the device. The aim is to test without the user steppin
   "Install via USB" prompt on every run, so keep Maestro (`.maestro/tauri/`) for CI and emulators.
 - **Never uninstall `com.jc.photobooth`** (the user's Kotlin app, different signing key). The Tauri debug
   build is `com.jc.photobooth.tauri`.
-
-## Source Set Structure
-
-```
-composeApp/src/
-├── commonMain/      # shared code — put new code here first
-├── commonTest/      # shared tests — write tests here first
-├── androidMain/     # Android-specific
-├── iosMain/         # iOS-specific
-├── jvmMain/         # Desktop/JVM-specific
-├── jsMain/          # Web JS-specific
-└── wasmJsMain/      # Web Wasm-specific
-```
-
-For platform-specific APIs (camera, gps, filesystem) use `expect`/`actual`. Never hardcode platform checks.
-
-## TDD
-
-Strict Red-Green-Refactor. Write tests in `commonTest` first — they run on all platforms. Tooling via ECC `tdd-workflow` skill.
-
-Slash commands: `/tdd-red`, `/tdd-green`, `/tdd-refactor`.
-
-## Key Principles
-
-1. Maximize code sharing — write in `commonMain` first
-2. Test first (RED → GREEN → REFACTOR)
-3. Cross-platform tests in `commonTest` unless platform-specific
-4. Platform abstraction via `expect`/`actual`
-5. Run `./gradlew allTests` before commits
-
-## Wiki
-
-`wiki/` contains design rationale and trade-offs. Camera work → start at `wiki/Camera-System.md`.
-
-The graph already encodes structure (files, classes, calls) and rationale (decisions tagged `file_type:"rationale"`). Keep the wiki for the **why**: trade-offs considered, alternatives rejected, known limitations. Skip restating structure the graph already has.
-
-When you ship a feature, add or update a wiki entry that explains the *why*, then run `/graphify --update` so the graph picks it up.
-
-## Other Docs
-
-- `README.md` — build/run for each platform
-- `wiki/` — architecture rationale
-- `graphify-out/GRAPH_REPORT.md` — graph summary (god nodes, communities, surprising edges)
