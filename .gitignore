@@ -20,15 +20,6 @@ test-results/
 **/xcshareddata/WorkspaceSettings.xcsettings
 node_modules/
 
-# graphify knowledge graph — commit GRAPH_REPORT.md + graph.json + manifest.json + cost.json + .graphify_labels.json
-graphify-out/graph.html
-graphify-out/cache/
-graphify-out/.graphify_python
-graphify-out/.graphify_root
-graphify-out/.graphify_*.json
-!graphify-out/.graphify_labels.json
-graphify-out/.needs_update
-
 # Maestro screenshots in repo root (transient)
 /*.png
 
