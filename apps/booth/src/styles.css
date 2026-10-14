@@ -1,4 +1,4 @@
-/* Photobooth UI — ported from the Knockbox design (composeApp/.../ui/knockbox).
+/* Photobooth UI — ported from the Knockbox design of the old Compose app (removed at the cutover).
    Plain CSS, BEM-ish names. Sizes mirror the original dp/sp values 1:1. */
 
 @font-face {

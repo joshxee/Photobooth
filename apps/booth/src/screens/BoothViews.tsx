@@ -1,6 +1,6 @@
 // The visual states of a session. Copy and layout are ported verbatim from the original
-// Knockbox UI (composeApp/.../ui/knockbox) so the existing Maestro flows can be re-targeted
-// instead of rewritten. Every string here is part of that contract.
+// Knockbox UI (the removed Compose app) so the Maestro flows could be re-targeted instead of
+// rewritten. Every string here is part of that contract.
 
 import type { CSSProperties, RefObject } from "react";
 
