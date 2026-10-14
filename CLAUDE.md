@@ -13,8 +13,8 @@ Tauri v2 photobooth for Android tablets: a Rust core, a React WebView, and one A
 | `apps/booth` | React 19 + TS UI, **bun only** (no npm, no Vite) |
 | `.maestro/tauri/` | Maestro flows for the Tauri debug build |
 
-The old Kotlin Multiplatform app (`composeApp/`, `iosApp/`, root Gradle files, `.maestro/flows/`) was removed at
-the cutover. It stays in git history (the commit before the cutover); don't resurrect it.
+The tree holds only the Tauri app. The earlier Kotlin Multiplatform app (`composeApp/`, `iosApp/`, root Gradle
+files, `.maestro/flows/`) is gone and shouldn't be restored.
 
 ## Check before committing (same as CI)
 
@@ -38,7 +38,6 @@ The `photobooth` crate embeds `apps/booth/dist`, so run `bun run build` before b
 ## Docs
 
 Read `wiki/` only for the area you're touching. It holds the reasons behind decisions, not structure:
-`Tauri-Migration-Plan.md` (settled decisions, don't re-argue them), `Tauri-Workstreams.md` (contracts),
 `Android-Build.md`, `Frontend.md`, `Tauri-App.md`, `Core-Domain.md`, `Wired-Camera-Protocol.md`, `Native-Camera-Plugin.md`.
 
 ## Device Testing (Windows PC + Xiaomi tablet)

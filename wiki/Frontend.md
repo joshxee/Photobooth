@@ -52,8 +52,8 @@ src/fonts/            Geist / Geist Mono, copied from the old Compose resources
 
 ## Original UI parity
 
-Visible strings were ported verbatim from the old Compose app's Knockbox UI (deleted at the
-cutover; see git history) so the Maestro flows could be re-targeted rather than rewritten: "Select Camera", "Continue →", "Welcome to the
+Visible strings were ported verbatim from the earlier Compose app's Knockbox UI so the Maestro
+flows could be re-targeted rather than rewritten: "Select Camera", "Continue →", "Welcome to the
 booth —\nraise your hand", "or", "Tap to start photoshoot", "Look at the lens", "VIRTUAL PHOTO
 STRIP SAVED — COPIES WILL BE AVAILABLE AFTER THE EVENT", "Looking good.", "Take another strip
 →", "RETURNING TO PHOTOBOOTH", "Retry connection", and the Settings labels ("Number of
