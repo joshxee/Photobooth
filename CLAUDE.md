@@ -11,7 +11,10 @@ Tauri v2 photobooth for Android tablets: a Rust core, a React WebView, and one A
 | `plugins/tauri-plugin-photobooth-camera` | Kotlin CameraX + USB host, Rust `NativeCamera` |
 | `apps/booth/src-tauri` | Tauri app: commands, `AppState`, `booth://` protocol, capabilities, `gen/android` (committed, hand-edited) |
 | `apps/booth` | React 19 + TS UI, **bun only** (no npm, no Vite) |
-| `composeApp/`, `iosApp/`, `.maestro/flows/` | Legacy Kotlin Multiplatform app. Frozen until cutover; don't change it unless asked |
+| `.maestro/tauri/` | Maestro flows for the Tauri debug build |
+
+The old Kotlin Multiplatform app (`composeApp/`, `iosApp/`, root Gradle files, `.maestro/flows/`) was removed at
+the cutover. It stays in git history (the commit before the cutover); don't resurrect it.
 
 ## Check before committing (same as CI)
 

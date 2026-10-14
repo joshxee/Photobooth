@@ -83,7 +83,8 @@ sightings is "start"; `run_sampler` takes the newest frame, never queues, and pu
 
 - **Hold 1200 ms, gap tolerance 500 ms** (the Kotlin app: 800 / 250). Both were changed on purpose:
   the ring needs a visible fill, and a palm that flickered out for 300 ms used to restart the
-  hold. Unverified with a real hand; tune `DEFAULT_HOLD` / `DEFAULT_GAP_TOLERANCE`.
+  hold. A real palm started a session on the tablet (2026-10-14); the values were not tuned beyond
+  that, and false starts were not tried. Tune `DEFAULT_HOLD` / `DEFAULT_GAP_TOLERANCE` if needed.
 - Any palm whose centre is in the box counts, from any hand. A hand left raised cannot start a
   second session (a latch clears only once the palm has been gone longer than the tolerance).
 - A detector error counts as "no palm"; the sampler ignores frames unless gestures are on and the

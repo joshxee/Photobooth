@@ -21,6 +21,8 @@ modes:
 
 ## Audit findings (verified against source, not assumed)
 
+These describe the old KMP app as it was before the cutover; the paths no longer exist in the tree.
+
 | Claim | Evidence |
 |-------|----------|
 | No wired/USB camera mode exists in code or history | No `UsbManager`/`UsbDevice`/PTP/libusb reference in `composeApp/src` or `iosApp`; `git log --all -S"UsbManager"` is empty. The only external camera is `CameraType.SONY_A7III_MARK2` ("WiFi Transfer") — `camera/domain/CameraType.kt:8`. |
@@ -53,7 +55,9 @@ modes:
   Rust decides; Kotlin only finds hands. Sony live-view frames only (no frames come from the
   native preview). Change from the old app: the box and the eagerness, because the old one never
   started when recognition jumped between hands. UI path verified on the tablet with the dev
-  panel's palm; **real-hand recognition is unverified**; see `Native-Camera-Plugin.md`.
+  panel's palm. *Verified 2026-10-14 on the tablet with the Sony:* a real open palm in the box
+  started the countdown. Not checked: false starts from a fist or wave, other lighting, other
+  hands; see `Native-Camera-Plugin.md`.
 - **Frontend:** React 19 + TypeScript on a **bun-only** toolchain (package manager,
   `Bun.build`, `Bun.serve` + HMR, `bun test` + happy-dom). Vite is the sanctioned
   fallback if bun's dev server proves unworkable; switching must be noted, never a
@@ -103,7 +107,11 @@ base64/JSON.
 3. **Native camera** — CameraX plugin.
 4. **Wired camera** — PTP engine, then the Android USB transport.
 5. **Hardening** — on-device checklists, fault injection, Maestro retarget.
-6. **Cutover** — retire the KMP targets once parity is confirmed on the rig.
+6. **Cutover** — done 2026-10-14: the KMP app (`composeApp/`, `iosApp/`, the root Gradle build,
+   `.maestro/flows/`, `.reports/`) and the wiki pages that described only it (Architecture,
+   Camera-System, State-Management, Testing-Strategy, Platform-Support, Settings-System,
+   Production-*) were deleted. Read them from the commit before the cutover in git history. The
+   audit table above cites that deleted code.
 
 ## Risks
 
