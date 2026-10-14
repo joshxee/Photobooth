@@ -417,15 +417,6 @@ select {
   background: linear-gradient(to bottom, rgba(20, 32, 30, 0.22), rgba(20, 32, 30, 0.42));
 }
 
-.attract__brand {
-  align-self: flex-start;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 12px;
-  color: rgba(255, 255, 255, 0.85);
-}
-
 .attract__center {
   display: flex;
   flex-direction: column;
@@ -448,6 +439,135 @@ select {
   font-size: 18px;
   letter-spacing: 3px;
   color: rgba(255, 255, 255, 0.6);
+}
+
+/* attract with a palm box: copy on the left, the box floating on the right half */
+
+:root {
+  --palm-green: #5fe39a;
+}
+
+.view--palm {
+  background: none;
+}
+
+/* The box's spread shadow dims everything painted before it, so the copy sits above it. */
+.view--palm > :not(.palmbox) {
+  z-index: 1;
+}
+
+.attract__copy {
+  position: absolute;
+  left: 60px;
+  top: 50%;
+  width: calc(50vw - 120px);
+  transform: translateY(-50%);
+}
+
+.view--palm .attract__headline {
+  text-align: left;
+  font-size: 68px;
+  line-height: 68px;
+}
+
+.attract__tap {
+  position: absolute;
+  left: 60px;
+  bottom: 60px;
+}
+
+.view--palm .attract__shots {
+  position: absolute;
+  right: 60px;
+  bottom: 60px;
+}
+
+/* Two thirds of the right half is a third of the screen; the cap keeps it clear of the edges.
+   The huge spread shadow dims everything outside the box, so it reads as a window onto you. */
+.palmbox {
+  --box-w: min(33.333vw, 56vh);
+  --dim: 0 0 0 200vmax rgba(10, 16, 15, 0.5);
+  --box-h: calc(var(--box-w) * 1.25);
+  position: absolute;
+  /* Centred on the middle of the right half, without a transform (it can blur the edges). */
+  left: calc(75vw - var(--box-w) / 2);
+  top: calc(50% - var(--box-h) / 2);
+  width: var(--box-w);
+  height: var(--box-h);
+  border-radius: calc(var(--box-w) * 0.09);
+  box-shadow: var(--dim);
+  transition:
+    background-color 150ms,
+    box-shadow 150ms;
+}
+
+.palmbox.is-seen {
+  background: rgba(95, 227, 154, 0.16);
+  box-shadow:
+    var(--dim),
+    0 0 70px rgba(95, 227, 154, 0.5);
+}
+
+.palmbox__art {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+
+.palmbox__track,
+.palmbox__progress {
+  fill: none;
+}
+
+.palmbox__track {
+  stroke: #fff; /* always white: only the ring, the wash and the dot say a palm was seen */
+  stroke-width: 5;
+}
+
+.palmbox__progress {
+  stroke: var(--palm-green);
+  stroke-width: 14;
+  stroke-linecap: round;
+  stroke-dasharray: 1;
+  stroke-dashoffset: 1;
+  opacity: 0;
+}
+
+/* The ring runs for the whole hold; it restarts only when Rust says the palm was lost. */
+.palmbox.is-holding .palmbox__progress {
+  opacity: 1;
+  animation: palm-ring var(--hold-ms, 1000ms) linear forwards;
+}
+
+@keyframes palm-ring {
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+/* A dot at the centre of the palm Rust found, over the preview. */
+.palm-highlight {
+  position: absolute;
+  width: 30px;
+  height: 30px;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+  border: 4px solid rgba(255, 255, 255, 0.9);
+  border-radius: 50%;
+  background: var(--palm-green);
+  box-shadow: 0 2px 14px rgba(0, 0, 0, 0.4);
+  transition:
+    left 80ms linear,
+    top 80ms linear;
+}
+
+@media (orientation: portrait) {
+  .view--palm .attract__headline {
+    font-size: 44px;
+    line-height: 44px;
+  }
 }
 
 .attract__shots {

@@ -92,6 +92,17 @@ impl<R: Runtime> PhotoboothCamera<R> {
         self.call("camCapture", ()).await
     }
 
+    /// Asks the native gesture recognizer for an open palm inside `region` of the base64 JPEG
+    /// `frame`.
+    pub async fn gesture_detect(
+        &self,
+        frame: String,
+        region: FrameRegion,
+    ) -> Result<GestureResponse> {
+        self.call("gestureDetect", GestureRequest { frame, region })
+            .await
+    }
+
     pub async fn check_permissions(&self) -> Result<PermissionStatus> {
         self.call("checkPermissions", ()).await
     }

@@ -7,6 +7,7 @@ import type {
   CameraId,
   CameraInfo,
   Fault,
+  FrameRegion,
   SessionState,
   Settings,
   SettingsPatch,
@@ -21,6 +22,9 @@ export const cameraDisconnect = () => invoke<void>("camera_disconnect");
 export const liveViewStart = (channel: Channel<ArrayBuffer>) =>
   invoke<void>("live_view_start", { channel });
 export const liveViewStop = () => invoke<void>("live_view_stop");
+
+/** Tells Rust where the palm box sits in the camera frame, so it knows where to look. */
+export const gestureSetRegion = (region: FrameRegion) => invoke<void>("gesture_set_region", { x: region.x, y: region.y, w: region.w, h: region.h });
 
 export const sessionStart = () => invoke<void>("session_start");
 export const sessionCancel = () => invoke<void>("session_cancel");

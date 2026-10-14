@@ -161,6 +161,15 @@ fn spawn_event_forwarders(app: &AppHandle, state: &AppState) {
         }
     });
 
+    let mut gesture = state.subscribe_gesture();
+    let handle = app.clone();
+    tauri::async_runtime::spawn(async move {
+        while gesture.changed().await.is_ok() {
+            let update = *gesture.borrow_and_update();
+            let _ = handle.emit("gesture://state", &update);
+        }
+    });
+
     for (camera, mut status) in state.camera_status_feeds() {
         let handle = app.clone();
         tauri::async_runtime::spawn(async move {
@@ -204,6 +213,17 @@ pub fn run() {
             );
             tauri::async_runtime::spawn(session_task);
             spawn_event_forwarders(app.handle(), &state);
+            // The tablet's recognizer; desktop has none, so only the developer panel's palm counts.
+            #[cfg(target_os = "android")]
+            let native: Option<std::sync::Arc<dyn photobooth_core::PalmDetector>> = {
+                use tauri_plugin_photobooth_camera::gesture::NativePalmDetector;
+                Some(std::sync::Arc::new(NativePalmDetector::new(
+                    std::sync::Arc::new(app.handle().clone()),
+                )))
+            };
+            #[cfg(not(target_os = "android"))]
+            let native = None;
+            tauri::async_runtime::spawn(state.gesture_sampler(native));
             app.manage(state);
             Ok(())
         })
@@ -214,6 +234,7 @@ pub fn run() {
             commands::camera_disconnect,
             commands::live_view_start,
             commands::live_view_stop,
+            commands::gesture_set_region,
             commands::session_start,
             commands::session_cancel,
             commands::session_take_another,

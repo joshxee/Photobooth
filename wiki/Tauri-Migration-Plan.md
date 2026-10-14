@@ -47,10 +47,13 @@ modes:
   session's JPEGs are held in memory only, served to the WebView over a `booth://`
   protocol, and cleared when returning to the attract screen. Never write photos to
   app storage.
-- **Gesture (open-palm) start is deferred.** A `StartTrigger` seam in the session FSM is
-  reserved for it. Original behaviour to restore later: MediaPipe `GestureRecognizer`,
-  2 hands, 0.4 confidence, `Open_Palm`, 800 ms hold, 250 ms gap tolerance, 3 s idle
-  reset.
+- **Gesture (open-palm) start** (built 2026-10-09 through the `StartTrigger` seam): MediaPipe
+  `GestureRecognizer` on the tablet, but it looks only inside an on-screen **palm box**, in IMAGE
+  mode with any hand counting, 1.2 s hold with 500 ms tolerance and a ring that fills while held.
+  Rust decides; Kotlin only finds hands. Sony live-view frames only (no frames come from the
+  native preview). Change from the old app: the box and the eagerness, because the old one never
+  started when recognition jumped between hands. UI path verified on the tablet with the dev
+  panel's palm; **real-hand recognition is unverified**; see `Native-Camera-Plugin.md`.
 - **Frontend:** React 19 + TypeScript on a **bun-only** toolchain (package manager,
   `Bun.build`, `Bun.serve` + HMR, `bun test` + happy-dom). Vite is the sanctioned
   fallback if bun's dev server proves unworkable; switching must be noted, never a

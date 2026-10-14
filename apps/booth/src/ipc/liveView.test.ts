@@ -12,6 +12,7 @@ function fakeCanvas() {
   const canvas = {
     width: 0,
     height: 0,
+    dataset: {} as DOMStringMap,
     getContext: () => ({ drawImage: () => drawn.push(drawn.length) }),
   } as unknown as HTMLCanvasElement;
   return { canvas, drawn };

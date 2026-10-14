@@ -65,9 +65,20 @@ Deliberate differences:
 
 - The test camera card is **"Test Camera"**, not "Mock Camera (Testing)" (it is a real
   backend now). Sony is **"Sony A7 III (USB)"**; the Wi-Fi card and "Sony API Discovery" are gone.
-- **"raise your hand"** is kept verbatim although the gesture trigger is deferred, so today
-  that line promises something the app does not do. The old native-camera path had the same
-  mismatch. Change the copy when the gesture trigger lands (or sooner, if it confuses guests).
+- **Attract has two layouts.** Tap-only (gestures off, or a native-preview camera that streams no
+  frames): "Welcome to the booth" and the large "Tap to start photoshoot" pill (the Maestro
+  contract). With **Open-Palm Start** on and a channel camera: "Put your palm in the box to start
+  the photobooth", a box floating on the right half (a third of the screen wide, 4:5), a small
+  "Tap here to start" pill bottom-left. The box is a **window**: everything outside it is dimmed by
+  a huge spread `box-shadow`, so the live preview is clear inside. Solid white border, always (its
+  outer edge is exactly the box's edge); a faint green wash appears when Rust reports a palm; a green ring runs round it from
+  the top centre, clockwise, for `hold_ms` (1.2 s); a small green dot (white rim) marks the centre
+  of the palm on the preview. The ring is a CSS animation that Rust's `holding` flag starts and
+  stops, so it does not stutter at the sampling rate. No text sits in or on the box, and there is
+  no brand line on the attract screen. Rejected after trying them on the tablet: a status pill
+  ("GOT IT" read as a button), a second rectangle or a ring around the hand (looked like a second
+  box / too loud), a hand silhouette in the box (clashed with the real hand). The UI reports the box's place in the *frame*
+  (`ipc/frameGeometry.ts`: `object-fit: cover` crop and mirroring, tested) every 500 ms.
 - Back leaves the booth (hardware back via the plugin's `backPressed`, plus a small "Back"
   pill on the attract screen); the original had no way out of a session at all.
 - Fonts: Bun inlines small assets into the CSS as `data:` URIs, which the strict CSP
@@ -161,7 +172,8 @@ cross-origin allowances (CORS header, `connect-src`) are what make it work. See
 Visible only when the selected camera is the test camera **and** the backend accepts the
 `dev` capability (probed by calling `logs_recent` once). A release build rejects it, so the
 panel is simply absent: guests can never reach fault injection. Buttons: Start session, Skip
-countdown, Fail next capture, Disconnect camera, Slow next capture (5 s), Reset settings, plus
+countdown, Fail next capture, Disconnect camera, Slow next capture (5 s), Palm in the box / Palm
+away (drives the whole gesture path without a hand), Reset settings, plus
 a live tail of the two backend events.
 
 ## How it was verified

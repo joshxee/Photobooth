@@ -2,34 +2,68 @@
 // Knockbox UI (composeApp/.../ui/knockbox) so the existing Maestro flows can be re-targeted
 // instead of rewritten. Every string here is part of that contract.
 
+import type { CSSProperties, RefObject } from "react";
+
 import { FillButton } from "../components/FillButton";
 import { PhotoStrip } from "../components/PhotoStrip";
 import { ShotPips } from "../components/ShotPips";
+import type { Rect } from "../ipc/frameGeometry";
+import type { GestureUpdate } from "../ipc/types";
 import { uiConfig } from "../uiConfig";
+
+/** What the attract screen needs to guide a guest's palm into the box. */
+export interface PalmGuide {
+  /** The latest update from Rust (null until the first). */
+  update: GestureUpdate | null;
+  /** The box element; the caller reports where it sits so Rust knows where to look. */
+  boxRef: RefObject<HTMLDivElement | null>;
+}
 
 export function Attract({
   totalShots,
   onStart,
   disabled = false,
+  palm,
 }: {
   totalShots: number;
   onStart: () => void;
   /** The camera cannot take a photo yet: the pill is greyed out and does nothing. */
   disabled?: boolean;
+  /** Start by holding a palm in a box (with tap as a fallback); otherwise tap only. */
+  palm?: PalmGuide;
 }) {
+  const shots = (
+    <div className="attract__shots">
+      <ShotPips total={totalShots} current={0} variant="attract" />
+      <span className="mono">{totalShots} SHOTS</span>
+    </div>
+  );
+
+  if (palm) {
+    return (
+      <section className="view view--attract view--palm" aria-label="Attract">
+        <div className="attract__copy">
+          <h1 className="attract__headline">Put your palm in the box to start the photobooth</h1>
+        </div>
+        <PalmBox guide={palm} />
+        <div className="attract__tap">
+          <FillButton
+            label="Tap here to start"
+            size="medium"
+            fillMs={uiConfig.fillMs}
+            onFire={onStart}
+            disabled={disabled}
+          />
+        </div>
+        {shots}
+      </section>
+    );
+  }
+
   return (
     <section className="view view--attract" aria-label="Attract">
-      <div className="attract__brand">
-        <span className="dot" aria-hidden="true" />
-        <span className="mono">KNOCKBOX · PHOTOBOOTH</span>
-      </div>
-
       <div className="attract__center">
-        <h1 className="attract__headline">
-          Welcome to the booth —<br />
-          raise your hand
-        </h1>
-        <p className="attract__or mono">or</p>
+        <h1 className="attract__headline">Welcome to the booth</h1>
         <FillButton
           label="Tap to start photoshoot"
           size="large"
@@ -39,11 +73,60 @@ export function Attract({
         />
       </div>
 
-      <div className="attract__shots">
-        <ShotPips total={totalShots} current={0} variant="attract" />
-        <span className="mono">{totalShots} SHOTS</span>
-      </div>
+      {shots}
     </section>
+  );
+}
+
+/**
+ * The box a guest holds a palm in. It is a window onto the live preview (everything outside it
+ * is dimmed). White while idle; a palm in it turns it green, and a ring runs around it from the
+ * top while the hold completes (Rust decides when; the ring just mirrors its clock). It carries
+ * no text or picture: the headline says what to do, the live video shows whose hand it is, and
+ * the colour says whether it is working.
+ */
+function PalmBox({ guide }: { guide: PalmGuide }) {
+  const seen = guide.update?.palm != null;
+  const holding = guide.update?.holding ?? false;
+  const holdMs = guide.update?.hold_ms ?? 1000;
+  return (
+    <div
+      ref={guide.boxRef}
+      className={`palmbox${seen ? " is-seen" : ""}${holding ? " is-holding" : ""}`}
+      style={{ "--hold-ms": `${holdMs}ms` } as CSSProperties}
+      role="img"
+      aria-label="Hold your palm up inside this box to start"
+    >
+      <svg className="palmbox__art" viewBox="0 0 400 500" aria-hidden="true">
+        {/* Both strokes are inset by half their width, so their outer edge is exactly the edge of
+            the box (the 36-unit corner radius is the box's own 9 %) and nothing shows outside. */}
+        <rect className="palmbox__track" x="2.5" y="2.5" width="395" height="495" rx="33.5" />
+        {/* The ring: the same rounded rectangle, started at the top centre, running clockwise. */}
+        <path
+          className="palmbox__progress"
+          pathLength="1"
+          d="M200 7H364A29 29 0 0 1 393 36V464A29 29 0 0 1 364 493H36A29 29 0 0 1 7 464V36A29 29 0 0 1 36 7Z"
+        />
+      </svg>
+    </div>
+  );
+}
+
+/**
+ * Marks the palm Rust found on the live preview with a small dot at the centre of the hand.
+ * (Not a ring or a rectangle: those looked like a second box.) `rect` is the palm in screen
+ * fractions.
+ */
+export function PalmHighlight({ rect }: { rect: Rect }) {
+  return (
+    <div
+      className="palm-highlight"
+      aria-hidden="true"
+      style={{
+        left: `${(rect.x + rect.w / 2) * 100}%`,
+        top: `${(rect.y + rect.h / 2) * 100}%`,
+      }}
+    />
   );
 }
 

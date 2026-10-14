@@ -10,6 +10,8 @@ const ACTIONS: { label: string; fault: Fault }[] = [
   { label: "Fail next capture", fault: { kind: "fail_next_capture" } },
   { label: "Disconnect camera", fault: { kind: "disconnect_camera" } },
   { label: "Slow next capture (5 s)", fault: { kind: "slow_next_capture", ms: 5000 } },
+  { label: "Palm in the box (5 s)", fault: { kind: "hold_palm", on: true } },
+  { label: "Palm away", fault: { kind: "hold_palm", on: false } },
   { label: "Reset settings", fault: { kind: "reset_settings" } },
 ];
 

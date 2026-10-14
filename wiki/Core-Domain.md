@@ -73,9 +73,25 @@ strip the moment it hears about it (see "Strip photos" in `Frontend.md`).
 
 `StartTrigger` is `{ name(), async fired() }`. The session spawns one forwarder task per
 registered trigger; when any fires it sends `Start`, which is honoured only in `Attract`
-(or a recoverable `Error`). `TapTrigger` and `DevPanelTrigger` are `Notify`-backed. A future
-`GestureTrigger` implements the same trait and is registered at startup — the session does
-not change. `Settings.start_trigger = gesture` is reserved: validation rejects it for now.
+(or a recoverable `Error`). `TapTrigger` and `DevPanelTrigger` are `Notify`-backed.
+
+`GestureTrigger` (`gesture.rs`) implements the same trait; the session did not change. The split:
+a platform `PalmDetector` finds a palm **inside the guest's box** on one live-view frame
+(`find_palm(jpeg, region) -> Option<Region>`); `PalmHold` (pure, tested) decides when a run of
+sightings is "start"; `run_sampler` takes the newest frame, never queues, and publishes a
+`GestureUpdate { palm, holding, hold_ms }` for the UI after every sample.
+
+- **Hold 1200 ms, gap tolerance 500 ms** (the Kotlin app: 800 / 250). Both were changed on purpose:
+  the ring needs a visible fill, and a palm that flickered out for 300 ms used to restart the
+  hold. Unverified with a real hand; tune `DEFAULT_HOLD` / `DEFAULT_GAP_TOLERANCE`.
+- Any palm whose centre is in the box counts, from any hand. A hand left raised cannot start a
+  second session (a latch clears only once the palm has been gone longer than the tolerance).
+- A detector error counts as "no palm"; the sampler ignores frames unless gestures are on and the
+  session is in `Attract`.
+- `Settings.start_trigger = gesture` means "a palm also starts a session"; the tap button always
+  works. Default stays `tap` until it is verified on the rig.
+- `Region` is a rectangle in the *unmirrored* frame, as fractions. The UI reports where the box
+  is (`gesture_set_region`); until it does, the whole frame counts.
 
 ## Mock camera ("test mode")
 

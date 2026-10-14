@@ -8,6 +8,7 @@ fn main() {
         "camera_disconnect",
         "live_view_start",
         "live_view_stop",
+        "gesture_set_region",
         "session_start",
         "session_cancel",
         "session_take_another",

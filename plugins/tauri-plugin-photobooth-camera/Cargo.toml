@@ -17,6 +17,7 @@ core-camera = [
     "dep:bytes",
     "dep:tokio",
     "dep:tokio-stream",
+    "dep:base64",
 ]
 # `UsbSonyCamera`: the Sony PTP engine over an Android USB file descriptor.
 sony-transport = [
@@ -38,6 +39,7 @@ thiserror = "2"
 tracing = "0.1"
 
 async-trait = { version = "0.1", optional = true }
+base64 = { version = "0.22", optional = true }
 bytes = { version = "1", optional = true }
 photobooth-core = { path = "../../crates/photobooth-core", optional = true }
 rusb = { version = "0.9", optional = true }

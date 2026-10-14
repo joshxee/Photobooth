@@ -41,6 +41,8 @@ export function createFramePainter(
           canvas.width = bitmap.width;
           canvas.height = bitmap.height;
         }
+        // The frame's shape is now known (the gesture box is mapped through it).
+        canvas.dataset.framed = "true";
         canvas.getContext("2d")?.drawImage(bitmap, 0, 0);
         drawn += 1;
       }

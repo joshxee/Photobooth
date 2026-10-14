@@ -3,6 +3,7 @@
 import {
   cameraList,
   onCameraStatus,
+  onGestureUpdate,
   onSessionState,
   sessionState,
   settingsGet,
@@ -31,6 +32,7 @@ export async function startBridge(): Promise<() => void> {
       useBooth.getState().applySession(state);
     }),
     onCameraStatus((event) => useBooth.getState().applyCameraStatus(event)),
+    onGestureUpdate((update) => useBooth.getState().applyGesture(update)),
   ]);
 
   try {

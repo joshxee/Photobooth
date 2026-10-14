@@ -8,12 +8,22 @@ import {
   sessionTakeAnother,
   startLiveView,
 } from "../ipc";
+import { frameToScreen } from "../ipc/frameGeometry";
 import { photoPrefetcher } from "../ipc/photo";
 import { setKeepScreenOn } from "../platform";
 import { errorMessage } from "../store/bridge";
 import { cameraBanner, selectedCamera, selectedCameraStatus, useBooth } from "../store/store";
-import { Arming, Attract, Countdown, Flash, SessionError, StripReview } from "./BoothViews";
+import {
+  Arming,
+  Attract,
+  Countdown,
+  Flash,
+  PalmHighlight,
+  SessionError,
+  StripReview,
+} from "./BoothViews";
 import { DevPanel } from "./DevPanel";
+import { previewAspects, usePalmRegion } from "./usePalmRegion";
 
 // Camera start/stop calls must not overlap (a retry disconnecting while a connect is mid-way
 // would race), so they run strictly one after another.
@@ -101,6 +111,18 @@ export function Booth() {
   const mirror = settings?.mirror_preview ?? true;
   const banner = useBooth(cameraBanner);
 
+  // Open-palm start: only where Rust gets frames to look at, and only while the camera works.
+  const gesture = useBooth((s) => s.gesture);
+  const boxRef = useRef<HTMLDivElement>(null);
+  const palmGuide =
+    settings?.start_trigger === "gesture" && !native && banner === null && session.state === "attract";
+  usePalmRegion(canvasRef, boxRef, palmGuide, mirror);
+  const aspects = palmGuide && gesture?.palm ? previewAspects(canvasRef.current) : null;
+  const highlight =
+    aspects && gesture?.palm
+      ? frameToScreen(gesture.palm, aspects.frame, aspects.view, mirror)
+      : null;
+
   return (
     <main className={`booth booth--${native ? "native" : "channel"}`} data-state={session.state}>
       <div className={`booth__preview${mirror ? " is-mirrored" : ""}`} aria-hidden="true">
@@ -112,8 +134,10 @@ export function Booth() {
           totalShots={settings?.number_of_photos ?? 3}
           onStart={() => sessionStart().catch((e) => useBooth.getState().setNotice(errorMessage(e)))}
           disabled={banner !== null}
+          palm={palmGuide ? { update: gesture, boxRef } : undefined}
         />
       )}
+      {highlight && <PalmHighlight rect={highlight} />}
       {session.state === "arming" && <Arming />}
       {session.state === "countdown" && (
         <Countdown shot={session.shot} total={session.total} remaining={session.remaining} />

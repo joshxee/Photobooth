@@ -14,6 +14,7 @@
     "allow-camera-disconnect",
     "allow-live-view-start",
     "allow-live-view-stop",
+    "allow-gesture-set-region",
     "allow-session-start",
     "allow-session-cancel",
     "allow-session-take-another",

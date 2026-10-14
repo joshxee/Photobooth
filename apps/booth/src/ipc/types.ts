@@ -58,12 +58,31 @@ export type SettingsPatch = Partial<Omit<Settings, "test_mode">> & {
   test_mode?: Partial<TestModeSettings>;
 };
 
+/** A rectangle in the camera frame, as fractions of its width and height (unmirrored). */
+export interface FrameRegion {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+/** Payload of `gesture://state`: what to draw for the open-palm start. */
+export interface GestureUpdate {
+  /** The palm found in the box (highlight it on the preview), if any. */
+  palm: FrameRegion | null;
+  /** A palm has been held in the box and the ring should be filling. */
+  holding: boolean;
+  /** How long the ring takes to fill. */
+  hold_ms: number;
+}
+
 export type Fault =
   | { kind: "fail_next_capture" }
   | { kind: "disconnect_camera" }
   | { kind: "slow_next_capture"; ms: number }
   | { kind: "skip_countdown" }
   | { kind: "start_session" }
-  | { kind: "reset_settings" };
+  | { kind: "reset_settings" }
+  | { kind: "hold_palm"; on: boolean };
 
 export const TEST_PATTERNS = ["bars", "checker", "gradient"] as const;

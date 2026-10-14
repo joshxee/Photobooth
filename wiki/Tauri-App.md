@@ -22,8 +22,14 @@ WebView ── invoke ──► commands.rs (thin) ──► AppState ──► 
   `camera://status` carries `{camera, status}`. A forwarder task per source re-emits them; if the
   session forwarder lags, it re-sends the *current* state rather than a stale one.
 - **A guest tap** is a `TapTrigger`, a developer-panel start is a `DevPanelTrigger`; both feed
-  the same `StartTrigger` seam the session already listens to, which is where a future gesture
-  trigger will plug in.
+  the same `StartTrigger` seam the session already listens to, as is the `GestureTrigger` (see
+  `Core-Domain.md`). `AppState` tees every live-view frame into a keep-latest `watch` channel; the
+  gesture sampler reads it. `gesture_set_region` (WebView-callable) tells it where the palm box is;
+  `gesture://state` carries `{palm, holding, hold_ms}` to the UI. The sampler is spawned on every
+  platform; on Android it is given the native recognizer, elsewhere only the dev panel's
+  `hold_palm` fault can trigger it: a palm filling the middle of the box that **lets go by itself
+  after 5 s**. (It used to stay on until "Palm away"; left on after a test, the box stayed green
+  and, because a hand that never leaves cannot start a second session, nothing started.)
 - **Camera selection** is refused mid-session, persists to `settings.json`, and releases the
   previous camera. Cameras that cannot be used are listed with a **reason** (`available: false`),
   never as an error: on desktop only the test camera works; on Android the Sony card becomes
