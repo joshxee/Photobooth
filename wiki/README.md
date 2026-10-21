@@ -13,6 +13,13 @@ This wiki documents the technical architecture, design decisions, and implementa
 - [Frontend](./Frontend.md) - bun-only React UI, original-copy parity, Maestro selector conventions
 - [Android Build](./Android-Build.md) - Toolchain, hand-edits in gen/android, signing, Windows gotchas
 
+## Portal (in progress)
+
+- [Portal implementation plan](./portal/README.md) - 19 sessions (00-18) for the guest web portal on Cloudflare Workers; start with its [PROGRESS.md](./portal/PROGRESS.md)
+- [Portal design](./portal/DESIGN.md) - the accepted solution design
+- `Portal.md` - what was built and why (written as sessions land; not yet present)
+- `Booth-Upload.md` - the booth outbox and upload loop (written as sessions land; not yet present)
+
 ## Purpose
 
 This documentation focuses on:
