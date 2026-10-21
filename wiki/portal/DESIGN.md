@@ -338,4 +338,264 @@ Booth                         Worker                                   D1 / R2 /
 
 **What Cloudflare documents.** Both patterns are documented and supported:
 
-- *Worker binding upload*: the Worker receives the
+- *Worker binding upload*: the Worker receives the body and calls `env.BUCKET.put`.
+- *Presigned URLs*: the client uploads straight to R2's S3 endpoint.
+
+Presigned URLs are the recommended choice when files are large (over the Worker body limit or
+needing multipart), when clients are untrusted browsers at high volume, or when you want the
+Worker off the data path. A Worker in the path is the normal choice when you need
+authorisation, validation or a synchronous result at upload time.
+
+**How our case compares:**
+
+| Concern | Through Worker (MVP) | Presigned R2 |
+|---|---|---|
+| Body limit | 100 MB on Free/Pro zones; we cap uploads at 20 MB | 5 GB per PUT; multipart beyond that |
+| Cost | 1 extra request per photo (about USD 0.003 per 10k). Streaming uses little CPU; wall time is not billed on Workers Standard | Same request count |
+| Credentials | **None**: no S3 access key exists to leak or rotate | A bucket-scoped S3 key pair must live in Worker secrets |
+| Integrity | Checked in-path, result returned synchronously | Needs storage notifications, a queue and a reconciler to find "uploaded, not processed" photos |
+| Resumability | Single PUT, not resumable | Single PUT, also not resumable (multipart is a separate project) |
+| CORS | Not needed (native client) | Bucket CORS needed for any future browser uploads |
+| Deploys | An in-flight upload may be cut off; the booth retries | Not affected |
+
+**Verdict.** At about 0.5 photos/second peak and 20 MB maximum, the Worker path is the simpler
+*and* more secure option. It is not a shortcut we will regret.
+
+**We would need to change it if:**
+1. we add video or files near 100 MB, or need resumable or multipart uploads;
+2. we add browser-based guest uploads at volume;
+3. processing time per photo makes synchronous uploads hold booth slots too long;
+4. we move to a zone plan where the body limit differs, or volume grows by about 100×.
+
+**Making the switch non-breaking.** The client treats `upload` as an opaque descriptor
+(`method`, `url`, `headers`, `expiresAt`). It already handles both `201 READY` and
+`202 PENDING`, and recovers by re-POSTing the intent. Moving to R2 presigned URLs then needs
+only server changes:
+- swap the HMAC signer for SigV4 presigning;
+- add an R2 object-created notification on `incoming/`, feeding a Queue consumer;
+- the consumer calls the **same** `processPhoto()` function.
+
+There is no app release and no data migration. Keep `processPhoto()` free of HTTP concerns from
+day 1 to preserve this.
+
+## 10. Booth app changes
+
+1. **Enrolment** (operator settings): enter the code from admin, and the credential is stored in
+   app-private storage. Android app sandboxing protects it. The real controls are revocation and
+   last-seen monitoring. Keystore wrapping through the existing Kotlin plugin is a post-MVP
+   hardening item.
+2. **Event selection** (operator settings): list OPEN events, then a confirmation screen showing
+   the name and local date. The selected event appears in the operator status bar. Switching
+   events requires confirmation, and queued items keep their original event.
+3. **Outbox** (`photobooth-core::outbox`, pure Rust behind a `PortalClient` trait):
+   - On reaching strip review, each shot is written to `{app_data}/outbox/{clientPhotoId}.jpg`,
+     plus a `.json` record with event ID, session ID, shot, capture time, sha256, bytes, state,
+     attempt count and last error.
+   - Writes go to a temp file, then `fsync`, then rename, the same pattern as settings.
+   - The outbox is scanned on startup and drained with 2 concurrent uploads while the app is
+     running. Background-service uploading is out of scope; it is a kiosk app.
+   - Files are deleted only on READY, never evicted silently. The operator is warned below 1 GB
+     free.
+   - No event selected or not enrolled: nothing is queued, and the booth works as it does today
+     (SD archive).
+   - **Test-mode (mock camera) shots are never queued.**
+4. **Post-shoot screen**: a **session QR** for `galleryUrl#k=…&s={sessionId}`, rendered on the
+   booth with the Rust `qrcode` crate.
+   - The gallery opens filtered to this session and shows placeholders until the shots are
+     READY, typically within seconds.
+   - A "See all event photos" link clears the filter. The session ID only narrows the view; the
+     cookie grants the whole event, the same as the event QR.
+   - The existing post-shoot text is open for redesign.
+5. **Operator status**: counts of queued, uploading and needs-attention items, an offline badge,
+   and a needs-attention list with the reason and retry/dismiss actions. Dismiss deletes the
+   local copy only after confirmation; the SD card still has it.
+
+## 11. Guest gallery
+
+- **Opening the link**:
+  1. The SPA reads `#k` and POSTs it to `/api/session`, which sets the cookie.
+  2. `history.replaceState` removes the fragment.
+  3. The fragment is never sent to the server or in `Referer` headers.
+- **Cookie**: `HMAC(SESSION_KEY, eventId|accessVersion|exp)`, with `Secure`, `HttpOnly`,
+  `SameSite=Lax` and `Path=/e/{publicId}`. It lasts until gallery expiry (capped at 30 days), so
+  a guest returning the next day doesn't need the QR again. Each request checks `access_version`,
+  so rotating the link or suspending the gallery takes effect immediately.
+- **Media**:
+  1. Validate the cookie.
+  2. Read the event row: gallery LIVE, not deleted, not expired, version matches.
+  3. Read the photo row: belongs to the event, READY, not hidden.
+  4. Stream from R2. Anything unauthorised returns a generic 404.
+  - Response headers: `Cache-Control: private, max-age=3600`, `X-Content-Type-Options: nosniff`.
+    Downloads add `Content-Disposition: attachment; filename="<event>-<n>.jpg"`.
+- **Live updates**: poll `?cursor` every 5 s (with jitter) only while the page is visible and the
+  event is OPEN. New photos appear as a "N new" pill rather than shifting the grid. Thumbnails are
+  lazy-loaded.
+- **Privacy notice and removal contact** in the footer. These are deployment variables:
+  `CONTACT_ADDRESS` = *34b Malvern Road, Morningside, Auckland* and `CONTACT_EMAIL`
+  (`privacy@<domain>`, set once the domain exists). An email address is required as well as
+  the postal address, because removal requests need a prompt channel. Deployment fails if either
+  variable is empty.
+- **Accessibility**: keyboard-operable grid and lightbox, labelled controls, WCAG 2.2 AA target.
+
+## 12. Admin portal
+
+- **Events**: create and edit, open and close uploads, publish and suspend the gallery, copy link,
+  rotate link (with confirmation), counts by state, expiry date shown, delete with a 7-day undo.
+- **Event QR**: QR code for the whole event (`galleryUrl#k=…`), with no session filter.
+  - Shown on screen, and downloadable as SVG (for print and signage) and PNG (for messaging).
+  - Generated in the admin SPA with one small, dependency-free QR library.
+  - It is the same link the session QR uses, so rotating the link invalidates both. Printed
+    signage must be reprinted after a rotation, and the rotate confirmation says so.
+- **Photos**: grid by state (pending, ready, rejected), hide and unhide, delete permanently (for
+  removal requests).
+- **Devices**: create (shows the 10-minute code once), revoke, last seen, backlog, app version.
+  This is the event-day health view.
+- **Audit**: event changes, publish and suspend, rotation, device create and revoke, hide and
+  delete, restore.
+
+## 13. Security controls
+
+| Threat | Control |
+|---|---|
+| Admin impersonation or Access bypass | Verify the `Cf-Access-Jwt-Assertion` header against the team JWKS (Hono `jwk` middleware) and check `aud`, `iss` and `exp`, plus the `ADMIN_EMAILS` allowlist. Never trust the email header. Disable `workers.dev` and preview URLs. Host allowlist. |
+| CSRF on admin | No CORS; mutations require a same-origin `Origin` and `application/json` |
+| Cross-event access | Every guest query joins event to photo; tests try IDs from another event |
+| Leaked gallery link | 128-bit-plus token, explicit rotation, suspension, operator guidance that links can be forwarded |
+| Stolen or lost tablet | Admin revokes the device. Revocation also blocks any signed URLs already issued (the PUT checks the device). |
+| Enrolment-code guessing | 8 base32 characters, 10-minute lifetime, single use, rate-limited per IP, identical error responses |
+| Upload URL replay | 15-minute HMAC URL bound to photoId, bytes and sha256; a READY photo rejects further PUTs |
+| Malicious or oversized image | `Content-Length` must match the declared size (≤ 20 MB); Images.info checks format and dimensions (≤ 50 MP, configurable); full re-encode; only JPEG is served |
+| Denial of wallet | Rate-limiting binding on enrolment, session swap and intents; per-event photo limit; fixed variants; billing alerts |
+| Browser injection | React escaping; CSP `default-src 'self'; img-src 'self' blob: data:; frame-ancestors 'none'`; HSTS; `Referrer-Policy: no-referrer` |
+| Secret exposure | Worker secrets (`UPLOAD_KEY`, `SESSION_KEY`) live in Wrangler secrets. Logs never include query strings, cookies, tokens or bodies. Device credentials are stored hashed. |
+
+## 14. Privacy and retention
+
+| Data | Retention | Enforcement |
+|---|---|---|
+| Published variants | 90 days after event end | Access check at expiry; daily cron prefix-deletes |
+| Deleted event | 7-day undo, then purged | Daily cron |
+| Incoming objects | Removed right after processing (at most 1 day) | Inline delete plus lifecycle rule |
+| Booth outbox | Until READY | Outbox deletes on READY |
+| SD-card originals | 90 days after event end | Operator process (custody register) |
+| Audit | 90 days | Daily cron |
+| D1 history | 30 days | D1 Time Travel (automatic) |
+
+Removal requests are handled with "Delete permanently" in admin, which removes the variants
+immediately, plus erasing the SD-card file. Guests see the privacy notice at the booth and in
+the gallery. NZ privacy review and the hosting-location disclosure remain the business's
+responsibility; Cloudflare location hints are not a residency guarantee.
+
+## 15. Operations
+
+- **Logs**: structured JSON (request ID, event ID, photo ID, device ID, version, outcome code)
+  via Workers Observability with 7-day retention. Successful media reads are sampled.
+- **Alerts**: Cloudflare billing notifications at USD 25, 50 and 100. There is no paging in MVP.
+  During events the operator watches the booth's status bar and the admin devices view (backlog,
+  last seen), which v1.2's queue-age alerts would have duplicated.
+- **Restore** (D1 Time Travel):
+  1. Suspend galleries.
+  2. Restore.
+  3. Re-apply revocations and deletions from the audit export taken before the restore.
+  4. Reopen.
+  R2 bytes are unaffected.
+- **Event-day runbook**:
+  - *Before*: enrol and verify the booth, select the event, take a test shot, confirm READY,
+    scan the QR on a separate phone and download, check free storage and the uplink.
+  - *During*: if there's a backlog, don't clear app storage. Needs-attention items need an
+    operator decision.
+  - *After*: close uploads only when every booth shows a zero backlog in admin.
+
+## 16. Cost (USD per month, steady state at 90 days; rates as rechecked in v1.2)
+
+| | Pilot (2k photos) | Base (10k photos) |
+|---|---|---|
+| Workers Paid (2 requests per photo plus gallery, within included usage) | 5.00 | 5.00 |
+| R2 storage (5.7 MB per photo × 3 months; 10 GB free) | 0.36 | 2.42 |
+| Images transformations (3 per photo; 5k free; USD 0.50 per 1k) | 0.50 | 12.50 |
+| D1, R2 operations | 0.00 | 0.00 |
+| **Total** | **≈ 5.90** | **≈ 19.90** |
+
+Removing v1.2's 7-day recovery copy saves about USD 0.20 a month. Images is the dominant cost:
+dropping the preview variant would save USD 5 a month but would make phone viewing worse.
+
+## 17. Testing and release gates
+
+- **Worker**: Vitest with the Cloudflare Vitest plugin (`@cloudflare/vitest-plugin`), the
+  Cloudflare-recommended option.
+  - Tests run inside the Workers runtime with real local D1 and R2, isolated per test file.
+  - It covers both pure modules and route integration tests.
+  - The Images binding sits behind a small `ImageProcessor` interface, faked in tests. Real
+    fidelity is checked on **staging**.
+- **Web (admin, gallery SPAs)**: `bun test` with happy-dom, as in the booth.
+- **Smoke**: `scripts/smoke.ts --base <url>` runs the full device → gallery flow against
+  `wrangler dev` or staging.
+- **Contract**: `contract/fixtures/*.json` are parsed by zod in `bun test` and by serde in
+  `cargo test` (`include_str!`).
+- **Booth**: outbox unit tests (fake client, `tempfile`) covering:
+  - kill during write and restart
+  - retry, backoff and `Retry-After`
+  - needs-attention transitions
+  - event switch with items queued
+
+  Maestro flows for enrolment, event selection and the post-shoot QR.
+
+**Release gates:**
+1. Spoofed or expired Access JWT and the alternate hostname are rejected. Revoked devices, other
+   events' IDs and hidden photos fail.
+2. Airplane mode for 30 minutes during a 50-shot run, plus an app kill, gives exactly 50 READY,
+   no duplicates and correct event IDs.
+3. Fake, truncated and oversized JPEGs are rejected. The GPS-EXIF fixture shows no metadata in
+   any variant.
+4. Deleting an event during uploads gives no late READY. Undo works within 7 days.
+5. On staging, 5 booths upload simultaneously (about 0.5 photos/s): p95 shot-to-READY under 15 s
+   on a good uplink. The first gallery grid appears in under 2.5 s on a 10 Mbps connection.
+6. Keyboard and screen-reader pass on the gallery and admin. One real low-volume NZ event with
+   reconciled counts.
+
+## 18. Removed from v1.2, and why
+
+| v1.2 element | Replaced by or why removed |
+|---|---|
+| Presigned R2 URLs, S3 keys, attempt IDs, URL renewal, completion hint | Worker-signed URL with in-path upload (section 9) |
+| R2 notifications, Queue, DLQ, leases, fencing tokens, publication versions | Synchronous processing, fixed keys, conditional UPDATE |
+| Maintenance reconciler (stuck PENDING, orphan sweep, JobCursor) | Booth outbox retries; prefix delete on purge; lifecycle rule |
+| 3 buckets, 7-day recovery copy | 1 bucket; SD card archive; 7-day event soft delete |
+| 4 Workers, 3 hostnames, separate monitoring Worker | 1 Worker, 2 hostnames |
+| Pairing sessions, approval phrase, polling | One-time admin-issued enrolment code |
+| 30-day device credential expiry | Revocable, with last-seen monitoring. A mid-event expiry would be a self-inflicted outage. |
+| Byte-quota reservation and reconciliation | Atomic per-event photo count limit plus a per-file cap |
+| Guest passcode, KDF tuning | Removed (not needed for MVP) |
+| GuestSession table, 12-hour sessions | Stateless signed cookie until expiry, checked against `access_version` |
+| Share secret hashed and shown once | Stored retrievably (booth QR, reprint); rotation invalidates |
+| Admin preview handoff token | Admin media proxy on the admin host |
+| Private Cache API layer | Direct R2 after the access check |
+| Daily D1 exports, DeletionManifest | D1 Time Travel; prefix delete |
+| OpenAPI | zod plus serde with shared fixtures |
+| "Shared Tauri/React codebase" for the portal | Separate `apps/portal`; Tauri adds nothing to a browser SPA |
+| SD-card reupload tooling | Post-MVP (the SD card's JPEG may not match the transferred bytes, so dedupe is uncertain) |
+
+## 19. Delivery plan
+
+| Phase | Deliverable | Days |
+|---|---|---|
+| 0 Spike | R2 `sha256` put verification; Images binding on a 20 MB, 24 MP Sony JPEG (input limits, `metadata=none`, orientation, time for 3 variants); Worker upload p95 from a tablet on 4G and venue Wi-Fi; JPEG size actually received over PTP | 1–2 |
+| 1 Foundation | Worker skeleton, host routing, Access JWT, D1 migrations, bucket and lifecycle, staging and production envs, CI (typecheck, test, deploy staging; production manual), admin events CRUD | 3–4 |
+| 2 Live upload | Device enrolment and revoke, events API, intent and PUT processing, booth outbox, client, event selection, operator status | 5–7 |
+| 3 Gallery | Guest session, gallery SPA with polling, media and download, post-shoot QR and session filter | 3–4 |
+| 4 Hardening and pilot | Moderation, retention cron and soft delete, audit, security tests, release gates, pilot event | 4–5 |
+| **Total** | | **16–22** |
+
+## 20. Open questions
+
+1. Final domain name (expected `.co.nz`). It is needed before staging Access is set up
+   (phase 1), but not for the spike or local development.
+
+Resolved:
+- D3: cancelled sessions do not upload.
+- D9: the share token is stored retrievably.
+- TLD: probably `.co.nz`. The design does not depend on it (section 4.1).
+- Post-shoot QR opens the guest's session; admins can also generate an event-wide QR.
+- Contact address: 34b Malvern Road, Morningside, Auckland, plus `privacy@<domain>`.
+- Environments: one dedicated business account with separate staging and production
+  resources (section 4.1).
