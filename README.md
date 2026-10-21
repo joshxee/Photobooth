@@ -10,8 +10,9 @@ Photos are never written to disk; they live in memory for one session.
 |------|------|
 | `crates/photobooth-core` | `Camera` trait, session state machine, settings, photo store, mock camera |
 | `crates/sony-ptp` | Sony A7 III over PTP/USB |
-| `plugins/tauri-plugin-photobooth-camera` | Kotlin CameraX + USB host, Rust `NativeCamera` |
+| `plugins/tauri-plugin-photobooth-camera` | Android CameraX + USB host plugin, Rust `NativeCamera` |
 | `apps/booth` | The Tauri app and its React UI (bun only) |
+| `wiki/portal/` | Implementation plan for the guest web portal (Cloudflare Worker), in progress |
 | `wiki/` | Design decisions and how the pieces fit; start at [wiki/README.md](./wiki/README.md) |
 
 ## Build
@@ -23,4 +24,4 @@ cd apps/booth && bun install --frozen-lockfile
 pwsh apps/booth/scripts/build-android-debug.ps1 -Install
 ```
 
-The pre-commit checks are listed in [CLAUDE.md](./CLAUDE.md).
+Commands, the pre-commit checks and the rules for agents are in [AGENTS.md](./AGENTS.md).
