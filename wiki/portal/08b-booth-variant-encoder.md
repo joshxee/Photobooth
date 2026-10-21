@@ -56,9 +56,11 @@ tablet run are a session's worth of work.
    - At most one decoded frame in memory at a time.
 3. **Debug-build-only measurement probe** (`#[cfg(debug_assertions)]`, so release builds
    don't contain it; no new command, capability or UI):
-   - When a real-camera session reaches `StripReview`, the probe takes its own `Bytes` clones of
-     the session's shots (`PhotoStore` is cleared on return to attract or on "take another", so
-     it must not read the store later), and encodes them one at a time on a background task.
+   - The probe is a debug-only implementation of 08's `OnSessionComplete` hook, with no
+     enrolment or event gate (those don't exist until 09/10). It receives the session's owned
+     `Bytes` clones at `StripReview` (it must not read `PhotoStore` later: the store is cleared
+     on return to attract or on "take another"), and encodes them one at a time on a background
+     task.
    - Per shot it logs the input bytes, input dimensions, orientation, decode/resize/encode
      milliseconds, total milliseconds and output sizes through the normal log path
      (`logcat -s Photobooth`, `logs_recent`), then drops the output.
@@ -105,9 +107,11 @@ Tests must cover (inputs generated inside the test, never guest photos):
    dev profile; otherwise the numbers are not valid for the gate.
 5. Pull nothing off the device except log lines. Report p50, p95 and max total ms per shot,
    peak memory if visible (`dumpsys meminfo com.jc.photobooth.tauri`), and output sizes.
-6. **Gate:** if p95 is over 3 s per shot, stop and report to the user before 10 starts
-   (DESIGN §17 gate 5: 3 shots must be READY within 15 s, and about 2 s goes to uploads, so
-   D14 is revisited).
+6. **Gate:** if p95 is over 3 s per shot, stop and report to the user before 10 starts, and
+   D14 is revisited. Derivation, on DESIGN §17 gate 5's metric (p95 shot-to-READY under 15 s):
+   shot 1 waits about 10 s for shots 2 and 3 (3 s countdown plus capture and transfer, each),
+   then needs its encode and about 1 s of upload. At 3 s per shot that is about 14 s, the
+   tightest shot of the session; the last shot finishes well inside it.
    The spike's estimate is 0.6–1.6 s.
 
 ## Done when

@@ -57,9 +57,10 @@ session 08b, which produces the `EncodedShot` type defined here.
    - When the FSM reaches `StripReview`, hand that session's shots to an `OnSessionComplete`
      hook **as owned `Bytes` clones with their shot metadata**, not as `PhotoStore` keys:
      `PhotoStore` is cleared on return to attract and on "take another", which can happen while
-     the hook is still working. The hook does nothing if the booth is not enrolled, no event is
-     selected, or the camera is the mock/test camera. (Session 10 implements it: encode with
-     08b, then `enqueue`, off the UI path.)
+     the hook is still working. Core never calls the hook for the mock/test camera or for a
+     cancelled session. Enrolment and event selection don't exist in core yet (09), so that gate
+     belongs to the hook's implementation in 10, which encodes with 08b and then `enqueue`s, off
+     the UI path. 08b's debug probe is another implementation of the same hook.
    - Cancelled sessions never reach it; add a test proving that.
    - `PhotoStore` stays as it is: in memory, for the UI.
 3. **Docs:** update the "Photos never touch disk" section of `wiki/Core-Domain.md` to the new

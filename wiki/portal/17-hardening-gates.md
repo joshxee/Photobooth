@@ -25,7 +25,7 @@ its own session (`17b-*.md`).
    - Revoked device with an issued upload URL.
    - Enrolment-code brute force hitting the rate limit.
    - Oversized variants (over 200 KB thumb, 3 MB hd), truncated and fake JPEGs, progressive
-     JPEGs, trailing data after EOI, variants with APP1, APP2, APP13 or COM, and an hd whose SOF
+     JPEGs, trailing data not ending in `FFD9`, variants with APP1, APP2, APP13 or COM, and an hd whose SOF
      size differs from the declared size: each rejected, with no object left in R2.
    - The malicious-image residual risk (DESIGN §13, D14) is written up in
      `gates/security.md` for you to accept or reject.
@@ -49,9 +49,10 @@ its own session (`17b-*.md`).
    4. Deletion during uploads: delete the event while a booth drains, check there is no late
       READY, restore within 7 days, then purge on schedule (cron run manually on staging).
    5. **Load:** a `scripts/load.ts` simulating 5 devices at about 0.5 photos/s total for
-      10 minutes against staging, uploading synthetic variant pairs. Upload-to-READY p95 must be
-      under 15 s with no 5xx, and every route's p95 CPU (`wrangler tail --format json`) well
-      under 10 ms. Add the tablet's measured encode time (08b, 10) to get shot-to-READY. Gallery
+      10 minutes against staging, uploading synthetic variant pairs, with no 5xx and every
+      route's p95 CPU (`wrangler tail --format json`) well under 10 ms. While it runs, the real
+      tablet shoots sessions: their **shot-to-READY p95 (capture time to `published_at`) must be
+      under 15 s** (DESIGN §17 gate 5; it includes on-tablet encoding). Gallery
       first grid under 2.5 s at 10 Mbps (`chrome-devtools-axi` throttling). Don't run it on an
       event day: staging shares the account's daily request limit (DESIGN §16). Record the
       requests the run used.

@@ -22,7 +22,7 @@ with no queue and no image decoding in the Worker.
 
 ## Scope
 1. **`POST /v1/device/photos`** (device auth, rate-limited per device):
-   - Validate with zod: a UUID `clientPhotoId`, `sessionId`, `shot`, an ISO capture time, the
+   - Validate with zod: `eventId`, a UUID `clientPhotoId`, `sessionId`, `shot`, an ISO capture time, the
      HD `width` and `height` (long edge ≤ 2560), and
      `variants: {thumb: {bytes, sha256}, hd: {bytes, sha256}}` with `thumb.bytes` ≤ 200 KB and
      `hd.bytes` ≤ 3 MB (`too_large` otherwise).
@@ -30,8 +30,8 @@ with no queue and no image decoding in the Worker.
    - Use the atomic insert from 03 (photo limit and uniqueness).
      - Existing row, same hashes and event: return its state. READY means nothing to upload;
        PENDING returns URLs only for the variants not yet stored.
-     - Existing row, REJECTED: return REJECTED with the reason and no URLs (the booth marks it
-       needs attention).
+     - Existing row, REJECTED: `200 {state: "REJECTED", reason}` with no URLs (the booth marks
+       it needs attention).
      - Existing row, different hashes or event: 409 `conflict`.
      - Over the limit: 409 `photo_limit`.
      - Event closed: 409 `event_closed`.
@@ -78,10 +78,13 @@ with no queue and no image decoding in the Worker.
    - PUT: wrong length, wrong type, bad hash (422, nothing stored), revoked device, deleted
      event.
    - Header walk table tests: valid baseline JFIF; APP1 with GPS EXIF; APP1 XMP; APP2 (ICC);
-     APP13; COM; progressive (SOF2); trailing data after EOI; missing EOI; PNG renamed `.jpg`;
-     truncated before SOS; SOS past 64 KB.
+     APP13; COM; progressive (SOF2); trailing data that doesn't end in `FFD9`; missing EOI;
+     PNG renamed `.jpg`; truncated before SOS; SOS past 64 KB. (Only the last 2 bytes are
+     checked, so a tail that itself ends in `FFD9` passes: that is part of the accepted residual
+     risk, DESIGN §13.)
    - A REJECTED photo: re-intent returns REJECTED, a PUT returns 422.
    - hd SOF size different from the declared size → REJECTED, object deleted.
+   - thumb with a long edge over 480 px → REJECTED, object deleted.
    - Happy path: thumb → 200 STORED, hd → 201 READY, in either order.
    - The same PUT twice gives one READY with identical keys.
    - Two concurrent PUTs of the last variant give one READY and no error.

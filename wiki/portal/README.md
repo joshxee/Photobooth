@@ -21,9 +21,9 @@ plan.
 ## Sessions and dependencies
 
 ```
-00 agent foundation ─► 01 spike ─► 02 portal scaffold ─► 03 schema + contracts
-                                                            │
-             ┌──────────────────────────────────────────────┴──────────────┐
+00 agent foundation ─► 01 spike ─► 01b ─► 02 portal scaffold ─► 03 schema + contracts
+                                                                   │
+             ┌─────────────────────────────────────────────────────┴───────┐
              ▼  portal track                                               ▼  booth track
    04 admin auth + events API                                    08 booth outbox (stores variants)
    05 devices + enrolment API                                    08b booth variant encoder (tablet timing)
@@ -136,7 +136,7 @@ Always:
   Images binding, Workers Paid or an `incoming/` prefix without changing DESIGN.md first.
 - `processPhoto()` and the header walk take no HTTP types, so the presigned-upload path
   described in DESIGN.md §9.4 stays a server-only change.
-- The account runs on Workers Free (DESIGN.md §16): keep CPU per request well under 10 ms and
+- The account runs on Workers Free (DESIGN.md D14, §16): keep CPU per request well under 10 ms and
   mind the daily request limit, which staging and production share.
 - Agents never deploy to production and never hold a Cloudflare write token. Staging deploys go
   through the `deploy-staging` workflow.

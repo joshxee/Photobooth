@@ -311,8 +311,8 @@ Booth                         Worker                                   D1 / R2
   metadata (D14); the outbox stores the two variants, not the original
 1 POST /v1/device/photos {eventId, clientPhotoId, sessionId, shot, capturedAt, width, height,
                           variants: {thumb: {bytes, sha256}, hd: {bytes, sha256}}}
-                              device active? event OPEN, not deleted? thumb ≤ 200 KB and
-                                     ≤ 480 px, hd ≤ 3 MB and ≤ 2560 px?
+                              device active? event OPEN, not deleted? thumb ≤ 200 KB,
+                                     hd ≤ 3 MB and ≤ 2560 px?
                               INSERT-if-under-limit … ON CONFLICT(device_id, client_photo_id)
    ◄── READY  → done (nothing to upload)
    ◄── PENDING + uploads {thumb, hd: {method:PUT, url (HMAC, exp 15 min), headers, expiresAt}}

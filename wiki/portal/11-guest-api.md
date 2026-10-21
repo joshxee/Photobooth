@@ -32,8 +32,8 @@ takes effect immediately.
    - The optional `session` filter accepts only IDs belonging to this event.
    - The response includes `eventOpen` (to drive polling), the event name and local date, the
      next cursor, and the contact values (address, email) for the footer.
-   - Cheap for polling: one indexed query (at most 1 event row and 24 photo rows read, DESIGN
-     §16).
+   - Cheap for polling: one indexed query (at most 1 event row and 24 photo rows read,
+     `spike/RESULTS.md` Q12).
 4. **`GET /e/{publicId}/m/{photoId}/{variant}[?download=1]`:**
    - Follows the four steps in DESIGN §11 *Media*, then streams from R2 with the headers listed
      there.

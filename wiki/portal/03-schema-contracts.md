@@ -40,7 +40,7 @@ session the portal track and the booth track can run in parallel.
    enrolment request and response, the events list, the event detail with `galleryUrl`, the
    photo intent request (with `variants.thumb` and `variants.hd`), the intent responses
    (`ready`, `pending` with `uploads` for both variants, `pending` with only `hd` left,
-   `rejected` with a reason, and a `conflict` error), the upload responses (201 READY, 200 STORED, 202) and one of each error. Also gallery
+   `rejected` (`200 {state: "REJECTED", reason}`), and a `conflict` error), the upload responses (201 READY, 200 STORED, 202) and one of each error. Also gallery
    fixtures: the session exchange and the photos page. Name them
    `<area>.<message>.<variant>.json`.
 6. **Tests:**
