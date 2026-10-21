@@ -14,11 +14,8 @@ const FIX = join(import.meta.dir, "..", "fixtures");
 const OUT = join(process.env.TMP ?? "/tmp", "spike-out");
 mkdirSync(OUT, { recursive: true });
 
-const ORIGINALS = {
-  a16: "TVKI3ncAch03DuPOnZE8ZbTy0ZAPNOnaMLEWWbKj.jpg",
-  b11: "eXoirG1RxlFnGVJeB5VGr1tC7gmBngKTYyQl1513.jpg",
-  c17: "yQbWoMPOxe4QBeuvP6PTOVEdF80wAclEU7aAPwcT.jpg",
-};
+// The three originals, renamed by size: a16 = 16.30 MB EXIF-free, b11 = 11.25 MB, c17 = 17.47 MB.
+const ORIGINALS = { a16: "a16.jpg", b11: "b11.jpg", c17: "c17.jpg" };
 
 async function bytes(name: string) {
   return new Uint8Array(await Bun.file(join(FIX, name)).arrayBuffer());
@@ -95,9 +92,14 @@ if (step === "timing") {
       const server: number[] = [];
       const steps: Record<string, number[]> = { info: [], thumb: [], preview: [], full: [] };
       let sizes: Record<string, number> = {};
+      let failed = 0;
       for (let i = 0; i < runs; i++) {
-        const r = await processKey(key, mode);
-        if (!r.ok) throw new Error(JSON.stringify(r));
+        const r = await processKey(key, mode).catch(() => ({ ok: false }) as { ok: false });
+        // On Workers Free most heavy runs die with exceededCpu (non-JSON 503); count, don't stop.
+        if (!r.ok) {
+          failed++;
+          continue;
+        }
         server.push(r.totalMs);
         steps.info.push(r.infoMs);
         for (const v of r.variants) steps[v.name].push(v.totalMs);
@@ -107,7 +109,8 @@ if (step === "timing") {
         key,
         bytes: body.length,
         mode: mode || "sequential",
-        processMs: stats(server),
+        failed,
+        processMs: server.length ? stats(server) : null,
         stepsP50: Object.fromEntries(Object.entries(steps).map(([k, v]) => [k, pct(v, 50)])),
         sizes,
         putMs: stats(puts),
