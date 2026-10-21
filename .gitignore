@@ -36,5 +36,6 @@ wiki/portal/spike/fixtures/
 apps/portal/.wrangler/
 apps/portal/dist/
 .dev.vars*
+!.dev.vars.example
 crates/*/target/
 crates/*/Cargo.lock
