@@ -11,7 +11,7 @@
 //   POST /cleanup                         delete every object in the bucket
 
 interface Variant {
-  name: "thumb" | "preview" | "full";
+  name: "thumb" | "preview" | "full" | "hd2048" | "hd2560";
   transform: ImageTransform;
   quality: number;
 }
@@ -21,7 +21,14 @@ const VARIANTS: Variant[] = [
   { name: "thumb", transform: { width: 480, height: 480, fit: "scale-down" }, quality: 75 },
   { name: "preview", transform: { width: 1600, height: 1600, fit: "scale-down" }, quality: 85 },
   { name: "full", transform: {}, quality: 92 },
+  // Candidate HD-only "full" replacements (the original stays on the SD card).
+  { name: "hd2048", transform: { width: 2048, height: 2048, fit: "scale-down" }, quality: 85 },
+  { name: "hd2560", transform: { width: 2560, height: 2560, fit: "scale-down" }, quality: 85 },
 ];
+const SETS: Record<string, Variant["name"][]> = {
+  a3: ["thumb", "preview", "full"],
+  a2: ["thumb", "hd2560"],
+};
 
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body, null, 1), {
@@ -91,6 +98,51 @@ async function putDigest(env: Env, key: string, request: Request, sha256: string
   }
 }
 
+// Option B's server-side check: the booth already made and stripped the variant, so the Worker
+// only walks marker segments up to SOS. Rejects anything that is not a baseline/progressive JPEG
+// or that still carries metadata (APP1 Exif/XMP, APP13 IPTC, COM). APP0 JFIF, APP2 ICC and
+// APP14 Adobe are allowed.
+function checkJpegHeader(b: Uint8Array) {
+  if (b[0] !== 0xff || b[1] !== 0xd8) return { ok: false, reason: "no SOI" };
+  const allowed = new Set([0xe0, 0xe2, 0xee, 0xdb, 0xc4, 0xdd, 0xc0, 0xc1, 0xc2]);
+  let pos = 2;
+  let width = 0;
+  let height = 0;
+  while (pos + 4 <= b.length) {
+    if (b[pos] !== 0xff) return { ok: false, reason: `bad marker at ${pos}` };
+    const marker = b[pos + 1];
+    if (marker === 0xda) {
+      return width && height ? { ok: true, width, height } : { ok: false, reason: "no SOF" };
+    }
+    const len = (b[pos + 2] << 8) | b[pos + 3];
+    if (!allowed.has(marker)) return { ok: false, reason: `segment 0x${marker.toString(16)} not allowed` };
+    if (marker >= 0xc0 && marker <= 0xc2) {
+      height = (b[pos + 5] << 8) | b[pos + 6];
+      width = (b[pos + 7] << 8) | b[pos + 8];
+    }
+    pos += 2 + len;
+  }
+  return { ok: false, reason: "headers longer than 64 KB" };
+}
+
+async function putCheck(env: Env, key: string, request: Request, sha256: string | null) {
+  const t0 = Date.now();
+  try {
+    const obj = await env.BUCKET.put(key, request.body, {
+      httpMetadata: { contentType: "image/jpeg" },
+      ...(sha256 ? { sha256 } : {}),
+    });
+    const head = await env.BUCKET.get(key, { range: { offset: 0, length: 65536 } });
+    const check = head
+      ? checkJpegHeader(new Uint8Array(await head.arrayBuffer()))
+      : { ok: false, reason: "object vanished" };
+    if (!check.ok) await env.BUCKET.delete(key);
+    return json({ ok: check.ok, ms: Date.now() - t0, size: obj.size, check }, check.ok ? 200 : 422);
+  } catch (err) {
+    return json({ ok: false, ms: Date.now() - t0, error: describe(err) }, 400);
+  }
+}
+
 async function source(env: Env, key: string) {
   const obj = await env.BUCKET.get(key);
   if (!obj) throw new Error(`missing ${key}`);
@@ -134,12 +186,15 @@ async function transformBody(env: Env, name: string, request: Request, url: URL)
   const v = VARIANTS.find((x) => x.name === name);
   if (!v || !request.body) return json({ error: "unknown variant or no body" }, 400);
   const meta = url.searchParams.get("meta") ?? "none";
-  const transform = meta === "omit" ? v.transform : { ...v.transform, metadata: meta };
+  // ?at=output sends `metadata` to output() instead of transform(); neither is in the types.
+  const atOutput = url.searchParams.get("at") === "output";
+  const transform = meta === "omit" || atOutput ? v.transform : { ...v.transform, metadata: meta };
+  const output = { format: "image/jpeg", quality: v.quality, ...(atOutput ? { metadata: meta } : {}) };
   const t0 = Date.now();
   try {
     const result = await env.IMAGES.input(request.body)
       .transform(transform as ImageTransform)
-      .output({ format: "image/jpeg", quality: v.quality });
+      .output(output as ImageOutputOptions);
     return result.response({ headers: { "x-transform-ms": String(Date.now() - t0) } });
   } catch (err) {
     return json({ ok: false, error: describe(err), ms: Date.now() - t0 }, 422);
@@ -163,9 +218,11 @@ async function processPhoto(env: Env, key: string, url: URL) {
   try {
     const info = await env.IMAGES.info(await source(env, key));
     const tInfo = Date.now() - t0;
+    const names = SETS[url.searchParams.get("set") ?? "a3"] ?? SETS.a3;
+    const chosen = VARIANTS.filter((v) => names.includes(v.name));
     const variants = url.searchParams.has("par")
-      ? await Promise.all(VARIANTS.map((v) => variant(env, key, v, opts)))
-      : await VARIANTS.reduce<Promise<Awaited<ReturnType<typeof variant>>[]>>(
+      ? await Promise.all(chosen.map((v) => variant(env, key, v, opts)))
+      : await chosen.reduce<Promise<Awaited<ReturnType<typeof variant>>[]>>(
           async (acc, v) => [...(await acc), await variant(env, key, v, opts)],
           Promise.resolve([]),
         );
@@ -196,6 +253,8 @@ export default {
     switch (`${request.method} ${route}`) {
       case "PUT put":
         return put(env, key, request, sha256);
+      case "PUT put-check":
+        return putCheck(env, key, request, sha256);
       case "PUT put-digest":
         return putDigest(env, key, request, sha256);
       case "POST process":
