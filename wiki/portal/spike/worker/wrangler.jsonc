@@ -1,0 +1,11 @@
+// Throwaway spike Worker (session 01). Deployed once to the personal account, then deleted.
+// No account_id here: wrangler uses the logged-in account, and the repo is public.
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "portal-spike",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-10-01",
+  "workers_dev": true,
+  "r2_buckets": [{ "binding": "BUCKET", "bucket_name": "portal-spike" }],
+  "images": { "binding": "IMAGES" }
+}
