@@ -38,8 +38,9 @@ session the portal track and the booth track can run in parallel.
    `internal`. Types are inferred from the schemas.
 5. **`contract/fixtures/*.json`:** one valid example per device-facing message, plus the
    enrolment request and response, the events list, the event detail with `galleryUrl`, the
-   photo intent request, the intent responses (`ready`, `pending` with `upload`, and a
-   `conflict` error), the upload responses (201, 202) and one of each error. Also gallery
+   photo intent request (with `variants.thumb` and `variants.hd`), the intent responses
+   (`ready`, `pending` with `uploads` for both variants, `pending` with only `hd` left, and a
+   `conflict` error), the upload responses (201 READY, 200 STORED, 202) and one of each error. Also gallery
    fixtures: the session exchange and the photos page. Name them
    `<area>.<message>.<variant>.json`.
 6. **Tests:**
@@ -49,7 +50,7 @@ session the portal track and the booth track can run in parallel.
    - State transitions: allowed and forbidden.
    - Every fixture parses with its schema, and a mutated fixture with an unknown field fails.
 7. **`scripts/seed.ts`:** deterministic local data (2 events — one OPEN/LIVE, one CLOSED —
-   1 device, a few READY photos with placeholder variants) for `wrangler dev`. Document it in
+   1 device, a few READY photos with placeholder `thumb` and `hd` objects) for `wrangler dev`. Document it in
    AGENTS.md.
 
 ## Out of scope

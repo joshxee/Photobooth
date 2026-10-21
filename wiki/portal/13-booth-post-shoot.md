@@ -1,7 +1,8 @@
 # 13 — Booth post-shoot screen with session QR (critical)
 
 **Goal:** after each session the guest sees a QR code that opens the gallery filtered to their
-shots, which arrive within seconds. The post-shoot copy is redesigned for live delivery.
+shots, which arrive within seconds (the booth encodes the variants, then uploads them). The
+post-shoot copy is redesigned for live delivery.
 
 - **Depends on:** 10, 12. The device run needs 07 (staging).
 - **Unlocks:** 17.
@@ -48,7 +49,8 @@ cd apps/booth && bun run typecheck && bun test && bun run build
 2. `screencap` the post-shoot screen and decode the QR from the screenshot (a small decoder
    script or a library in a dev-only script).
 3. Open the decoded URL with `chrome-devtools-axi` in mobile emulation and assert all 3 shots
-   appear as READY within 15 s.
+   appear as READY within 15 s of the session ending (this includes on-tablet encoding, about
+   3 × the 08b per-shot time).
 
 Attach screenshots and timings.
 

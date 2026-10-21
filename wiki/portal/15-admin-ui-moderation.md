@@ -15,18 +15,20 @@ delete one for a removal request, and read the audit log.
 1. **API** (admin host):
    - `GET /api/events/{id}/photos?state&hidden&cursor`.
    - `POST /api/photos/{id}/hide` and `/unhide`.
-   - `DELETE /api/photos/{id}`: delete the 3 variants and any incoming object, then delete the
-     row, or mark it deleted if the audit needs the ID. Confirm and record the choice.
-   - `GET /api/media/{photoId}/{variant}`: admin media proxy for any state, with
-     `Cache-Control: private, no-store`.
+   - `DELETE /api/photos/{id}`: delete both variant objects (`thumb.jpg`, `hd.jpg`; either may
+     be missing for a PENDING or REJECTED photo), then delete the row, or mark it deleted if
+     the audit needs the ID. Confirm and record the choice.
+   - `GET /api/media/{photoId}/{variant}`: admin media proxy for `thumb` or `hd` in any state,
+     with `Cache-Control: private, no-store`.
    - `GET /api/audit?event&cursor`.
    - All mutations are audited, and tests confirm hide and delete take effect for guests
      immediately.
 2. **UI:**
    - Event detail gets a Photos tab: a grid filtered by state (pending, ready, rejected, with
      the reject reason) and hidden.
-   - A preview lightbox with Hide, Unhide and "Delete permanently". The delete confirmation
-     names the consequence (removed from guests and storage now; erase the SD-card file too).
+   - A lightbox showing `hd`, with Hide, Unhide and "Delete permanently". The delete
+     confirmation names the consequence (removed from guests and storage now; guests who
+     already opened it may still have it in their browser cache; erase the SD-card file too).
    - An Audit view: a filterable list of actor, action, target and time.
 3. **Tests:**
    - Vitest: the API paths. After hide or delete, guest list and media return 404. Objects are

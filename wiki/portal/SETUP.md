@@ -5,19 +5,22 @@ session needs it. Record values that aren't secret (account ID, Access AUD tags,
 in `apps/portal/wrangler.jsonc` once session 02 exists. Secrets go **only** into
 `wrangler secret put` or GitHub environment secrets, never into the repo, which is public.
 
-## A. Spike on the personal account (before session 01)
+## A. Spike on the personal account (before session 01) — done 2026-10-22
 
-- [ ] `bunx wrangler login` with the personal account on the machine that runs the spike.
-- [ ] If the Images binding needs Workers Paid on this account, enable it for the month
-      (USD 5). Otherwise, do section B first and run the spike in the business account.
-- [ ] Copy 3–5 Sony A7 III JPEGs from the SD card into `wiki/portal/spike/fixtures/`. This
-      folder is git-ignored. Use **shots of a test scene, with no guests**.
-- [ ] After the spike: delete its Worker and bucket (session 01 lists the exact commands).
+- [x] `bunx wrangler login` with the personal account on the machine that runs the spike.
+- [x] Enable R2 in the dashboard (it asks for a payment method; usage stayed free). Workers
+      Paid was **not** needed: the spike ran on Workers Free, and D14 removed the Images
+      binding.
+- [x] Copy sample JPEGs into `wiki/portal/spike/fixtures/` (git-ignored). The ones supplied
+      were Canon files, not Sony; the real Sony size is measured in session 08b.
+- [x] After the spike: delete its Worker and bucket (done; RESULTS.md, Clean-up).
 
 ## B. Business Cloudflare account (before session 07)
 
 - [ ] Create an account with a business email address. Enable 2FA.
-- [ ] Subscribe to Workers Paid. Enable Images (pay-as-you-go transformations).
+- [ ] Enable R2 (dashboard; it asks for a payment method). Stay on **Workers Free**: no Workers
+      Paid and no Images subscription (D14, DESIGN §16). Session 18 tells you if the pilot's
+      peak means production should move to Workers Paid (USD 5 a month).
 - [ ] Invite the second admin as a member (Administrator role) with their own login.
 - [ ] Billing notifications at USD 25, 50 and 100.
 
@@ -27,6 +30,9 @@ in `apps/portal/wrangler.jsonc` once session 02 exists. Secrets go **only** into
       auto-renew on.
 - [ ] Add the domain to the business account (Free zone plan) and switch the nameservers at the
       registrar.
+- [ ] Add one WAF rate-limiting rule (included in the Free zone plan) for `photos.<domain>`
+      and `photos-staging.<domain>`, so a request flood can't use up the Workers Free daily
+      limit (DESIGN §13). Session 17 checks it.
 - [ ] Enable DNSSEC in Cloudflare and add the DS record at the registrar.
 - [ ] Email Routing (free): forward `privacy@<domain>` to a monitored inbox. This is the
       gallery's removal contact.

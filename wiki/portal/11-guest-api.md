@@ -9,8 +9,9 @@ takes effect immediately.
 - **Device check:** n/a.
 
 ## Read first
-- DESIGN.md §3 (D9, D10, D11), §8 (guest table), §11 (all of it), §13 (rows for cross-event
-  access, leaked link and denial of wallet).
+- DESIGN.md §3 (D9, D10, D11), §7 (variants, caching), §8 (guest table), §11 (all of it),
+  §13 (rows for cross-event access, leaked link, denial of wallet and the daily request limit),
+  §16 (event-day request budget).
 - `apps/portal/contract/fixtures/gallery.*`.
 
 ## Scope
@@ -31,13 +32,16 @@ takes effect immediately.
    - The optional `session` filter accepts only IDs belonging to this event.
    - The response includes `eventOpen` (to drive polling), the event name and local date, the
      next cursor, and the contact values (address, email) for the footer.
-   - Cheap for polling: one indexed query.
+   - Cheap for polling: one indexed query (at most 1 event row and 24 photo rows read, DESIGN
+     §16).
 4. **`GET /e/{publicId}/m/{photoId}/{variant}[?download=1]`:**
    - Follows the four steps in DESIGN §11 *Media*, then streams from R2 with the headers listed
      there.
    - `download=1` adds `Content-Disposition: attachment` with a safe filename
      (`<event-slug>-<n>.jpg`, ASCII only).
-   - Variant is one of thumb, preview or full; anything else returns 404.
+   - Variant is `thumb` or `hd`; anything else returns 404.
+   - `Cache-Control: private, max-age=31536000, immutable` (keys never change content, and
+     every refetch is a Workers Free request).
 5. **Tests:**
    - Valid session flow.
    - Wrong token, suspended, deleted, expired → identical 404s.
@@ -67,6 +71,6 @@ bun run scripts/smoke.ts --base http://localhost:8787   # extend: after READY, o
 ## Hand-off
 - `wiki/Portal.md`: the guest access model (fragment → cookie, stateless cookie plus
   `access_version`, path-scoped cookies for multiple events, why a generic 404), and the cache
-  headers reasoning.
+  headers reasoning (immutable private caching and the Workers Free request budget).
 - PROGRESS.md entry.
 
