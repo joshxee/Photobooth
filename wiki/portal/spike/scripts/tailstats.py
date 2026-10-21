@@ -2,7 +2,7 @@
 
   python -I tailstats.py <tail.jsonl>
 
-Groups by method + path with the last path segment's key prefix (up to the first '-') kept, so
+Groups by method + path, keeping the first two '-'-separated parts of the key segment, so
 `/put-check/B-thumb-x` and `/put-check/B-hd2560-x` are separate rows. Prints outcome counts and
 cpuTime / wallTime p50, p95 and max per row.
 """
