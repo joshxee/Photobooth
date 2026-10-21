@@ -10,8 +10,8 @@ takes effect immediately.
 
 ## Read first
 - DESIGN.md §3 (D9, D10, D11), §7 (variants, caching), §8 (guest table), §11 (all of it),
-  §13 (rows for cross-event access, leaked link, denial of wallet and the daily request limit),
-  §16 (event-day request budget).
+  §13 (rows for cross-event access, leaked link and denial of wallet), §16 and
+  `spike/RESULTS.md` Q12 (event-day request budget).
 - `apps/portal/contract/fixtures/gallery.*`.
 
 ## Scope

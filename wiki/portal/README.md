@@ -69,8 +69,9 @@ The two tracks can run in parallel once session 03 has merged. The session fixtu
 sessions in order (08b runs after 08 and before 10; it can run alongside 09, but they touch the
 same crates, so one at a time is simpler).
 
-**Session 01b** (plan alignment, docs only) brought DESIGN.md §9.4–§20 and the session files in
-line with D14 after the spike. It has no session file; see its PROGRESS.md entry.
+**Session 01b** (plan alignment, docs only) brought the session files in line with D14 after
+the spike and PR #17, and marked D14 confirmed in DESIGN.md. It has no session file; see its
+PROGRESS.md entry.
 
 **Device check levels** (decided with the user):
 - **automated**: the agent verifies on the tablet itself (adb: `screencap`, `input`,
@@ -133,9 +134,9 @@ Always:
   - The MVP gallery shows single images only.
 - The booth makes the variants and the Worker never decodes images (D14). No session adds the
   Images binding, Workers Paid or an `incoming/` prefix without changing DESIGN.md first.
-- `acceptVariant()` and the header walk take no HTTP types, so the presigned-upload path
+- `processPhoto()` and the header walk take no HTTP types, so the presigned-upload path
   described in DESIGN.md §9.4 stays a server-only change.
-- The account runs on Workers Free (DESIGN.md §15): keep CPU per request well under 10 ms and
+- The account runs on Workers Free (DESIGN.md §16): keep CPU per request well under 10 ms and
   mind the daily request limit, which staging and production share.
 - Agents never deploy to production and never hold a Cloudflare write token. Staging deploys go
   through the `deploy-staging` workflow.

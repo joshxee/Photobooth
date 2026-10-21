@@ -9,7 +9,7 @@ periods and app kills, and the operator can see and act on the queue.
   once-over.
 
 ## Read first
-- DESIGN.md §9.3, §10 items 3, 4 and 6, §15 (event-day runbook), §17 (release gates 2 and 5).
+- DESIGN.md §9.3, §10 items 3 and 5, §15 (event-day runbook), §17 (release gates 2 and 5).
 - PROGRESS.md 08b entry (encode timings on the tablet).
 - `wiki/Booth-Upload.md`, `wiki/Tauri-App.md` (state, runtime, events), `wiki/Frontend.md`.
 - `apps/booth/src-tauri/src/state.rs`, `lib.rs`.

@@ -9,8 +9,9 @@ its own session (`17b-*.md`).
 - **Device check:** **critical**. You run gates 2 and 6 with the agent.
 
 ## Read first
-- DESIGN.md §13 (whole table, including the accepted malicious-image risk), §14, §15
-  (Workers Free limits), §16 (request budget), §17 (release gates).
+- DESIGN.md §13 (whole table, including the accepted malicious-image risk), §14, §15, §16
+  (Workers Free as a hard ceiling; the request budget in `spike/RESULTS.md` Q12), §17 (release
+  gates).
 - `wiki/Portal.md`, `wiki/Booth-Upload.md`, and PROGRESS.md (collect every "not verified"
   note from earlier sessions; this session either verifies each one or lists it as an accepted
   risk).
@@ -29,7 +30,7 @@ its own session (`17b-*.md`).
    - The malicious-image residual risk (DESIGN §13, D14) is written up in
      `gates/security.md` for you to accept or reject.
    - Request flood: the zone WAF rate-limiting rule on `photos-staging` blocks a burst before
-     it reaches the Worker (DESIGN §13).
+     it reaches the Worker (DESIGN §13, denial of wallet; SETUP C).
    - CSP and headers on every response type (HTML, JSON, media, error), via `curl -I` against
      staging.
    - **Logs:** tail staging during a smoke run and grep for tokens, cookies, `sig=` and
@@ -52,7 +53,7 @@ its own session (`17b-*.md`).
       under 15 s with no 5xx, and every route's p95 CPU (`wrangler tail --format json`) well
       under 10 ms. Add the tablet's measured encode time (08b, 10) to get shot-to-READY. Gallery
       first grid under 2.5 s at 10 Mbps (`chrome-devtools-axi` throttling). Don't run it on an
-      event day: staging shares the account's daily request limit (DESIGN §15). Record the
+      event day: staging shares the account's daily request limit (DESIGN §16). Record the
       requests the run used.
    6. **Accessibility** (critical: you do a short screen-reader pass): keyboard and
       screen-reader on the gallery and admin; WCAG 2.2 AA checks recorded.
@@ -60,7 +61,7 @@ its own session (`17b-*.md`).
    - Write `wiki/portal/gates/runbook.md`: the event-day checklist from DESIGN §15, the
      restore procedure, rotation, revocation, the removal request, and "booth shows backlog".
    - Confirm the billing alerts exist (SETUP B), and record how the hostnames behave at the
-     daily limit (fail closed, DESIGN §15; set in the dashboard, not in `wrangler.jsonc`).
+     daily limit (fail closed where it applies; set in the dashboard, not in `wrangler.jsonc`).
    - Confirm `CONTACT_*` values are set for production (SETUP F).
 4. **Gap fixes:** small and in this PR. Anything over about half a day becomes `17b-*.md` and
    must merge before 18.

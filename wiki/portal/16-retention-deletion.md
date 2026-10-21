@@ -9,7 +9,7 @@ and prunes the audit log. It is idempotent, resumable within Worker limits, and 
 
 ## Read first
 - DESIGN.md §7 (storage table), §9.2 (partial failure and late writes), §14 (retention
-  table), §15 (logs and Workers Free limits).
+  table), §15 (logs), §16 (Workers Free).
 - Cloudflare docs: Cron Triggers, R2 `list` and `delete` (batch delete up to 1,000 keys),
   Worker limits for scheduled handlers. On Workers Free a cron invocation gets 10 ms CPU and
   1,000 subrequests to Cloudflare services.

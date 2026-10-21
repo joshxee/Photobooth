@@ -13,7 +13,7 @@ session 08b, which produces the `EncodedShot` type defined here.
 
 ## Read first
 - DESIGN.md §3 (D1, D3, D14), §9.1 (intent and per-variant uploads), §9.3 (booth error
-  handling), §10 items 3–4 (encoder interface, outbox), §14 (outbox retention).
+  handling), §10 item 3 (outbox and variant encoding), §14 (outbox retention).
 - `wiki/Core-Domain.md` (especially "Photos never touch disk" and the settings
   write-temp → `fsync` → rename pattern), and `crates/photobooth-core/src/photo_store.rs`,
   `session.rs` and `settings.rs`.

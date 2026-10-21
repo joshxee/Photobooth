@@ -19,8 +19,9 @@ would not fit one context window: crate selection, orientation handling, metadat
 tablet run are a session's worth of work.
 
 ## Read first
-- DESIGN.md §3 (D1, D14), §7 (variant table and the metadata paragraph), §10 item 3 (encoder),
-  §13 (rows for malicious image and metadata leak), §17 (booth tests, release gate 3).
+- DESIGN.md §3 (D1, D14), §7 (variant table and the metadata paragraph), §9.1 (the header
+  rules), §10 item 3 (encoding in the outbox flow), §13 (malicious image row), §17 (booth tests,
+  release gates 3 and 5).
 - `wiki/portal/spike/RESULTS.md`: Q5 (orientation), Q6 (metadata), Q7 (measured sizes and the
   2560/q85 choice), Q8 (Sony size, not verified), Q10 (the on-tablet estimate and the header
   allowlist).
@@ -34,7 +35,8 @@ tablet run are a session's worth of work.
 ## Scope
 1. **Crate choice** (record the decision and numbers in the PR and `wiki/Booth-Upload.md`):
    one JPEG decode, resize and encode stack, for example `zune-jpeg` + `fast_image_resize` +
-   `jpeg-encoder`, or `turbojpeg`. Criteria, in order: builds for `aarch64-linux-android` in the
+   `jpeg-encoder`, or `turbojpeg`. `jpeg-encoder` is already a `photobooth-core` dependency (the
+   mock camera uses it), so reusing it is the default for encoding. Criteria, in order: builds for `aarch64-linux-android` in the
    existing Android build without extra toolchain steps; DCT-scaled decode (1/2) or an equally
    fast path; can write a JFIF-only file with no other APPn; small dependency footprint. Measure
    the candidates on the PC with the same inputs before choosing. Any crate not named in DESIGN
@@ -62,6 +64,11 @@ tablet run are a session's worth of work.
      (`logcat -s Photobooth`, `logs_recent`), then drops the output.
    - It never writes images to disk and never sends image bytes over IPC. Session 10 replaces it
      with the real session-complete hook.
+   - The debug APK builds Rust in the dev profile (opt-level 0), which would make pure-Rust
+     decode and resize look many times slower than in release. Add
+     `[profile.dev.package.<crate>] opt-level = 3` in the root `Cargo.toml` for the chosen
+     decode, resize and encode crates and for `photobooth-core` (the repo already does this for
+     `jpeg-encoder`), so the probe times optimised code. Say in the PR which crates it covers.
 4. **Docs:** add the encoder to `wiki/Core-Domain.md` (what it guarantees: orientation applied,
    no metadata) and start the encoder section of `wiki/Booth-Upload.md`.
 
@@ -94,10 +101,13 @@ Tests must cover (inputs generated inside the test, never guest photos):
    (spike Q8).
 3. Collect the probe's per-shot timings from `logcat -s Photobooth` (one line per shot,
    logged during each session's review screen).
-4. Pull nothing off the device except log lines. Report p50, p95 and max total ms per shot,
+4. Confirm from the PR's `Cargo.toml` diff that the measured crates build at opt-level 3 in the
+   dev profile; otherwise the numbers are not valid for the gate.
+5. Pull nothing off the device except log lines. Report p50, p95 and max total ms per shot,
    peak memory if visible (`dumpsys meminfo com.jc.photobooth.tauri`), and output sizes.
-5. **Gate:** if p95 is over 3 s per shot, stop and report to the user before 10 starts
-   (DESIGN §10: 3 shots must be READY within 15 s of the session ending, so D14 is revisited).
+6. **Gate:** if p95 is over 3 s per shot, stop and report to the user before 10 starts
+   (DESIGN §17 gate 5: 3 shots must be READY within 15 s, and about 2 s goes to uploads, so
+   D14 is revisited).
    The spike's estimate is 0.6–1.6 s.
 
 ## Done when

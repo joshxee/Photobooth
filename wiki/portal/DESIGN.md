@@ -1,20 +1,9 @@
-# Photobooth Portal: MVP Solution Design (v2.2)
+# Photobooth Portal: MVP Solution Design (v2.1)
 
-Status: **accepted**, no implementation yet. **D14 was confirmed by the user on 2026-10-22**,
-with the spike's GO.
-- v2.1 applied the spike results ([spike/RESULTS.md](./spike/RESULTS.md)) to §1–§9.3: the booth
-  makes the variants (D14), the Worker stores and checks them, and the target volume is 2,000
-  photos a month.
-- The spike's review follow-up (PR #17) aligned the restored §9.3–§19 with D14: baseline-only
-  header walk with a final EOI check, 30 s polling, immutable media caching, the cost rewrite and
-  17–24 days.
-- v2.2 (session 01b, after the user's confirmation) completes the job and keeps #17's decisions:
-  §9.4 rewritten (no in-request processing; `acceptVariant()` replaces `processPhoto()`), §10
-  (the variant encoder as its own item, owned by session 08b, with an encode-time gate), §11
-  (variants, the 10 s session-view burst), §12, §13 (metadata row, the daily-limit flood row),
-  §14, §15 (Workers Free limits), §16 (the full event-day request model and the triggers for
-  Workers Paid), §17 (testing seams; the metadata gate on the booth encoder and the Worker),
-  §18 (what D14 changed from v2.0), §19 and §20.
+Status: **accepted**, no implementation yet. v2.1 applies the spike results
+([spike/RESULTS.md](./spike/RESULTS.md)): the booth makes the variants (D14), the Worker stores and
+checks them, and the target volume is 2,000 photos a month. **D14 was confirmed by the user on
+2026-10-22** (PROGRESS.md, sessions 01 and 01b).
 Implementation plan: [README.md](./README.md) in this folder. This replaces *Photobooth Portal MVP Solution v1.2*
 (PDF). v1.2's goals still hold: live delivery, private media, no lost captures, NZ operations,
 roughly USD 20 a month. v2.0 keeps those goals and removes machinery that was sized for a much
@@ -119,8 +108,7 @@ URLs are **disabled** in production, so Access cannot be bypassed through an alt
 **Account.** Use one Cloudflare account **dedicated to the business**, not a personal or shared
 one. Separate accounts for staging and production are standard for larger organisations, but
 for a startup they double the setup (billing, Access team, API tokens) for little isolation
-benefit. Staging's synthetic traffic barely touches the free allowances, but it shares the
-account's Workers Free limit of 100,000 requests a day with production (section 15).
+benefit. Staging's synthetic traffic barely touches the free allowances.
 - Enable 2FA for every member.
 - Invite the second admin as a member rather than sharing a login.
 - Create one scoped API token for CI: Workers Scripts, D1, R2 and Workers Routes for this account
@@ -131,8 +119,8 @@ account's Workers Free limit of 100,000 requests a day with production (section 
   - Agents deploy staging by triggering the `deploy-staging` workflow.
   - Locally they use a **read-only** token (Workers observability, D1 read, R2 read) for logs
     and inspection.
-- The personal account was used only for the throwaway spike (session 01). Its Worker and
-  bucket were deleted on 2026-10-22 (RESULTS.md, Clean-up).
+- The current personal account is used only for the throwaway spike (session 01). Its
+  resources are deleted afterwards.
 - Set billing notifications as in section 15.
 
 **Domain.** The domain will most likely be a **`.co.nz`**, not yet registered. Register it
@@ -168,8 +156,8 @@ before the first event and run its DNS on Cloudflare (the Free zone plan is enou
   the share token.
 - `workers.dev` and preview URLs are disabled in both environments.
 - Until the domain exists, local development uses `wrangler dev`. Staging can't use Access
-  without a zone, so nothing before session 07 needs staging. (The spike instead deployed a
-  throwaway Worker to the personal account's `workers.dev`, then deleted it.)
+  without a zone. (The spike instead deployed a throwaway Worker to the personal account's
+  `workers.dev`, then deleted it.)
 - **No per-PR Previews in MVP.** Workers Previews would give each branch its own Worker, but
   this Worker routes on two hostnames, and Previews do not run cron triggers. Revisit if agents
   need a parallel environment for each branch.
@@ -206,7 +194,7 @@ apps/booth/src-tauri/        + portal HTTP client (reqwest, rustls), enrolment, 
 - New Rust dependencies: `reqwest` with rustls, which is already in `Cargo.lock` indirectly, and
   `qrcode`. `sha2` and `uuid` are already in the lockfile. D14 adds one JPEG decode, resize and
   encode stack (for example `zune-jpeg` + `fast_image_resize` + `jpeg-encoder`, or `turbojpeg`),
-  chosen and measured on the tablet by session 08b.
+  chosen and measured on the tablet by the booth session that builds it.
 
 ## 6. Data model (D1)
 
@@ -313,7 +301,7 @@ cost.
 - Devices: create (returns the enrolment code), revoke, list with last seen, backlog and version.
 - Audit list.
 
-## 9. Upload and validation
+## 9. Upload and processing
 
 ### 9.1 Flow
 
@@ -323,17 +311,15 @@ Booth                         Worker                                   D1 / R2
   metadata (D14); the outbox stores the two variants, not the original
 1 POST /v1/device/photos {eventId, clientPhotoId, sessionId, shot, capturedAt, width, height,
                           variants: {thumb: {bytes, sha256}, hd: {bytes, sha256}}}
-                              device active? event OPEN, not deleted? thumb ≤ 200 KB,
-                                     hd ≤ 3 MB and ≤ 2560 px?
+                              device active? event OPEN, not deleted? thumb ≤ 200 KB and
+                                     ≤ 480 px, hd ≤ 3 MB and ≤ 2560 px?
                               INSERT-if-under-limit … ON CONFLICT(device_id, client_photo_id)
    ◄── READY  → done (nothing to upload)
    ◄── PENDING + uploads {thumb, hd: {method:PUT, url (HMAC, exp 15 min), headers, expiresAt}}
        (only the variants not yet stored)
-   ◄── REJECTED (an earlier PUT failed the header check) → needs attention
    ◄── 409 mismatch (same clientPhotoId, different hashes or event) / event_closed / limit
 2 PUT uploads.<variant>.url   (body = JPEG, exact Content-Length, Content-Type image/jpeg)
-                              verify sig/exp; photo PENDING (READY → 201, REJECTED → 422);
-                                     device not revoked; event not deleted
+                              verify sig/exp; photo PENDING; device not revoked; event not deleted
                               R2.put(events/…/{variant}.jpg, body, {sha256}) ── R2 checks
                                      integrity (throws 10037 → 422 hash_mismatch)
                               R2.get(range 0–64 KB) → header walk: SOI, allowed segments only
@@ -382,18 +368,17 @@ residual risk (section 13).
 | Network error, 429, 5xx, 202 | Retry with jittered exponential backoff (1 s → 5 min cap), honouring `Retry-After` |
 | Upload URL expired | Re-POST the intent (same `clientPhotoId`) for a fresh URL |
 | 422 hash mismatch | Retry at most 3 times, then needs attention |
-| 401/403 (revoked), 409 event_closed or limit, 422 invalid image, REJECTED intent | **Needs attention**: the variants are kept and shown to the operator; no automatic retry. A 422 invalid image from the booth's own encoder is a booth bug |
+| 401/403 (revoked), 409 event_closed or limit, 422 invalid image | **Needs attention**: the variants are kept and shown to the operator; no automatic retry. A 422 invalid image from the booth's own encoder is a booth bug |
 
 ### 9.4 Upload through the Worker: is it best practice, and will we have to change it?
 
-With D14 the Worker does no image processing. Each upload request is a streamed `sha256` put, a
-64 KB range read and a header walk, at about 1 ms CPU (spike Q11). Nothing slow is left to move
-to an asynchronous path, so this section now asks only whether the bytes should pass through the
-Worker at all.
+> **v2.1 (spike 01).** With D14 the bodies are 0.25–0.62 MB variants and the request does no
+> processing, so the "through the Worker" verdict below is even stronger. The "20 MB" figures
+> now mean the per-variant caps (section 9.1), and condition 3 below no longer applies.
 
 **What Cloudflare documents.** Both patterns are documented and supported:
 
-- *Worker binding upload*: the Worker receives the body and calls `env.MEDIA.put`.
+- *Worker binding upload*: the Worker receives the body and calls `env.BUCKET.put`.
 - *Presigned URLs*: the client uploads straight to R2's S3 endpoint.
 
 Presigned URLs are the recommended choice when files are large (over the Worker body limit or
@@ -405,35 +390,33 @@ authorisation, validation or a synchronous result at upload time.
 
 | Concern | Through Worker (MVP) | Presigned R2 |
 |---|---|---|
-| Body limit | 100 MB on Free/Pro zones; our variants are capped at 200 KB (thumb) and 3 MB (hd) | 5 GB per PUT; multipart beyond that |
-| Cost | 2 Worker requests per photo (one per variant) plus the intent: about 1,500 on a 500-photo event day, inside the Workers Free 100,000 a day (spike Q12). About 1 ms CPU each | The PUTs skip the Worker, but the intent and a completion step remain |
+| Body limit | 100 MB on Free/Pro zones; we cap uploads at 20 MB | 5 GB per PUT; multipart beyond that |
+| Cost | 1 extra request per photo (about USD 0.003 per 10k). Streaming uses little CPU; wall time is not billed on Workers Standard | Same request count |
 | Credentials | **None**: no S3 access key exists to leak or rotate | A bucket-scoped S3 key pair must live in Worker secrets |
-| Integrity | Checked in-path (R2 `sha256`, spike Q1), result returned synchronously | Needs storage notifications, a queue and a consumer to find "uploaded, not checked" variants |
-| Resumability | Single PUT, not resumable (variants are under 1 MB, so this does not matter) | Single PUT, also not resumable (multipart is a separate project) |
+| Integrity | Checked in-path, result returned synchronously | Needs storage notifications, a queue and a reconciler to find "uploaded, not processed" photos |
+| Resumability | Single PUT, not resumable | Single PUT, also not resumable (multipart is a separate project) |
 | CORS | Not needed (native client) | Bucket CORS needed for any future browser uploads |
 | Deploys | An in-flight upload may be cut off; the booth retries | Not affected |
 
-**Verdict.** At about 0.5 photos/second peak and under 1 MB per photo, the Worker path is the
-simpler *and* more secure option. It is not a shortcut we will regret.
+**Verdict.** At about 0.5 photos/second peak and 20 MB maximum, the Worker path is the simpler
+*and* more secure option. It is not a shortcut we will regret.
 
 **We would need to change it if:**
 1. we add video or files near 100 MB, or need resumable or multipart uploads;
 2. we add browser-based guest uploads at volume;
-3. upload requests take a large share of the daily request limit, or volume grows by about 100×;
-4. we move to a zone plan where the body limit differs.
+3. processing time per photo makes synchronous uploads hold booth slots too long;
+4. we move to a zone plan where the body limit differs, or volume grows by about 100×.
 
-**Making the switch non-breaking.** The client treats each `uploads.<variant>` entry as an opaque
-descriptor (`method`, `url`, `headers`, `expiresAt`). It already handles `201 READY`,
-`200 STORED` and `202 PENDING`, and recovers by re-POSTing the intent. Moving to R2 presigned
-URLs then needs only server changes:
-- swap the HMAC signer for SigV4 presigning, with the declared `sha256` signed in as
-  `x-amz-checksum-sha256`;
-- add an R2 object-created notification on `events/`, feeding a Queue consumer (Queues are on
-  Workers Free, 10,000 operations a day);
-- the consumer calls the **same** `acceptVariant()` function: header walk, `<variant>_stored`,
-  READY.
+**Making the switch non-breaking.** The client treats `upload` as an opaque descriptor
+(`method`, `url`, `headers`, `expiresAt`). It already handles both `201 READY` and
+`202 PENDING`, and recovers by re-POSTing the intent. Moving to R2 presigned URLs then needs
+only server changes:
+- swap the HMAC signer for SigV4 presigning;
+- add an R2 object-created notification on `events/`, feeding a Queue consumer;
+- the consumer calls the **same** `processPhoto()` function (with D14: validate a stored variant
+  and publish the photo when both are present).
 
-There is no app release and no data migration. Keep `acceptVariant()` free of HTTP types from
+There is no app release and no data migration. Keep `processPhoto()` free of HTTP concerns from
 day 1 to preserve this.
 
 ## 10. Booth app changes
@@ -445,51 +428,31 @@ day 1 to preserve this.
 2. **Event selection** (operator settings): list OPEN events, then a confirmation screen showing
    the name and local date. The selected event appears in the operator status bar. Switching
    events requires confirmation, and queued items keep their original event.
-3. **Variant encoder** (`photobooth-core::variants`, pure Rust, D14):
-   - Input: the camera JPEG held in `PhotoStore`. Output: `thumb` (fit 480×480, quality 75) and
-     `hd` (fit 2560×2560, quality 85), baseline (SOF0, single scan) sRGB JPEGs with the EXIF
-     orientation applied.
-   - The output carries no metadata: only an APP0 JFIF segment, with no EXIF, XMP, IPTC, ICC or
-     comment. The Worker rejects metadata segments (section 9.1), so an encoder regression shows
-     up as `invalid_image`, not as a leak.
-   - Decode with DCT scaling where the decoder offers it (for example 1/2 scale for a
-     6000×4000 source), then resize with a Lanczos-class filter. One shot at a time, holding at
-     most one decoded frame (about 18 MB with scaled decode, 72 MB without).
-   - It runs after the session completes, off the UI thread, so it never delays capture or the
-     review screen. At `StripReview` the session-complete hook receives its own copies of the
-     session's JPEG bytes (cheap `Bytes` clones), because `PhotoStore` is cleared when the booth
-     returns to attract or starts another run, which can happen mid-encode.
-   - Budget: shot-to-READY must stay under 15 s for a 3-shot session (release gate 5), so with
-     about 2 s for uploads the encoder gets **at most 3 s per shot at p95** on the Xiaomi Pad 6.
-     The spike estimated 0.6–1.6 s (**unverified**). Session 08b measures it; if p95 is over
-     3 s per shot, stop and revisit D14 with the user.
-   - The original is never written to the booth's disk; the camera's SD card keeps it (D1).
-4. **Outbox** (`photobooth-core::outbox`, pure Rust behind a `PortalClient` trait):
-   - After the session completes, each shot's variants are written to
-     `{app_data}/outbox/{clientPhotoId}.thumb.jpg` and `{clientPhotoId}.hd.jpg`, plus a `.json`
+3. **Outbox** (`photobooth-core::outbox`, pure Rust behind a `PortalClient` trait):
+   - On reaching strip review, each shot's two variants (D14: thumb 480 px q75 and HD 2560 px
+     q85, EXIF orientation applied, baseline JPEG, no metadata) are encoded from the in-memory
+     original and written to `{app_data}/outbox/{clientPhotoId}.{thumb,hd}.jpg`, plus a `.json`
      record with event ID, session ID, shot, capture time, HD width and height, each variant's
-     sha256 and byte size, state, attempt count and last error.
-   - Writes go to a temp file, then `fsync`, then rename, the same pattern as settings. The
-     record is written last, so a record always has both variants.
-   - The outbox is scanned on startup and drained with 2 photos in flight while the app is
-     running. Each intent returns upload URLs only for the variants the server has not stored.
-     Background-service uploading is out of scope; it is a kiosk app.
-   - Files are deleted only on READY, never evicted silently. A shot takes about 0.44 MB, so
-     1 GB holds about 2,000 shots. The operator is warned below 1 GB free.
-   - No event selected or not enrolled: nothing is encoded or queued, and the booth works as it
-     does today (SD archive).
+     sha256 and bytes, state, attempt count and last error. The original never touches the disk;
+     the SD card keeps it.
+   - Encoding runs off the capture path. Estimated 0.6–1.6 s per shot on the tablet (spike Q10,
+     unverified); the session that builds it measures it on the device.
+   - Writes go to a temp file, then `fsync`, then rename, the same pattern as settings.
+   - The outbox is scanned on startup and drained with 2 concurrent uploads while the app is
+     running. Background-service uploading is out of scope; it is a kiosk app.
+   - Files are deleted only on READY, never evicted silently. The operator is warned below 1 GB
+     free.
+   - No event selected or not enrolled: nothing is queued, and the booth works as it does today
+     (SD archive).
    - **Test-mode (mock camera) shots are never queued.**
-   - Shots are encoded from memory after the session completes. A crash in the seconds between
-     completion and enqueue loses those shots from the upload; the SD card still has them. That
-     window existed before D14 and is now longer by the encode time (accepted).
-5. **Post-shoot screen**: a **session QR** for `galleryUrl#k=…&s={sessionId}`, rendered on the
+4. **Post-shoot screen**: a **session QR** for `galleryUrl#k=…&s={sessionId}`, rendered on the
    booth with the Rust `qrcode` crate.
    - The gallery opens filtered to this session and shows placeholders until the shots are
-     READY, typically within seconds of the session completing (encode plus upload).
+     READY, typically within seconds.
    - A "See all event photos" link clears the filter. The session ID only narrows the view; the
      cookie grants the whole event, the same as the event QR.
    - The existing post-shoot text is open for redesign.
-6. **Operator status**: counts of queued, uploading and needs-attention items, an offline badge,
+5. **Operator status**: counts of queued, uploading and needs-attention items, an offline badge,
    and a needs-attention list with the reason and retry/dismiss actions. Dismiss deletes the
    local copy only after confirmation; the SD card still has it.
 
@@ -503,28 +466,21 @@ day 1 to preserve this.
   `SameSite=Lax` and `Path=/e/{publicId}`. It lasts until gallery expiry (capped at 30 days), so
   a guest returning the next day doesn't need the QR again. Each request checks `access_version`,
   so rotating the link or suspending the gallery takes effect immediately.
-- **Media** (variant `thumb` or `hd`; anything else returns 404):
+- **Media**:
   1. Validate the cookie.
   2. Read the event row: gallery LIVE, not deleted, not expired, version matches.
   3. Read the photo row: belongs to the event, READY, not hidden.
   4. Stream from R2. Anything unauthorised returns a generic 404.
-  - Response headers: `Cache-Control: private, max-age=31536000, immutable` (section 7: a key
-    never changes content, and refetches would cost Workers Free requests),
-    `Content-Type: image/jpeg`, `X-Content-Type-Options: nosniff`. Downloads add
-    `Content-Disposition: attachment; filename="<event>-<n>.jpg"`.
-  - A photo that is later hidden or deleted stays in the private browser cache of guests who
-    already opened it; the server stops serving it at once. This is accepted: those guests have
-    already seen it.
-- **Variants**: the grid uses `thumb`; the lightbox and the download use `hd` (2560 px). There is
-  no full-resolution download; the SD card keeps the original (section 2).
+  - Response headers: `Cache-Control: private, max-age=31536000, immutable` (a key never changes
+    content, so repeat views cost no request), `X-Content-Type-Options: nosniff`.
+    Downloads add `Content-Disposition: attachment; filename="<event>-<n>.jpg"`.
 - **Live updates**: poll `?cursor` every 30 s (with jitter) only while the page is visible and
-  the event is OPEN, plus one poll as soon as the page becomes visible again. The
-  session-filtered view (post-shoot QR) polls every 10 s for its first 2 minutes, while the
-  guest's own shots arrive, then drops to 30 s. New photos appear as an "N new" pill rather than
-  shifting the grid. Thumbnails are lazy-loaded.
-  - Why 30 s: on Workers Free every poll counts toward the account's 100,000 requests a day
-    (spike Q12). At v2.0's 5 s the polls alone on a heavy day would be about 144,000. Section 16
-    has the event-day budget.
+  the event is OPEN, plus one poll as soon as the page becomes visible again. 30 s, not 5 s,
+  keeps a 200-guest event day inside the Workers Free 100,000 requests/day for the whole account
+  (spike Q12: at 5 s the polls alone on a heavy day would be about 144,000). The post-shoot
+  session view polls every 10 s for its first 2 minutes, so a guest sees their own shots arrive. New photos appear as a "N new"
+  pill rather than shifting the grid. Thumbnails are
+  lazy-loaded.
 - **Privacy notice and removal contact** in the footer. These are deployment variables:
   `CONTACT_ADDRESS` = *34b Malvern Road, Morningside, Auckland* and `CONTACT_EMAIL`
   (`privacy@<domain>`, set once the domain exists). An email address is required as well as
@@ -541,9 +497,8 @@ day 1 to preserve this.
   - Generated in the admin SPA with one small, dependency-free QR library.
   - It is the same link the session QR uses, so rotating the link invalidates both. Printed
     signage must be reprinted after a rotation, and the rotate confirmation says so.
-- **Photos**: grid by state (pending, ready, rejected with the reason), hide and unhide, delete
-  permanently (for removal requests). The admin media proxy serves `thumb` and `hd` in any state
-  with `Cache-Control: private, no-store`.
+- **Photos**: grid by state (pending, ready, rejected), hide and unhide, delete permanently (for
+  removal requests).
 - **Devices**: create (shows the 10-minute code once), revoke, last seen, backlog, app version.
   This is the event-day health view.
 - **Audit**: event changes, publish and suspend, rotation, device create and revoke, hide and
@@ -559,11 +514,9 @@ day 1 to preserve this.
 | Leaked gallery link | 128-bit-plus token, explicit rotation, suspension, operator guidance that links can be forwarded |
 | Stolen or lost tablet | Admin revokes the device. Revocation also blocks any signed URLs already issued (the PUT checks the device). |
 | Enrolment-code guessing | 8 base32 characters, 10-minute lifetime, single use, rate-limited per IP, identical error responses |
-| Upload URL replay | 15-minute HMAC URL bound to photoId, variant, bytes and sha256. The hash fixes the bytes, so a replay can only rewrite the same content; a READY photo accepts no further writes |
-| Malicious or oversized image | Only enrolled, unrevoked devices can get upload URLs (bearer credential, then a signed URL per variant). `Content-Length` must equal the declared size, capped at 200 KB (thumb) and 3 MB (hd); R2 checks the sha256. The Worker walks the headers without decoding: SOI, a segment allowlist (APP0 JFIF, APP14 Adobe, DQT, DHT, DRI, SOF0 baseline only, so there is a single scan), SOF dimensions (hd equal to the declared size, thumb within 480 px), SOS within the first 64 KB, and a final EOI. Anything else deletes the object and REJECTS the photo. Media is served only as `image/jpeg` with `nosniff` and the CSP. **Accepted residual risk (D14, spike Q10):** the Worker never re-encodes, so a JPEG with valid headers and a crafted entropy-coded segment, uploaded from a stolen and unrevoked tablet, would reach guests' browser decoders. Accepted for MVP because only owned devices upload and browser JPEG decoders are heavily fuzzed. Revisit if uploads ever come from devices we don't own. |
-| Metadata leak (GPS, serial numbers) | The booth encoder writes no metadata (D14). The Worker rejects APP1, APP2, APP13, COM, every other segment off the allowlist, and progressive frames (whose later scans could hide segments past the 64 KB walk). Release gate 3 checks both sides with a GPS and serial-number fixture. |
-| Denial of wallet | Rate-limiting binding on enrolment, session swap and intents; per-event photo limit; fixed variant size caps; billing alerts. On Workers Free there is no per-request bill: overuse hits the daily limit instead (next row). |
-| Request flood against the Workers Free daily limit | 100,000 requests a day per account; over it, every request fails until 00:00 UTC, uploads included. A zone WAF rate-limiting rule on `photos.<domain>` (the Free zone plan includes one) stops floods before they reach the Worker. The booth outbox keeps every shot, so a flood delays delivery but loses nothing. Workers Paid removes the daily limit if this becomes a real risk (section 16). |
+| Upload URL replay | 15-minute HMAC URL bound to photoId, variant, bytes and sha256; a READY photo rejects further PUTs |
+| Malicious or oversized image | `Content-Length` must match the declared size (thumb ≤ 200 KB, hd ≤ 3 MB); R2 checks the sha256; the header walk (section 9.1) allows only baseline JPEG segments with no metadata, checks the declared dimensions, and requires a final EOI; only JPEG is served, with `nosniff`. **No server-side re-encode (D14)**: entropy-coded data from a stolen, unrevoked tablet could reach guests' browser decoders. Accepted for MVP because only enrolled, revocable devices can upload (spike RESULTS.md, Q10) |
+| Denial of wallet | Rate-limiting binding on enrolment, session swap and intents; per-event photo limit; per-variant size caps; billing alerts. On Workers Free there is nothing to bill, but a flood can use up the account's 100,000 requests/day, so the rate limits also protect availability |
 | Browser injection | React escaping; CSP `default-src 'self'; img-src 'self' blob: data:; frame-ancestors 'none'`; HSTS; `Referrer-Policy: no-referrer` |
 | Secret exposure | Worker secrets (`UPLOAD_KEY`, `SESSION_KEY`) live in Wrangler secrets. Logs never include query strings, cookies, tokens or bodies. Device credentials are stored hashed. |
 
@@ -571,43 +524,26 @@ day 1 to preserve this.
 
 | Data | Retention | Enforcement |
 |---|---|---|
-| Published variants (thumb, hd) | 90 days after event end | Access check at expiry; daily cron prefix-deletes |
-| Variants of a photo that never became READY | Until the event is purged | The purge prefix-deletes `events/{eventId}/` |
+| Published variants | 90 days after event end | Access check at expiry; daily cron prefix-deletes |
 | Deleted event | 7-day undo, then purged | Daily cron |
-| Booth outbox (variants only) | Until READY | Outbox deletes on READY |
-| Camera originals on the booth | The current session only | `PhotoStore` (memory only); never written to the booth's disk |
+| Booth outbox (thumb + HD variants, never the original) | Until READY | Outbox deletes on READY |
 | SD-card originals | 90 days after event end | Operator process (custody register) |
 | Audit | 90 days | Daily cron |
 | D1 history | 30 days | D1 Time Travel (automatic) |
 
-Removal requests are handled with "Delete permanently" in admin, which removes both variants
+Removal requests are handled with "Delete permanently" in admin, which removes the variants
 immediately, plus erasing the SD-card file. Guests see the privacy notice at the booth and in
-the gallery. Served media carries no metadata (no GPS, camera serial numbers or capture
-settings; D14). NZ privacy review and the hosting-location disclosure remain the business's
+the gallery. NZ privacy review and the hosting-location disclosure remain the business's
 responsibility; Cloudflare location hints are not a residency guarantee.
 
 ## 15. Operations
 
 - **Logs**: structured JSON (request ID, event ID, photo ID, device ID, version, outcome code)
-  via Workers Logs. On Workers Free that means 200,000 log events a day and 3-day retention
-  until 2026-12-01, then Cloudflare Observability pricing (Free: 0.5 GB a day, 7-day retention).
-  Successful media reads are sampled to stay inside the allowance.
-- **Alerts**: Cloudflare billing notifications at USD 25, 50 and 100 (a safety net for R2 or a
-  later move to Workers Paid). Cloudflare also emails when D1's free daily limits are reached.
-  There is no paging in MVP. During events the operator watches the booth's status bar and the
-  admin devices view (backlog, last seen), which v1.2's queue-age alerts would have duplicated.
-- **Workers Free limits** (the plan for staging, the pilot and production until a section 16
-  trigger fires):
-  - 100,000 requests a day **per account**, reset at 00:00 UTC. Staging and production share
-    it, so no load tests (release gate 5) on an event day.
-  - Over the limit, every request fails with error 1027 until the reset, uploads included.
-    Routes have a fail-open/fail-closed toggle in the dashboard (not in `wrangler.jsonc`); set it
-    to fail closed where it applies (session 07 checks how Custom Domains behave). The booth outbox keeps
-    the shots, so the gallery stops being live but nothing is lost.
-  - 10 ms CPU per invocation, including the scheduled job. Upload requests use about 1 ms
-    (spike Q11). Watch p95 per route with `wrangler tail --format json` (`cpuTime`).
-  - 50 external subrequests and 1,000 to Cloudflare services (R2, D1) per invocation.
-  - D1 Free: 5 M rows read and 100 k rows written a day, enforced since 2026-09-01.
+  via Workers Observability. Retention is 3 days on Workers Free (7 on Paid) until 2026-12-01,
+  then 7 days for both under Cloudflare Observability pricing. Successful media reads are sampled.
+- **Alerts**: Cloudflare billing notifications at USD 25, 50 and 100. There is no paging in MVP.
+  During events the operator watches the booth's status bar and the admin devices view (backlog,
+  last seen), which v1.2's queue-age alerts would have duplicated.
 - **Restore** (D1 Time Travel):
   1. Suspend galleries.
   2. Restore.
@@ -616,102 +552,58 @@ responsibility; Cloudflare location hints are not a residency guarantee.
   R2 bytes are unaffected.
 - **Event-day runbook**:
   - *Before*: enrol and verify the booth, select the event, take a test shot, confirm READY,
-    scan the QR on a separate phone and download, check free storage and the uplink. Make sure
-    no staging load test or second event is planned for the same UTC day.
+    scan the QR on a separate phone and download, check free storage and the uplink.
   - *During*: if there's a backlog, don't clear app storage. Needs-attention items need an
     operator decision.
   - *After*: close uploads only when every booth shows a zero backlog in admin.
 
-## 16. Cost (USD per month; spike Q12, prices as of 2026-10-22)
+## 16. Cost (USD per month, steady state at 90 days; rates rechecked 2026-10-22 in spike 01)
 
-Assumptions: 4 events a month × 500 photos = 2,000 photos a month, 90-day retention, so about
-6,000 photos stored. Event day: one booth, about 200 guests. Each photo stores thumb + hd, about
-0.44 MB (spike Q7). Originals stay on the SD card. The full model is in
+Volume: 4 events × 500 photos = 2,000 photos a month, about 6,000 stored. Budget USD 20 all-in.
+The full model, including the event-day request and D1 estimates, is in
 [spike/RESULTS.md](./spike/RESULTS.md) (Q12).
 
-| Item | Workers Free (MVP plan) | Workers Paid (only if needed) |
+| | Workers Free (D14) | Workers Paid (D14) |
 |---|---|---|
-| Workers | 0 (100,000 requests a day, 10 ms CPU) | 5.00 (10 M requests, 30 M CPU-ms a month included) |
-| R2 storage: 6,000 × 0.44 MB ≈ 2.6 GB (worst fixture 3.7 GB); 10 GB-month free | 0 | 0 |
-| R2 Class A: 2 puts per photo = 4,000; 1 M free | 0 | 0 |
-| R2 Class B: 90–170 k media reads + 4 k range reads; 10 M free | 0 | 0 |
-| D1: inside the free daily limits (below) | 0 | 0 |
-| Images | not used (D14) | not used |
-| **Total (Cloudflare)** | **0** | **5.00** |
-| Domain (`.co.nz`, about NZD 30 a year, billed outside Cloudflare) | ≈ 1.50 | ≈ 1.50 |
-| **All-in** | **≈ 1.50** | **≈ 6.50** |
+| Workers (3 requests per photo, guest polling at 30 s, media cached immutably) | 0.00 | 5.00 |
+| R2 storage (thumb + HD ≈ 0.44 MB per photo × 6,000 ≈ 2.6 GB; 10 GB free) | 0.00 | 0.00 |
+| R2 operations (≈ 4k Class A, ≈ 0.1–0.2 M Class B; 1 M / 10 M free) | 0.00 | 0.00 |
+| D1 (≤ 1.5 M rows read on an event day; 5 M/day free) | 0.00 | 0.00 |
+| Images | not used | not used |
+| Domain (`.co.nz`, about NZD 30/year) | ≈ 1.50 | ≈ 1.50 |
+| **Total** | **≈ 1.50** | **≈ 6.50** |
 
-Storage passes the 10 GB free tier only at about 23,000 stored photos (about 7,700 a month at
-90-day retention), and then costs USD 0.015 per GB-month. Every case stays well inside the
-USD 20 budget. v2.0's Images path would have needed Workers Paid for CPU and cost about
-USD 5.90 at this volume; it was dropped for privacy (spike Q6), not cost.
-
-**Requests on an event day** (the Workers Free limit is per day, so this is what matters):
-
-| Source | Typical | Heavy | Notes |
-|---|---|---|---|
-| Booth uploads | 1,500 | 1,500 | intent + 2 PUTs per photo × 500 |
-| Booth device calls | 720 | 720 | event refresh and heartbeats, about one every 30 s for 6 h |
-| Gallery opens + token swap | 800 | 800 | 200 guests × 3 opens + 200 swaps (SPA assets are static and free) |
-| Gallery polls | 8,000 | 48,000 | 200 guests × visible time ÷ interval: 20 min at 30 s, vs 60 min at 15 s |
-| Post-shoot session view | 3,000 | 3,000 | 125 sessions × 2 phones × one poll every 10 s for 2 min |
-| Media | 22,000 | 42,000 | 100 vs 200 thumbs plus 10 HD views per guest; immutable private caching stops refetches |
-| **Total** | **≈ 36,000** | **≈ 96,000** | Limit 100,000 a day (resets 00:00 UTC; an NZ evening event falls in one UTC day) |
-
-The heavy column keeps the spike's deliberately pessimistic 15 s polling (for example a faster
-client, or many reloads). At the designed 30 s, heavy polls would be about 24,000 and the heavy
-total about 72,000. Either way the margin is thin, which is why the triggers below exist.
-
-D1 on that day: a poll reads at most 1 event row and 24 photo rows through the
-`(event_id, state, hidden, published_at, id)` index, and a media read 2 rows, so about 0.3 M
-(typical) to 1.4 M (heavy) of the 5 M rows read a day, plus about 125,000 for the photo-limit
-`COUNT(*)` in 500 intents. Writes: about 500 × 4 plus throttled `last_seen` updates, about
-5,000 of 100,000 a day.
-
-**When Workers Paid would be needed.** The plan is per account, so staging and production
-change together. Stay on Workers Free while all of these hold, and move the account to Workers
-Paid (USD 5 a month, a plan change with no code change) as soon as one fails:
-- the busiest day's requests (Workers analytics) stay under 50,000, half the limit. Session 18
-  reads this from the pilot;
-- one booth and about 200 guests per event, and at most one event per UTC day;
-- staging can be kept idle (no deploys, smoke runs or load tests) on event days;
-- every route's p95 CPU stays well under 10 ms, which rules out any server-side image work;
-- 3-day log retention is enough until 2026-12-01;
-- no flood has hit the daily limit (section 13).
+- **Free is a hard ceiling, not a bill.** Going over 100,000 requests/day, or over D1's daily
+  rows, fails requests for the whole account until 00:00 UTC, uploads included. A typical event
+  day is about 36,000 requests and a heavy one about 96,000, and staging shares the account.
+  Keep staging idle on event days, and move the account to Workers Paid if the pilot's peak is
+  over 50,000 requests a day (session 18).
+- Storage would pass the 10 GB free tier only at about 23,000 stored photos (about 7,700 a month
+  at 90-day retention), and then costs USD 0.015 per GB-month.
+- v2.0's Images path (3 variants including a full-resolution copy) would have needed Workers
+  Paid for CPU and cost ≈ USD 5.90 at this volume. It is dropped for privacy (spike Q6), not
+  cost.
 
 ## 17. Testing and release gates
 
 - **Worker**: Vitest with the Cloudflare Vitest plugin (`@cloudflare/vitest-plugin`), the
   Cloudflare-recommended option.
-  - Tests run inside the Workers runtime with real local D1 and R2, isolated per test file. Local
-    R2 enforces `sha256` with the production error (spike Q9), so the whole upload path,
-    including the hash mismatch and the header walk, is tested locally. No binding behaves
-    differently on staging, so nothing is left that only staging can check.
+  - Tests run inside the Workers runtime with real local D1 and R2, isolated per test file.
   - It covers both pure modules and route integration tests.
-  - **Seams**: `domain/jpegHeaders.ts` (the header walk) is a pure function over bytes, tested
-    with tables of synthetic JPEGs built by splicing segments into a minimal JPEG (no image
-    library). `domain/acceptVariant.ts` takes the bucket, the database and a clock through small
-    interfaces and no HTTP types (section 9.4). The upload URL signer sits behind an interface,
-    so a SigV4 signer can replace the HMAC one.
+  - With D14 there is no Images binding. The Worker's header check is pure and runs locally the
+    same as on Cloudflare (spike Q9), so it is unit-tested with crafted JPEGs.
 - **Web (admin, gallery SPAs)**: `bun test` with happy-dom, as in the booth.
 - **Smoke**: `scripts/smoke.ts --base <url>` runs the full device → gallery flow against
-  `wrangler dev` or staging, uploading a committed pair of synthetic variant fixtures.
+  `wrangler dev` or staging.
 - **Contract**: `contract/fixtures/*.json` are parsed by zod in `bun test` and by serde in
   `cargo test` (`include_str!`).
-- **Booth**:
-  - Variant encoder unit tests (`cargo test -p photobooth-core`), on synthetic inputs generated
-    in the test (never guest photos): EXIF orientations 1–8 give the right output size and pixel
-    orientation; outputs fit 480 and 2560 px; every output is baseline and passes the same
-    header rules as the Worker; an input carrying GPS, body and lens serial numbers and XMP
-    gives outputs with none of them.
-  - On the tablet (session 08b): encode time per shot, p50 and p95, on real Sony captures, and
-    the real Sony JPEG size (spike Q8).
-  - Outbox unit tests (fake client, `tempfile`) covering:
-    - kill during write and restart
-    - retry, backoff and `Retry-After`
-    - needs-attention transitions
-    - event switch with items queued
-    - a photo with one variant already stored uploads only the other
+- **Booth**: variant-encoder tests (orientation 1/3/6/8 fixtures come out upright, sizes within
+  caps, output passes the same header rules as the Worker, no APP1/APP2/APP13). Outbox unit tests
+  (fake client, `tempfile`) covering:
+  - kill during write and restart
+  - retry, backoff and `Retry-After`
+  - needs-attention transitions
+  - event switch with items queued
 
   Maestro flows for enrolment, event selection and the post-shoot QR.
 
@@ -720,20 +612,12 @@ Paid (USD 5 a month, a plan change with no code change) as soon as one fails:
    events' IDs and hidden photos fail.
 2. Airplane mode for 30 minutes during a 50-shot run, plus an app kill, gives exactly 50 READY,
    no duplicates and correct event IDs.
-3. **No metadata and no malformed media, checked on both sides.** The booth is the only place
-   metadata is removed, and the Worker's check is the backstop if a booth build regresses, so
-   both are gates:
-   - *Booth encoder*: the GPS and serial-number fixture, and a real Sony capture on the tablet,
-     give variants with only allowlisted segments and the correct orientation.
-   - *Worker, on staging*: a variant with APP1 (GPS EXIF), APP2, APP13 or COM, a progressive
-     JPEG, a JPEG with trailing data after EOI, a PNG renamed `.jpg`, a truncated JPEG, an
-     oversized variant and an hd whose SOF size differs from the declared size are each rejected,
-     and nothing is left in R2.
+3. Fake, truncated, oversized, progressive, metadata-bearing and trailing-data JPEGs are rejected
+   by the Worker. The GPS-and-serial EXIF fixture, run through the booth's encoder, shows no
+   metadata in either variant.
 4. Deleting an event during uploads gives no late READY. Undo works within 7 days.
 5. On staging, 5 booths upload simultaneously (about 0.5 photos/s): p95 shot-to-READY under 15 s
-   on a good uplink, counted from the end of the session so it includes encoding, and every
-   route's p95 CPU well under 10 ms. The first gallery grid appears in under 2.5 s on a 10 Mbps
-   connection. Not on an event day (the request limit is shared, section 15).
+   on a good uplink. The first gallery grid appears in under 2.5 s on a 10 Mbps connection.
 6. Keyboard and screen-reader pass on the gallery and admin. One real low-volume NZ event with
    reconciled counts.
 
@@ -741,14 +625,15 @@ Paid (USD 5 a month, a plan change with no code change) as soon as one fails:
 
 | v1.2 element | Replaced by or why removed |
 |---|---|
-| Presigned R2 URLs, S3 keys, attempt IDs, URL renewal, completion hint | Worker-signed URL per variant with in-path upload (section 9) |
-| R2 notifications, Queue, DLQ, leases, fencing tokens, publication versions | Synchronous validation, fixed keys, conditional UPDATE |
+| Presigned R2 URLs, S3 keys, attempt IDs, URL renewal, completion hint | Worker-signed URL with in-path upload (section 9) |
+| R2 notifications, Queue, DLQ, leases, fencing tokens, publication versions | Synchronous processing, fixed keys, conditional UPDATE |
 | Maintenance reconciler (stuck PENDING, orphan sweep, JobCursor) | Booth outbox retries; prefix delete on purge |
 | 3 buckets, 7-day recovery copy | 1 bucket; SD card archive; 7-day event soft delete |
 | 4 Workers, 3 hostnames, separate monitoring Worker | 1 Worker, 2 hostnames |
 | Pairing sessions, approval phrase, polling | One-time admin-issued enrolment code |
 | 30-day device credential expiry | Revocable, with last-seen monitoring. A mid-event expiry would be a self-inflicted outage. |
-| Byte-quota reservation and reconciliation | Atomic per-event photo count limit plus per-variant size caps |
+| Byte-quota reservation and reconciliation | Atomic per-event photo count limit plus per-variant caps |
+| Server-side re-encode (v2.0: Images binding, 3 variants) | Booth-made thumb + HD (D14): the binding keeps GPS/serial EXIF and needs Workers Paid for CPU (spike Q6, Q11) |
 | Guest passcode, KDF tuning | Removed (not needed for MVP) |
 | GuestSession table, 12-hour sessions | Stateless signed cookie until expiry, checked against `access_version` |
 | Share secret hashed and shown once | Stored retrievably (booth QR, reprint); rotation invalidates |
@@ -759,44 +644,23 @@ Paid (USD 5 a month, a plan change with no code change) as soon as one fails:
 | "Shared Tauri/React codebase" for the portal | Separate `apps/portal`; Tauri adds nothing to a browser SPA |
 | SD-card reupload tooling | Post-MVP (the SD card's JPEG may not match the transferred bytes, so dedupe is uncertain) |
 
-**Changed from v2.0 by D14** (spike 01, confirmed by the user on 2026-10-22):
-
-| v2.0 element | Replaced by |
-|---|---|
-| Images binding (`info`, 3 transforms per photo) | The booth makes thumb + hd in Rust (section 10); the Worker walks headers without decoding |
-| Variants thumb / preview (2048 px) / full (original size) | thumb (480 px) and hd (2560 px). No full-resolution download; the SD card keeps the original |
-| Upload of the 11–17 MB original, 20 MB intent cap | Upload of two variants (0.25–0.62 MB), capped at 200 KB and 3 MB |
-| `incoming/` prefix, 1-day lifecycle rule, inline delete | Variants go straight to their final keys |
-| `processPhoto()` and the `ImageProcessor` interface | `acceptVariant()` and the pure header walk |
-| `metadata: none` on the transforms | The booth encodes without metadata; the Worker rejects metadata segments (the binding ignored `metadata`, spike Q6) |
-| Workers Paid (USD 5) plus Images transformations (USD 0.50–12.50 a month) | Workers Free, USD 0 of Cloudflare usage a month (section 16) |
-
 ## 19. Delivery plan
 
 | Phase | Deliverable | Days |
 |---|---|---|
-| 0 Spike | **Done 2026-10-22: GO with D14** ([spike/RESULTS.md](./spike/RESULTS.md)). Verified R2 `sha256` enforcement, streaming puts, Images limits and metadata behaviour, CPU per request and the cost model. Carried forward to session 08b: the real Sony JPEG size (Q8) and the on-tablet encode time | 1–2 |
+| 0 Spike | Done (session 01, [spike/RESULTS.md](./spike/RESULTS.md)): R2 `sha256` verified; Images binding rejected (keeps EXIF, needs Paid CPU); booth-made variants chosen (D14). Not done: Sony size over PTP and on-tablet encode time (moved to the booth track) | 1–2 |
 | 1 Foundation | Worker skeleton, host routing, Access JWT, D1 migrations, bucket, staging and production envs, CI (typecheck, test, deploy staging; production manual), admin events CRUD | 3–4 |
-| 2 Live upload | Device enrolment and revoke, events API, intent and per-variant PUT with header validation, booth variant encoder, outbox, client, event selection, operator status | 6–9 |
+| 2 Live upload | Device enrolment and revoke, events API, intent and per-variant PUT with header check, booth variant encoder, outbox, client, event selection, operator status | 6–9 |
 | 3 Gallery | Guest session, gallery SPA with polling, media and download, post-shoot QR and session filter | 3–4 |
 | 4 Hardening and pilot | Moderation, retention cron and soft delete, audit, security tests, release gates, pilot event | 4–5 |
 | **Total** | | **17–24** |
 
-The booth encoder adds 1–2 days to phase 2 (PR #17's estimate).
-
 ## 20. Open questions
 
 1. Final domain name (expected `.co.nz`). It is needed before staging Access is set up
-   (phase 1), but not for local development.
-2. Workers plan for the account: Free unless a section 16 trigger fires. Session 18 reads the
-   pilot's peak and asks you.
-3. On-tablet encode time (session 08b). If p95 is over 3 s per shot, D14 is revisited with you.
+   (phase 1), but not for the spike or local development.
 
 Resolved:
-- Spike 01: GO (2026-10-22).
-- D14: the booth makes the variants; no Images binding; Workers Free. Confirmed by the user on
-  2026-10-22.
-- HD variant: 2560 px long edge, quality 85, which replaces v2.0's preview and full variants.
 - D3: cancelled sessions do not upload.
 - D9: the share token is stored retrievably.
 - TLD: probably `.co.nz`. The design does not depend on it (section 4.1).

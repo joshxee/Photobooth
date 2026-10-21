@@ -11,8 +11,8 @@ with no queue and no image decoding in the Worker.
 
 ## Read first
 - DESIGN.md §3 (D5, D6, D14), §6 (`photos` columns), §7 (storage layout and variants), §9 (all
-  of it), §13 (rows for upload URL replay, malicious or oversized image, and metadata leak),
-  §17 (Worker testing seams).
+  of it), §13 (rows for upload URL replay and malicious or oversized image), §17 (Worker
+  tests, release gate 3).
 - `wiki/portal/spike/RESULTS.md`: Q1 (R2 `sha256` error 10037), Q2 (streamed put), Q6 (why
   metadata is enforced here), Q9 (what local `wrangler dev` reproduces), Q10 (the header walk
   and caps), Q11 (CPU).
@@ -50,7 +50,7 @@ with no queue and no image decoding in the Worker.
    - `Content-Length` must equal the declared bytes, and the content type must be `image/jpeg`.
    - `MEDIA.put("events/{eventId}/{photoId}/{variant}.jpg", request.body, {sha256})`, streamed,
      not buffered. R2 error 10037 maps to 422 `hash_mismatch` (nothing is stored).
-   - Call `acceptVariant()`, then return 201 READY (both variants stored) or 200 STORED (the
+   - Call `processPhoto()`, then return 201 READY (both variants stored) or 200 STORED (the
      first one). The MVP never returns 202 (§9.2).
 4. **`domain/jpegHeaders.ts`**, pure, over the first 64 KB of bytes plus the last 2 bytes:
    - SOI first; then only APP0 (`JFIF`), APP14 (`Adobe`), DQT, DHT, DRI and **SOF0 (baseline)**
@@ -60,7 +60,8 @@ with no queue and no image decoding in the Worker.
    - Any other marker (APP1 EXIF/XMP, APP2, APP13 IPTC, COM, other APPn, SOF1+ including
      progressive) fails with a named reason.
    - Returns the SOF dimensions.
-5. **`domain/acceptVariant.ts`**, which takes no HTTP types and receives the bucket, the
+5. **`domain/processPhoto.ts`** (with D14 it validates one stored variant and publishes the
+   photo once both are stored; DESIGN §9.4), which takes no HTTP types and receives the bucket, the
    database and a clock through small interfaces:
    - Range-read 0–64 KB and the last 2 bytes of the stored object and run the header walk. The hd SOF size must equal
      the declared `width`×`height`; the thumb's long edge must be ≤ 480 px.
@@ -105,7 +106,7 @@ bun run scripts/smoke.ts --base http://localhost:8787   # create the script here
       has a named test.
 - [ ] Every header-walk rejection reason has a named test, and a rejected variant leaves no
       object in R2.
-- [ ] `acceptVariant()` and `jpegHeaders.ts` have no imports from Hono or Request/Response.
+- [ ] `processPhoto()` and `jpegHeaders.ts` have no imports from Hono or Request/Response.
 - [ ] `scripts/smoke.ts` passes locally.
 
 ## Hand-off

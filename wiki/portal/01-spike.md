@@ -2,7 +2,7 @@
 
 > **Done 2026-10-22 (GO with D14, confirmed by the user).** This file is the spike's original brief and
 > still describes the Images-binding design it tested (`preview`, `full`, `incoming/`). The results are in
-> [spike/RESULTS.md](./spike/RESULTS.md), and DESIGN.md v2.2 is the current design.
+> [spike/RESULTS.md](./spike/RESULTS.md), and DESIGN.md (v2.1 as revised by PR #17) is the current design.
 
 **Goal:** a go/no-go, with numbers, for the parts of DESIGN.md that rely on platform behaviour
 not yet verified. The code is throwaway. **The deliverable is `spike/RESULTS.md`** plus any

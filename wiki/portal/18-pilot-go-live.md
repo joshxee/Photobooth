@@ -11,8 +11,8 @@ runs on it, and the counts reconcile. After this the MVP is live.
 
 ## Read first
 - `wiki/portal/gates/runbook.md`, `wiki/portal/gates/release.md`.
-- DESIGN.md §4.1 (production row), §15 (Workers Free limits), §16 (cost, event-day request
-  budget, and the triggers for Workers Paid).
+- DESIGN.md §4.1 (production row), §15, §16 (cost, Workers Free as a hard ceiling, and the
+  50,000 requests/day trigger for Workers Paid); `spike/RESULTS.md` Q12 (event-day model).
 - `SETUP.md` F (all ticked; if not, stop).
 
 ## Scope

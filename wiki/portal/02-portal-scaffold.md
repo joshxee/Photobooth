@@ -10,7 +10,7 @@ later portal session only adds behaviour.
 
 ## Read first
 - DESIGN.md §4 (architecture, host routing), §4.1 (environments table), §5 (layout and
-  dependencies), §13 (headers and CSP rows), §15 (logs, Workers Free limits), §17 (testing).
+  dependencies), §13 (headers and CSP rows), §15 (logs), §16 (Workers Free as a hard ceiling), §17 (testing).
 - `apps/booth/build.ts`, `apps/booth/package.json`, `apps/booth/tsconfig.json` (copy the
   conventions).
 - Cloudflare skill `workers-best-practices`. Docs: Workers Static Assets, the Vitest
@@ -26,7 +26,7 @@ later portal session only adds behaviour.
    - `observability.enabled`.
    - Assets binding `ASSETS` with `run_worker_first: true`.
    - Bindings `DB` (D1), `MEDIA` (R2) and the rate-limit bindings (placeholders). There is no
-     Images binding (D14), and no `limits` block: the account is on Workers Free (DESIGN §15).
+     Images binding (D14), and no `limits` block: the account is on Workers Free (DESIGN §16).
    - Vars `GALLERY_HOST`, `ADMIN_HOST`, `ADMIN_EMAILS`, `ADMIN_SERVICE_CLIENTS`,
      `ACCESS_TEAM_DOMAIN`, `ACCESS_AUD`, `CONTACT_ADDRESS`, `CONTACT_EMAIL`.
    - A cron trigger (daily, 03:00 NZ ≈ `0 14 * * *` UTC, noting the DST drift).

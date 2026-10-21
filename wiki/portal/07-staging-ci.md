@@ -11,8 +11,8 @@ request, the metadata rejection). This prepares production without deploying it.
 - **Human gate:** you approve the first staging deploy and run the secret commands when asked.
 
 ## Read first
-- DESIGN.md §4.1 (environments, tokens, service token), §15 (logs, alerts, Workers Free
-  limits, restore), §17 (smoke, release gate 3).
+- DESIGN.md §4.1 (environments, tokens, service token), §15 (logs, alerts, restore), §16
+  (Workers Free is a hard ceiling, shared by staging), §17 (smoke, release gate 3).
 - `SETUP.md` (confirm B–E are ticked; if not, stop and ask).
 - Cloudflare skill `wrangler`; docs on Wrangler environments and on GitHub Actions with
   `cloudflare/wrangler-action`.
@@ -24,7 +24,7 @@ request, the metadata rejection). This prepares production without deploying it.
    - Vars: hosts, `ACCESS_TEAM_DOMAIN`, the staging `ACCESS_AUD`, `ADMIN_EMAILS`, the
      `ADMIN_SERVICE_CLIENTS` service-token client ID, and the contact values.
    - Rate-limit namespaces.
-   - Behaviour at the Workers Free daily limit (DESIGN §15): routes have a fail-open/closed
+   - Behaviour at the Workers Free daily limit (DESIGN §16): routes have a fail-open/closed
      toggle in the dashboard, not in `wrangler.jsonc`. Check in the Cloudflare docs whether it
      applies to Custom Domains (there is no origin behind the Worker). Write down what you find
      and ask the user to set "fail closed" where it applies.

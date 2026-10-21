@@ -32,7 +32,7 @@ in `apps/portal/wrangler.jsonc` once session 02 exists. Secrets go **only** into
       registrar.
 - [ ] Add one WAF rate-limiting rule (included in the Free zone plan) for `photos.<domain>`
       and `photos-staging.<domain>`, so a request flood can't use up the Workers Free daily
-      limit (DESIGN §13). Session 17 checks it.
+      limit (DESIGN §13, denial of wallet; §16). Session 17 checks it.
 - [ ] Enable DNSSEC in Cloudflare and add the DS record at the registrar.
 - [ ] Email Routing (free): forward `privacy@<domain>` to a monitored inbox. This is the
       gallery's removal contact.

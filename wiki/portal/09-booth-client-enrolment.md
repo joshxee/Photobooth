@@ -28,8 +28,9 @@ the shared fixtures and against local `wrangler dev`.
    to other hosts):
    - The bearer is attached only to requests whose origin is the configured portal URL. Each
      variant's upload PUT sends exactly that `uploads.<variant>.headers` and **no bearer**.
-   - Maps the intent's `uploads` map (only the variants the server still needs) and the PUT's
-     201 READY / 200 STORED / 202 to 08's outcome enums.
+   - Maps the intent's `uploads` map (only the variants the server still needs), a REJECTED
+     intent (→ `Rejected{reason}`) and the PUT's 201 READY / 200 STORED / 202 to 08's outcome
+     enums.
    - Sends `X-Outbox-Depth` and the app version.
    - Maps HTTP responses and error codes to the outcome enums.
    - Unit tests use a local mock server, or a trait-level fake if adding a mock-server crate is

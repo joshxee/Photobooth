@@ -12,7 +12,7 @@ on a phone, with a design that matches the booth's identity.
 
 ## Read first
 - DESIGN.md §11 (all of it, including the polling rates and why), §2 (scope: single images,
-  HD download, no ZIP), §16 (event-day request budget).
+  HD download, no ZIP), §16 and `spike/RESULTS.md` Q12 (event-day request budget).
 - `wiki/portal/design/README.md` and everything in that folder. Its **grading criteria** are
   the acceptance rubric.
 - `apps/booth/src/styles.css`, `apps/booth/src/fonts/` (identity), `wiki/Frontend.md`
