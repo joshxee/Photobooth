@@ -20,7 +20,7 @@ in `apps/portal/wrangler.jsonc` once session 02 exists. Secrets go **only** into
 - [ ] Create an account with a business email address. Enable 2FA.
 - [ ] Enable R2 (dashboard; it asks for a payment method). Stay on **Workers Free**: no Workers
       Paid and no Images subscription (D14, DESIGN §16). Session 18 tells you if the pilot's
-      peak means production should move to Workers Paid (USD 5 a month).
+      peak means the account should move to Workers Paid (USD 5 a month).
 - [ ] Invite the second admin as a member (Administrator role) with their own login.
 - [ ] Billing notifications at USD 25, 50 and 100.
 

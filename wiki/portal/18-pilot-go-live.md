@@ -44,8 +44,9 @@ runs on it, and the counts reconcile. After this the MVP is live.
      DESIGN §16 estimates.
    - Read the pilot day's Workers requests (and the CPU p95 per route) from Workers analytics.
      Compare them with the §16 event-day table and its triggers. If the peak is over 50,000
-     requests a day, or another trigger fired, recommend moving production to Workers Paid
-     (USD 5 a month) and **ask the user**; the agent never changes the plan.
+     requests a day, or another trigger fired, recommend moving the account to Workers Paid
+     (USD 5 a month; the plan covers staging and production) and **ask the user**; the agent
+     never changes the plan.
 6. **Retrospective:**
    - Add to PROGRESS.md: what broke, what operators found confusing, the cost after the first
      month, the Workers plan decision, and the backlog of post-MVP items (Keystore credential

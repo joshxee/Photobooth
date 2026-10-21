@@ -4,7 +4,7 @@
 with evidence, and close whatever gaps that exposes. Fixes stay small; anything big becomes
 its own session (`17b-*.md`).
 
-- **Depends on:** 00–16 merged and staging green.
+- **Depends on:** 00–16 (including 08b) merged and staging green.
 - **Unlocks:** 18.
 - **Device check:** **critical**. You run gates 2 and 6 with the agent.
 
@@ -23,9 +23,9 @@ its own session (`17b-*.md`).
    - Cross-event and hidden-photo access.
    - Revoked device with an issued upload URL.
    - Enrolment-code brute force hitting the rate limit.
-   - Oversized variants (over 200 KB thumb, 3 MB hd), truncated and fake JPEGs, variants with
-     APP1, APP13 or COM, and an hd whose SOF size differs from the declared size: each
-     rejected, with no object left in R2.
+   - Oversized variants (over 200 KB thumb, 3 MB hd), truncated and fake JPEGs, progressive
+     JPEGs, trailing data after EOI, variants with APP1, APP2, APP13 or COM, and an hd whose SOF
+     size differs from the declared size: each rejected, with no object left in R2.
    - The malicious-image residual risk (DESIGN §13, D14) is written up in
      `gates/security.md` for you to accept or reject.
    - Request flood: the zone WAF rate-limiting rule on `photos-staging` blocks a burst before
@@ -59,8 +59,8 @@ its own session (`17b-*.md`).
 3. **Operations:**
    - Write `wiki/portal/gates/runbook.md`: the event-day checklist from DESIGN §15, the
      restore procedure, rotation, revocation, the removal request, and "booth shows backlog".
-   - Confirm the billing alerts exist (SETUP B), and that the routes fail closed at the daily
-     limit (DESIGN §15).
+   - Confirm the billing alerts exist (SETUP B), and record how the hostnames behave at the
+     daily limit (fail closed, DESIGN §15; set in the dashboard, not in `wrangler.jsonc`).
    - Confirm `CONTACT_*` values are set for production (SETUP F).
 4. **Gap fixes:** small and in this PR. Anything over about half a day becomes `17b-*.md` and
    must merge before 18.

@@ -8,7 +8,7 @@ JPEG size on the Xiaomi Pad 6, which the spike could only estimate.
 - **Depends on:** 08 (the `EncodedShot` type the outbox accepts).
 - **Unlocks:** 10.
 - **Device check:** automated (encode timings and sizes from real Sony captures on the tablet,
-  through a dev-only command; see Verify).
+  logged by a debug-build-only probe; see Verify).
 
 **Why this is its own session, and why it sits here.** The encoder is pure Rust in
 `photobooth-core`, like the outbox, and has nothing to do with HTTP or the UI, so it belongs to
@@ -27,7 +27,9 @@ tablet run are a session's worth of work.
 - `wiki/portal/spike/scripts/booth_variants.py` (the spike's reference pipeline) and
   `jpeginfo.py` (APP1/TIFF parsing and retagging, useful for building test inputs).
 - `crates/photobooth-core/src/outbox/` (from 08), `photo_store.rs`; `wiki/Core-Domain.md`.
-- `wiki/Tauri-App.md` (dev capability, `logs_recent`) and `wiki/Android-Build.md`.
+- `crates/photobooth-core/src/session.rs` (where `StripReview` is reached and where
+  `PhotoStore` is cleared), `apps/booth/src-tauri/src/state.rs`.
+- `wiki/Tauri-App.md` (logging, `logs_recent`) and `wiki/Android-Build.md`.
 
 ## Scope
 1. **Crate choice** (record the decision and numbers in the PR and `wiki/Booth-Upload.md`):
@@ -43,17 +45,23 @@ tablet run are a session's worth of work.
      missing or invalid means 1. Apply all 8 orientations.
    - Decode (scaled where possible), orient, resize with a Lanczos-class filter to fit 2560 and
      480 on the long edge (never upscale), encode hd at q85 and thumb at q75.
-   - The output has SOI, APP0 JFIF, DQT, DHT, SOF0, SOS, EOI and nothing else. Add a small Rust
-     header check (`variants::check_segments`) with the same allowlist as the Worker
-     (DESIGN §9.1) and run it on every output (it is cheap). A failure is an encoder bug and
+   - The output is baseline (SOF0, one scan) and has SOI, APP0 JFIF, DQT, DHT, SOF0, SOS, EOI
+     and nothing else (no APP2, no APP14 needed). Add a small Rust header check
+     (`variants::check_segments`) with the same rules as the Worker (DESIGN §9.1: allowlist,
+     SOF0 only, final EOI) and run it on every output (it is cheap). A failure is an encoder bug and
      returns `VariantError`, so a bad variant never reaches the outbox.
    - `EncodedShot.width`/`height` are the hd dimensions after orientation.
    - At most one decoded frame in memory at a time.
-3. **Dev-only measurement command** (in the `dev` capability only, like `test_inject`):
-   `variants_bench` encodes every shot currently in `PhotoStore` and logs, per shot, the input
-   bytes, input dimensions, orientation, decode/resize/encode milliseconds, total milliseconds
-   and output sizes, through the normal log path (`logcat -s Photobooth`, `logs_recent`). It
-   never writes images to disk and never returns image bytes over IPC.
+3. **Debug-build-only measurement probe** (`#[cfg(debug_assertions)]`, so release builds
+   don't contain it; no new command, capability or UI):
+   - When a real-camera session reaches `StripReview`, the probe takes its own `Bytes` clones of
+     the session's shots (`PhotoStore` is cleared on return to attract or on "take another", so
+     it must not read the store later), and encodes them one at a time on a background task.
+   - Per shot it logs the input bytes, input dimensions, orientation, decode/resize/encode
+     milliseconds, total milliseconds and output sizes through the normal log path
+     (`logcat -s Photobooth`, `logs_recent`), then drops the output.
+   - It never writes images to disk and never sends image bytes over IPC. Session 10 replaces it
+     with the real session-complete hook.
 4. **Docs:** add the encoder to `wiki/Core-Domain.md` (what it guarantees: orientation applied,
    no metadata) and start the encoder section of `wiki/Booth-Upload.md`.
 
@@ -67,6 +75,7 @@ cargo fmt --all -- --check
 cargo clippy -p photobooth-core --all-targets -- -D warnings
 cargo clippy -p photobooth --all-targets -- -D warnings
 cargo test -p photobooth-core
+cd apps/booth && bun install --frozen-lockfile && bun run typecheck && bun test && bun run build   # build first: the photobooth crate embeds dist
 cargo test -p photobooth
 ```
 Tests must cover (inputs generated inside the test, never guest photos):
@@ -79,22 +88,25 @@ Tests must cover (inputs generated inside the test, never guest photos):
 - a corrupt or truncated input returns `VariantError`, never a panic.
 
 **Automated device check** (agent, tablet over Wi-Fi adb, real Sony camera):
-1. Install the debug build. Take 3 sessions (9 shots) with the real camera.
+1. Install the debug build (`pwsh apps/booth/scripts/build-android-debug.ps1 -Install`). Take
+   10 sessions (30 shots) with the real camera, driving the UI with `adb shell input tap`.
 2. Read the Sony JPEG size from the `downloading the captured object` log line for each shot
    (spike Q8).
-3. Call `variants_bench` through the dev capability, and collect the per-shot timings from
-   `logcat -s Photobooth`.
-4. Pull nothing off the device except log lines. Report p50 and p95 total ms per shot, peak
-   memory if visible (`dumpsys meminfo com.jc.photobooth.tauri`), and output sizes.
-5. **Gate:** if p95 is over 5 s per shot, stop and report to the user before 10 starts
-   (DESIGN §10: D14 is revisited). The spike's estimate is 0.6–1.6 s.
+3. Collect the probe's per-shot timings from `logcat -s Photobooth` (one line per shot,
+   logged during each session's review screen).
+4. Pull nothing off the device except log lines. Report p50, p95 and max total ms per shot,
+   peak memory if visible (`dumpsys meminfo com.jc.photobooth.tauri`), and output sizes.
+5. **Gate:** if p95 is over 3 s per shot, stop and report to the user before 10 starts
+   (DESIGN §10: 3 shots must be READY within 15 s of the session ending, so D14 is revisited).
+   The spike's estimate is 0.6–1.6 s.
 
 ## Done when
 - [ ] All the tests above pass with no suppressions.
 - [ ] Encode p50/p95 per shot and the real Sony JPEG size (Q8) are measured on the tablet and
       recorded in PROGRESS.md and `wiki/Booth-Upload.md`, or marked **not verified** with the
       reason.
-- [ ] `variants_bench` is reachable only through the `dev` capability.
+- [ ] The probe exists only in debug builds (checked by building release once, or by the
+      `cfg` attribute and a note in the PR), and adds no command or capability.
 
 ## Hand-off
 - `wiki/Booth-Upload.md`: the crate decision and its numbers, the on-tablet timings, the Sony

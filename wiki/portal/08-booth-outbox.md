@@ -41,8 +41,9 @@ session 08b, which produces the `EncodedShot` type defined here.
    - Pick a concrete jitter source and make it injectable for tests.
    - `stats()`: queued, uploading, needs-attention counts, plus free bytes from a small trait
      so tests can fake low disk.
-   - `PortalClient` trait (async): `intent(item) -> IntentOutcome` (`Ready`, or `Pending` with
-     upload descriptors for only the variants the server still needs) and
+   - `PortalClient` trait (async): `intent(item) -> IntentOutcome` (`Ready`, `Rejected{reason}`
+     → needs attention, or `Pending` with upload descriptors for only the variants the server
+     still needs) and
      `upload(descriptor, bytes) -> UploadOutcome` (`Stored`, `Ready`, or an error), with outcome
      enums mapped from the contract error codes.
    - `drain_once(client, now)`: works on at most 2 items concurrently. Per item: intent, then
@@ -54,8 +55,11 @@ session 08b, which produces the `EncodedShot` type defined here.
      - 401/403, `event_closed`, `photo_limit`, `invalid_image`, `conflict` → needs attention.
 2. **Session integration point** (still in core):
    - When the FSM reaches `StripReview`, hand that session's shots to an `OnSessionComplete`
-     hook. The hook does nothing if no event is selected or the camera is the mock/test camera.
-     (Session 10 implements the hook: encode with 08b, then `enqueue`, off the UI path.)
+     hook **as owned `Bytes` clones with their shot metadata**, not as `PhotoStore` keys:
+     `PhotoStore` is cleared on return to attract and on "take another", which can happen while
+     the hook is still working. The hook does nothing if the booth is not enrolled, no event is
+     selected, or the camera is the mock/test camera. (Session 10 implements it: encode with
+     08b, then `enqueue`, off the UI path.)
    - Cancelled sessions never reach it; add a test proving that.
    - `PhotoStore` stays as it is: in memory, for the UI.
 3. **Docs:** update the "Photos never touch disk" section of `wiki/Core-Domain.md` to the new
@@ -84,6 +88,9 @@ Tests must cover:
 - at most 2 concurrent uploads;
 - low-disk stat;
 - cancelled and test-mode sessions not enqueued;
+- the hook still has every shot's bytes when "take another" clears `PhotoStore` straight
+  after `StripReview`;
+- an intent answered REJECTED becomes needs attention;
 - an event switch keeping old items' `event_id`.
 
 Device (automated, after 09 wires it in, or now with a debug-only command if trivial):

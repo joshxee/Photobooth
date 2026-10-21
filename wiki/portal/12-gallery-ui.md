@@ -38,8 +38,8 @@ on a phone, with a design that matches the booth's identity.
      READY (driven by polling), and a "See all event photos" action.
 4. **Live updates:**
    - Poll every 30 s ± jitter only while `document.visibilityState === 'visible'` and
-     `eventOpen`.
-   - The session-filtered view polls every 5 s ± jitter for its first 2 minutes (while the
+     `eventOpen`, plus one poll as soon as the page becomes visible again.
+   - The session-filtered view polls every 10 s ± jitter for its first 2 minutes (while the
      guest's shots arrive), then drops to 30 s. Never poll faster: every poll is a request
      against the Workers Free daily limit (DESIGN §11, §16).
    - New photos collect into an "N new" pill; tapping it inserts them at the top without
@@ -53,7 +53,7 @@ on a phone, with a design that matches the booth's identity.
    - Keyboard-operable grid and lightbox, labelled controls, visible focus,
      `prefers-reduced-motion`, and AA contrast.
 8. **Tests:** `bun test` + happy-dom: fragment stripping, polling start/stop on visibility,
-   the 5 s → 30 s switch in the session view,
+   the 10 s → 30 s switch in the session view,
    "N new" merge without duplicates, lightbox keyboard handling and focus restore, the
    unavailable page, and the session filter with placeholders.
 

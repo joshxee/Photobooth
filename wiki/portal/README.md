@@ -45,14 +45,14 @@ plan.
 |---|---|---|---|---|
 | 00 | [Agent foundation](./00-agent-foundation.md) | — | n/a | — |
 | 01 | [Spike](./01-spike.md) | 00, SETUP A | n/a | Supplies sample JPEGs; go/no-go |
-| 02 | [Portal scaffold](./02-portal-scaffold.md) | 01 | n/a | — |
+| 02 | [Portal scaffold](./02-portal-scaffold.md) | 01, 01b | n/a | — |
 | 03 | [Schema and contracts](./03-schema-contracts.md) | 02 | n/a | — |
 | 04 | [Admin auth and events API](./04-admin-auth-events.md) | 03 | n/a | — |
 | 05 | [Devices and enrolment API](./05-devices-enrolment.md) | 04 | n/a | — |
 | 06 | [Upload and validation](./06-upload-validation.md) | 05 | n/a | — |
 | 07 | [Staging and CI deploy](./07-staging-ci.md) | 06, SETUP B–E | n/a | Approves first deploy |
 | 08 | [Booth outbox](./08-booth-outbox.md) | 03 | automated | — |
-| 08b | [Booth variant encoder](./08b-booth-variant-encoder.md) | 08 | automated | Decides D14 if encode p95 > 5 s per shot |
+| 08b | [Booth variant encoder](./08b-booth-variant-encoder.md) | 08 | automated | Decides D14 if encode p95 > 3 s per shot |
 | 09 | [Booth portal client, enrolment, event selection](./09-booth-client-enrolment.md) | 05, 08 | automated | — |
 | 10 | [Booth upload loop and operator status](./10-booth-upload-status.md) | 06, 08b, 09 (07 for the device run) | **critical** | Once-over on the tablet |
 | 11 | [Guest access and gallery API](./11-guest-api.md) | 06 | n/a | — |

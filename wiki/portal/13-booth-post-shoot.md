@@ -49,8 +49,9 @@ cd apps/booth && bun run typecheck && bun test && bun run build
 2. `screencap` the post-shoot screen and decode the QR from the screenshot (a small decoder
    script or a library in a dev-only script).
 3. Open the decoded URL with `chrome-devtools-axi` in mobile emulation and assert all 3 shots
-   appear as READY within 15 s of the session ending (this includes on-tablet encoding, about
-   3 × the 08b per-shot time).
+   are READY within 15 s of the session ending (read the READY times from the staging admin
+   API; this includes on-tablet encoding, about 3 × the 08b per-shot time). The gallery may
+   show them up to one poll interval (10 s) later; record both.
 
 Attach screenshots and timings.
 

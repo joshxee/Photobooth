@@ -30,6 +30,8 @@ with no queue and no image decoding in the Worker.
    - Use the atomic insert from 03 (photo limit and uniqueness).
      - Existing row, same hashes and event: return its state. READY means nothing to upload;
        PENDING returns URLs only for the variants not yet stored.
+     - Existing row, REJECTED: return REJECTED with the reason and no URLs (the booth marks it
+       needs attention).
      - Existing row, different hashes or event: 409 `conflict`.
      - Over the limit: 409 `photo_limit`.
      - Event closed: 409 `event_closed`.
@@ -42,22 +44,25 @@ with no queue and no image decoding in the Worker.
 3. **`PUT /v1/device/uploads/{photoId}/{variant}`**, authorised by the signed URL only, with no
    bearer header (so it can later be swapped for presigned R2):
    - Verify the signature and expiry; expired returns 410 `upload_expired`.
-   - The photo must exist. READY returns 201 READY without writing (idempotent). Its device
-     must not be revoked, and its event must not be deleted.
+   - The photo must exist. READY returns 201 READY without writing (idempotent); REJECTED
+     returns 422 `invalid_image` without writing. Its device must not be revoked, and its event
+     must not be deleted.
    - `Content-Length` must equal the declared bytes, and the content type must be `image/jpeg`.
    - `MEDIA.put("events/{eventId}/{photoId}/{variant}.jpg", request.body, {sha256})`, streamed,
      not buffered. R2 error 10037 maps to 422 `hash_mismatch` (nothing is stored).
    - Call `acceptVariant()`, then return 201 READY (both variants stored) or 200 STORED (the
      first one). The MVP never returns 202 (§9.2).
-4. **`domain/jpegHeaders.ts`**, pure, over the first 64 KB of bytes:
-   - SOI first; then only APP0 (`JFIF`), APP2 (`ICC_PROFILE` identifier only), APP14
-     (`Adobe`), DQT, DHT, DRI and SOF0–2 before SOS; SOS must start within the 64 KB.
-   - Any other marker (APP1 EXIF/XMP, APP13 IPTC, COM, other APPn, SOF3+) fails with a named
-     reason.
+4. **`domain/jpegHeaders.ts`**, pure, over the first 64 KB of bytes plus the last 2 bytes:
+   - SOI first; then only APP0 (`JFIF`), APP14 (`Adobe`), DQT, DHT, DRI and **SOF0 (baseline)**
+     before SOS; SOS must start within the 64 KB. Baseline means a single scan, so no segment
+     can hide between scans past the walked range (spike RESULTS.md, header-walk note).
+   - The object must end in EOI (`FFD9`).
+   - Any other marker (APP1 EXIF/XMP, APP2, APP13 IPTC, COM, other APPn, SOF1+ including
+     progressive) fails with a named reason.
    - Returns the SOF dimensions.
 5. **`domain/acceptVariant.ts`**, which takes no HTTP types and receives the bucket, the
    database and a clock through small interfaces:
-   - Range-read 0–64 KB of the stored object and run the header walk. The hd SOF size must equal
+   - Range-read 0–64 KB and the last 2 bytes of the stored object and run the header walk. The hd SOF size must equal
      the declared `width`×`height`; the thumb's long edge must be ≤ 480 px.
    - On failure: delete the object, mark the photo REJECTED with `invalid_image` and the reason,
      and return 422.
@@ -71,8 +76,10 @@ with no queue and no image decoding in the Worker.
    - Signed URL: tampered photoId, variant, bytes, sha or exp; expired.
    - PUT: wrong length, wrong type, bad hash (422, nothing stored), revoked device, deleted
      event.
-   - Header walk table tests: valid JFIF; APP1 with GPS EXIF; APP1 XMP; APP13; COM; APP2 that
-     is not `ICC_PROFILE`; PNG renamed `.jpg`; truncated before SOS; SOS past 64 KB; SOF3.
+   - Header walk table tests: valid baseline JFIF; APP1 with GPS EXIF; APP1 XMP; APP2 (ICC);
+     APP13; COM; progressive (SOF2); trailing data after EOI; missing EOI; PNG renamed `.jpg`;
+     truncated before SOS; SOS past 64 KB.
+   - A REJECTED photo: re-intent returns REJECTED, a PUT returns 422.
    - hd SOF size different from the declared size → REJECTED, object deleted.
    - Happy path: thumb → 200 STORED, hd → 201 READY, in either order.
    - The same PUT twice gives one READY with identical keys.

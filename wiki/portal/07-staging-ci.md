@@ -24,7 +24,10 @@ request, the metadata rejection). This prepares production without deploying it.
    - Vars: hosts, `ACCESS_TEAM_DOMAIN`, the staging `ACCESS_AUD`, `ADMIN_EMAILS`, the
      `ADMIN_SERVICE_CLIENTS` service-token client ID, and the contact values.
    - Rate-limit namespaces.
-   - Routes fail closed if the Workers Free daily limit is reached (DESIGN §15).
+   - Behaviour at the Workers Free daily limit (DESIGN §15): routes have a fail-open/closed
+     toggle in the dashboard, not in `wrangler.jsonc`. Check in the Cloudflare docs whether it
+     applies to Custom Domains (there is no origin behind the Worker). Write down what you find
+     and ask the user to set "fail closed" where it applies.
 2. **`scripts/provision.ts --env staging|production`:** prints the exact `wrangler` commands to
    create D1 and R2 and set the secrets (there is no lifecycle rule, DESIGN D6). It **prints
    only and never runs them**. You run the staging set now; the production set is SETUP F.
