@@ -15,16 +15,16 @@ use std::time::Duration;
 use async_trait::async_trait;
 use bytes::Bytes;
 use photobooth_core::outbox::{
-    ErrorCode, IntentOutcome, OutboxItem, PortalClient, PortalError, UploadDescriptor,
-    UploadOutcome, Variant,
+    is_contract_id, ErrorCode, IntentOutcome, OutboxItem, PortalClient, PortalError,
+    UploadDescriptor, UploadOutcome, Variant,
 };
 use reqwest::header::{HeaderMap, HeaderName, HeaderValue, AUTHORIZATION, CONTENT_TYPE};
 use reqwest::{Method, RequestBuilder, Response, StatusCode, Url};
 
 use super::types::{
-    is_contract_id, DeviceCredential, DeviceEvent, DeviceEventDetail, DeviceEventsResponse,
-    EnrolRequest, EnrolResponse, ErrorBody, IntentVariants, PhotoIntentRequest,
-    PhotoIntentResponse, UploadTarget, VariantDeclaration,
+    DeviceCredential, DeviceEvent, DeviceEventDetail, DeviceEventsResponse, EnrolRequest,
+    EnrolResponse, ErrorBody, IntentVariants, PhotoIntentRequest, PhotoIntentResponse,
+    UploadTarget, VariantDeclaration,
 };
 
 pub const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);

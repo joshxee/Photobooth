@@ -3,6 +3,10 @@
 
 pub mod client;
 pub mod credential;
+pub mod service;
 #[cfg(test)]
-mod test_server;
+pub(crate) mod test_server;
 pub mod types;
+
+pub use credential::CredentialStore;
+pub use service::{PortalConfig, PortalService};

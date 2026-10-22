@@ -198,15 +198,6 @@ pub struct ErrorBody {
     pub correlation_id: String,
 }
 
-/// A contract ID (`Id` in `schemas.ts`): a lowercase UUID.
-pub fn is_contract_id(s: &str) -> bool {
-    s.len() == 36
-        && s.bytes().enumerate().all(|(i, b)| match i {
-            8 | 13 | 18 | 23 => b == b'-',
-            _ => b.is_ascii_digit() || (b'a'..=b'f').contains(&b),
-        })
-}
-
 #[cfg(test)]
 pub(crate) mod tests {
     use serde::de::DeserializeOwned;
@@ -407,21 +398,6 @@ pub(crate) mod tests {
             ..hidden
         };
         assert!(!closed.accepts_uploads());
-    }
-
-    #[test]
-    fn contract_ids_are_lowercase_uuids() {
-        assert!(is_contract_id("019a0b6c-4f00-7a3e-9c41-5b2d8e0f1a01"));
-        for bad in [
-            "019A0B6C-4F00-7A3E-9C41-5B2D8E0F1A01",
-            "019a0b6c-4f00-7a3e-9c41-5b2d8e0f1a0",
-            "019a0b6c-4f00-7a3e-9c41-5b2d8e0f1a011",
-            "019a0b6c4f00-7a3e-9c41-5b2d8e0f1a01-",
-            "../../../v1/device/enrol/xxxxxxxxxxx",
-            "",
-        ] {
-            assert!(!is_contract_id(bad), "{bad}");
-        }
     }
 
     #[test]
