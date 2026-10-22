@@ -100,6 +100,10 @@ describe("GET /e/{publicId}/m/{photoId}/{variant}", () => {
     await expectGuestRefusal(await guestGet(a.public_id, `/m/${photoB.id}/thumb`, cookieB), a.public_id);
     // Under B's path with B's cookie it is served.
     expect((await guestGet(b.public_id, `/m/${photoB.id}/thumb`, cookieB)).status).toBe(200);
+    // The R2 key holds the event ID too, but the row check refuses on its own: even with an object
+    // under A's prefix, B's photo is not A's.
+    await env.MEDIA.put(variantKey(a.id, photoB.id, "thumb"), "stray");
+    await expectGeneric404(await guestGet(a.public_id, `/m/${photoB.id}/thumb`, cookieA));
   });
 
   it("refuses an unknown or malformed photo ID, and a READY photo whose object is missing", async () => {
