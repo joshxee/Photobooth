@@ -20,7 +20,7 @@ this file first, so state facts and not intentions.
 ---
 
 ## 09 — Booth portal client, enrolment and event selection — DONE — 2026-10-22
-- PR: #PRNUM (branch `portal/09-booth-client-enrolment`)
+- PR: #27 (branch `portal/09-booth-client-enrolment`)
 - Built:
   - `apps/booth/src-tauri/src/portal/types.rs`: serde types for every device message. A test `include_str!`s every `contract/fixtures/device.*.json`, takes its schema from `manifest.json`, and requires parse → serialize to give the same JSON; another fails if a `device.*` fixture exists without a line in that test. Requests `deny_unknown_fields`, responses don't.
   - `portal/client.rs` `HttpPortalClient` (reqwest 0.13, rustls on `ring` + webpki-roots, no redirects, 10 s connect / 30 s API / 120 s PUT, 256 KB response cap): `enrol`, `events`, `event(id)`, and `outbox::PortalClient` (`intent` from `OutboxItem`, `upload`). The bearer goes only to the enrolled origin and only on authenticated routes; `X-Outbox-Depth` + `X-App-Version` on those; a PUT sends exactly the intent's headers. Error messages never contain a URL. An unparseable 2xx (captive portal) is `PortalError::Network` (retried); the PUT's status and body must agree. `PortalOrigin`: https, or http for loopback/`*.localhost`, or (debug builds) private IPv4.
