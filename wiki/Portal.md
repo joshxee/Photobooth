@@ -416,7 +416,8 @@ from devices we don't own.
   whether or not it is in the past, and only a genuine URL can be 410. `exp` must be canonical
   decimal, so one expiry has one signed spelling.
 - **An unknown photo gets the same 403 as a bad signature**, so a URL tells a prober nothing about
-  which photos exist.
+  which photos exist. (The photo row is read before the HMAC is computed, so an unknown ID answers
+  a few microseconds sooner; with UUIDv7 IDs that oracle is worth nothing.)
 - **Replay:** a READY photo answers 201 without reading the body (a test replays the URL with other
   bytes and checks the object wasn't rewritten); a REJECTED photo answers 422; a PENDING one can only
   receive the declared bytes, because R2 checks the sha256. A revoked device's URLs stop working at
@@ -451,6 +452,11 @@ from devices we don't own.
   READY; the second PUT itself gets 409 `event_closed` (or, if the deletion lands after its checks,
   200 STORED with the photo still PENDING). If the event is then restored, the next intent sees
   both variants stored and publishes the photo.
+- **Objects left behind** (never served, because only READY photos are; the event purge's prefix
+  delete removes them): the stored sibling of a rejected variant, and a bad variant whose own check
+  failed on an infrastructure error after a concurrent request had already rejected the photo (its
+  retries get 422 before reaching R2). A photo deleted by an admin during a PUT is cleaned up: the PUT
+  deletes its object and answers 404.
 - `width`, `height` and `variant_bytes` come from the intent and the HD's SOF check proves the stored
   HD matches them, so the publish only sets `state` and `published_at`.
 
@@ -478,10 +484,17 @@ from devices we don't own.
   outbox drains a backlog with two upload workers, about one intent a second each on a good uplink,
   so 120 a minute lets a backlog drain at full speed while capping a runaway or stolen tablet at
   about 170,000 rows a day, which the per-event photo limit (2,000 by default) stops much sooner.
-  The PUTs are not rate-limited: each needs a URL from a limited intent.
+  The PUT has no rate limit: a genuine upload needs a URL from a limited intent, and a forged PUT
+  costs one D1 read (the photo row) before its 403. A flood of forged PUTs is the account-wide
+  denial-of-service case DESIGN §13 leaves to the zone's WAF rate-limiting rule (SETUP C).
 - The access log line carries `deviceId` on every authenticated device request, and `eventId` and
   `photoId` on intents and PUTs (`addLogIds` in `middleware/accessLog.ts`). The path is logged
-  without its query, so `sig` never reaches the logs (a test checks).
+  without its query, so `sig` never reaches the Worker's own logs (a test checks).
+- **Cloudflare's invocation logs** (Workers Logs, `observability.enabled`) record each request's URL
+  themselves, query included, unless `observability.redact_query_string` is set, which it is in
+  `wrangler.jsonc` (inherited by staging and production). Without it every upload URL, signature
+  included, would sit in the dashboard's logs and in `wrangler tail` for the retention period.
+  **Unverified until staging (07):** that the redaction covers `wrangler tail` and the invocation log.
 
 ### What was verified, and where
 
@@ -491,7 +504,9 @@ Everything above runs locally: Vitest in workerd with real local D1 and R2 (loca
 re-intent → READY; the stored objects' sha256 match the fixtures). Nothing in this path depends on a
 binding that behaves differently remotely: no Images binding, and R2's `sha256` check, range reads
 and streaming behaved the same in the spike's remote runs. **Not verified on real Cloudflare:** this
-code itself (no deploy), CPU per request (the 1 ms figure is the spike's), the Rate Limiting
+code itself (no deploy), CPU per request (the 1 ms figure is the spike's), the suffix range read
+and the full-object `size` that a ranged `get` reports (which `processPhoto` uses to skip the second
+read for objects up to 64 KB; the spike only ran the 0–64 KB read remotely), the Rate Limiting
 binding's real behaviour (approximate, per location), and concurrent PUTs on remote D1 (local D1
 serialises statements, so the concurrency tests prove the conditional UPDATE, not remote
 scheduling). Session 07 checks the path on staging.
