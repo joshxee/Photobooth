@@ -691,12 +691,15 @@ mod tests {
         serde_json::from_str(json).unwrap()
     }
 
+    #[cfg(debug_assertions)]
     struct NoopHook;
 
+    #[cfg(debug_assertions)]
     impl OnSessionComplete for NoopHook {
         fn on_session_complete(&self, _: photobooth_core::CompletedSession) {}
     }
 
+    #[cfg(debug_assertions)]
     #[tokio::test(start_paused = true)]
     async fn the_completion_hook_reaches_the_session_context_once_set() {
         let rig = rig();

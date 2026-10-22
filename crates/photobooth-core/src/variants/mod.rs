@@ -51,7 +51,16 @@ pub const HD_QUALITY: u8 = 85;
 
 /// Inputs above this many pixels are refused before decoding, so a damaged header can't ask
 /// for a huge buffer. The Sony A7 III shoots 24 MP.
-pub const MAX_INPUT_PIXELS: u64 = 64_000_000;
+pub const MAX_INPUT_PIXELS: u64 = 50_000_000;
+/// jpeg-decoder's own allocation limit (its default is unlimited). Progressive and 4:4:4
+/// inputs need full-resolution coefficient planes before any scaling; this keeps a strange
+/// camera file to an error instead of an out-of-memory kill.
+const MAX_DECODER_BUFFER: usize = 256 * 1024 * 1024;
+
+/// The portal's per-variant byte caps (DESIGN §9.1). Measured outputs are far below them
+/// (thumb 14–30 KB, HD 240–590 KB), so going over is an encoder fault, not an upload error.
+pub const THUMB_MAX_BYTES: usize = 200_000;
+pub const HD_MAX_BYTES: usize = 3_000_000;
 
 #[derive(Debug, Error)]
 pub enum VariantError {
@@ -189,6 +198,7 @@ fn fit(width: u32, height: u32, edge: u32) -> (u32, u32) {
 fn decode(jpeg: &[u8]) -> Result<(Frame, (u32, u32)), VariantError> {
     let err = |e: jpeg_decoder::Error| VariantError::Decode(e.to_string());
     let mut decoder = jpeg_decoder::Decoder::new(jpeg);
+    decoder.set_max_decoding_buffer_size(MAX_DECODER_BUFFER);
     decoder.read_info().map_err(err)?;
     let info = decoder
         .info()
@@ -278,5 +288,18 @@ fn encode(frame: &Frame, variant: Variant, quality: u8) -> Result<Vec<u8>, Varia
             size.0, size.1, frame.width, frame.height
         )));
     }
+    check_byte_cap(variant, out.len()).map_err(invalid)?;
     Ok(out)
+}
+
+/// The portal refuses a thumb over 200 KB or an HD over 3 MB at intent time; catch it here.
+fn check_byte_cap(variant: Variant, len: usize) -> Result<(), String> {
+    let cap = match variant {
+        Variant::Thumb => THUMB_MAX_BYTES,
+        Variant::Hd => HD_MAX_BYTES,
+    };
+    if len > cap {
+        return Err(format!("{len} bytes is over the {cap}-byte cap"));
+    }
+    Ok(())
 }

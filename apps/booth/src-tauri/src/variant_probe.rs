@@ -24,8 +24,9 @@ pub struct ProbeRecord {
 }
 
 pub struct VariantProbe {
-    // A `Mutex` so the probe is `Sync`; `send` never blocks.
-    sessions: Mutex<mpsc::Sender<CompletedSession>>,
+    // A `Mutex` so the probe is `Sync`. Bounded: a session waiting behind the one being
+    // encoded is kept, anything beyond that is dropped and logged rather than held in memory.
+    sessions: Mutex<mpsc::SyncSender<CompletedSession>>,
 }
 
 impl VariantProbe {
@@ -37,7 +38,7 @@ impl VariantProbe {
     /// A probe that hands each shot's record to `sink`, on the probe's thread. The thread
     /// ends when the probe is dropped.
     pub fn spawn_with(sink: impl Fn(ProbeRecord) + Send + 'static) -> Arc<Self> {
-        let (tx, rx) = mpsc::channel::<CompletedSession>();
+        let (tx, rx) = mpsc::sync_channel::<CompletedSession>(1);
         let spawned = thread::Builder::new()
             .name("variant-probe".into())
             .spawn(move || {
@@ -69,9 +70,15 @@ impl OnSessionComplete for VariantProbe {
             .sessions
             .lock()
             .unwrap_or_else(|e| e.into_inner())
-            .send(session);
-        if sent.is_err() {
-            tracing::warn!("variant probe is not running; session not measured");
+            .try_send(session);
+        match sent {
+            Ok(()) => {}
+            Err(mpsc::TrySendError::Full(s)) => {
+                tracing::warn!(session = %s.session_id, "variant probe busy; session not measured")
+            }
+            Err(mpsc::TrySendError::Disconnected(s)) => {
+                tracing::warn!(session = %s.session_id, "variant probe is not running; session not measured")
+            }
         }
     }
 }

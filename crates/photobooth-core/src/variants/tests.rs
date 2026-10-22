@@ -369,6 +369,32 @@ fn every_orientation_comes_out_upright_with_the_oriented_size() {
 }
 
 #[test]
+fn orientation_survives_the_scaled_decode_and_the_resize() {
+    for orientation in [6, 8, 3] {
+        let input = oriented_input(6000, 4000, orientation);
+        let shot = encode_variants(&input).unwrap();
+        assert_eq!(
+            (shot.width, shot.height),
+            (2560, 1707),
+            "orientation {orientation}"
+        );
+        assert_upright(&shot.hd, &format!("hd, 24 MP, orientation {orientation}"));
+        assert_upright(
+            &shot.thumb,
+            &format!("thumb, 24 MP, orientation {orientation}"),
+        );
+    }
+}
+
+#[test]
+fn variants_over_the_portals_byte_caps_are_refused() {
+    assert!(check_byte_cap(Variant::Thumb, THUMB_MAX_BYTES).is_ok());
+    assert!(check_byte_cap(Variant::Thumb, THUMB_MAX_BYTES + 1).is_err());
+    assert!(check_byte_cap(Variant::Hd, HD_MAX_BYTES).is_ok());
+    assert!(check_byte_cap(Variant::Hd, HD_MAX_BYTES + 1).is_err());
+}
+
+#[test]
 fn a_24_mp_landscape_fits_2560_and_480() {
     let shot = encode_variants(&flat_jpeg(6000, 4000)).unwrap();
     assert_eq!((shot.width, shot.height), (2560, 1707));
