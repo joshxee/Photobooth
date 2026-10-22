@@ -48,7 +48,10 @@
     "ACCESS_TEAM_DOMAIN": "",
     "ACCESS_AUD": "",
     "CONTACT_ADDRESS": "",
-    "CONTACT_EMAIL": ""
+    "CONTACT_EMAIL": "",
+    // Local development only: `wrangler dev --var DEV_AUTH:1` injects a fixed admin actor, and only
+    // on a *.localhost host (middleware/adminAuth.ts). Never set it in staging or production.
+    "DEV_AUTH": ""
   },
 
   "env": {
