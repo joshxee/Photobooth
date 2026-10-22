@@ -75,11 +75,11 @@ devicesApi.post("/", async (c) => {
  */
 devicesApi.post("/:id/code", async (c) => {
   const device = await loadDevice(c);
-  if (device.revoked_at !== null) throw new AppError("conflict", "The device is revoked.");
   const now = new Date();
   const { code, codeHash, expiresAt } = await newCode(now);
   const db = c.env.DB;
   const entry = auditEntry(c, now, { action: "device.code", eventId: null, targetId: device.id });
+  // Both apply only to an unrevoked device, so a revoked one gets 409 and no audit row.
   const [, update] = await db.batch([insertAuditIfDeviceActive(db, entry, device.id), setEnrolCode(db, device.id, codeHash, expiresAt)]);
   if (update?.meta.changes !== 1) throw new AppError("conflict", "The device is revoked.");
   return c.json(DeviceCodeResponse.parse({ deviceId: device.id, code, expiresAt }));
@@ -88,10 +88,10 @@ devicesApi.post("/:id/code", async (c) => {
 /** Revokes at once: the next request with its credential is a 401, and any pending code is void. */
 devicesApi.post("/:id/revoke", async (c) => {
   const device = await loadDevice(c);
-  if (device.revoked_at !== null) throw new AppError("conflict", "The device is already revoked.");
   const now = new Date();
   const db = c.env.DB;
   const entry = auditEntry(c, now, { action: "device.revoke", eventId: null, targetId: device.id });
+  // Both apply only if it isn't revoked yet, so revoking twice gets 409 and one audit row.
   const [, update] = await db.batch([insertAuditIfDeviceActive(db, entry, device.id), revokeDevice(db, device.id, now)]);
   if (update?.meta.changes !== 1) throw new AppError("conflict", "The device is already revoked.");
   const revoked: DeviceRow = { ...device, revoked_at: now.toISOString(), enrol_code_hash: null, enrol_expires_at: null };
