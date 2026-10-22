@@ -8,6 +8,7 @@ mod dto;
 #[cfg(target_os = "android")]
 mod logcat;
 mod logs;
+mod portal;
 mod protocol;
 mod state;
 #[cfg(debug_assertions)]
