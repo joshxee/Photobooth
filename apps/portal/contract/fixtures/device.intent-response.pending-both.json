@@ -1,0 +1,22 @@
+{
+  "state": "PENDING",
+  "photoId": "019a0b7e-8c21-7d05-a3f6-0e1f2a3b4c5d",
+  "uploads": {
+    "thumb": {
+      "method": "PUT",
+      "url": "https://photos.example.invalid/v1/device/uploads/019a0b7e-8c21-7d05-a3f6-0e1f2a3b4c5d/thumb?exp=1792578600&sig=ZXhhbXBsZS1zaWduYXR1cmUtbm90LXJlYWwtMDAwMDA",
+      "headers": {
+        "Content-Type": "image/jpeg"
+      },
+      "expiresAt": "2026-10-22T09:45:00.000Z"
+    },
+    "hd": {
+      "method": "PUT",
+      "url": "https://photos.example.invalid/v1/device/uploads/019a0b7e-8c21-7d05-a3f6-0e1f2a3b4c5d/hd?exp=1792578600&sig=ZXhhbXBsZS1zaWduYXR1cmUtbm90LXJlYWwtMDAwMDA",
+      "headers": {
+        "Content-Type": "image/jpeg"
+      },
+      "expiresAt": "2026-10-22T09:45:00.000Z"
+    }
+  }
+}

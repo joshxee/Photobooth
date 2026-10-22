@@ -1,0 +1,194 @@
+{
+  "$comment": "The shared contract (DESIGN D13). Every file in fixtures/ is listed here with the zod schema in src/shared/schemas.ts that must parse it, and for responses the HTTP status it comes with. Rust (session 09) round-trips the device.* fixtures with serde.",
+  "fixtures": {
+    "device.enrol-request.valid.json": {
+      "schema": "EnrolRequest",
+      "kind": "request",
+      "route": "POST /v1/device/enrol"
+    },
+    "device.enrol-response.valid.json": {
+      "schema": "EnrolResponse",
+      "kind": "response",
+      "route": "POST /v1/device/enrol",
+      "status": 201
+    },
+    "device.event-detail.hidden.json": {
+      "schema": "DeviceEventDetail",
+      "kind": "response",
+      "route": "GET /v1/device/events/{id}",
+      "status": 200
+    },
+    "device.event-detail.live.json": {
+      "schema": "DeviceEventDetail",
+      "kind": "response",
+      "route": "GET /v1/device/events/{id}",
+      "status": 200
+    },
+    "device.events-response.empty.json": {
+      "schema": "DeviceEventsResponse",
+      "kind": "response",
+      "route": "GET /v1/device/events",
+      "status": 200
+    },
+    "device.events-response.valid.json": {
+      "schema": "DeviceEventsResponse",
+      "kind": "response",
+      "route": "GET /v1/device/events",
+      "status": 200
+    },
+    "device.intent-request.valid.json": {
+      "schema": "PhotoIntentRequest",
+      "kind": "request",
+      "route": "POST /v1/device/photos"
+    },
+    "device.intent-response.conflict.json": {
+      "schema": "ErrorBody",
+      "kind": "response",
+      "route": "POST /v1/device/photos",
+      "status": 409
+    },
+    "device.intent-response.pending-both.json": {
+      "schema": "PhotoIntentResponse",
+      "kind": "response",
+      "route": "POST /v1/device/photos",
+      "status": 200
+    },
+    "device.intent-response.pending-hd.json": {
+      "schema": "PhotoIntentResponse",
+      "kind": "response",
+      "route": "POST /v1/device/photos",
+      "status": 200
+    },
+    "device.intent-response.ready.json": {
+      "schema": "PhotoIntentResponse",
+      "kind": "response",
+      "route": "POST /v1/device/photos",
+      "status": 200
+    },
+    "device.intent-response.rejected.json": {
+      "schema": "PhotoIntentResponse",
+      "kind": "response",
+      "route": "POST /v1/device/photos",
+      "status": 200
+    },
+    "device.upload-response.processing.json": {
+      "schema": "UploadResponse",
+      "kind": "response",
+      "route": "PUT /v1/device/uploads/{photoId}/{variant}",
+      "status": 202
+    },
+    "device.upload-response.ready.json": {
+      "schema": "UploadResponse",
+      "kind": "response",
+      "route": "PUT /v1/device/uploads/{photoId}/{variant}",
+      "status": 201
+    },
+    "device.upload-response.stored.json": {
+      "schema": "UploadResponse",
+      "kind": "response",
+      "route": "PUT /v1/device/uploads/{photoId}/{variant}",
+      "status": 200
+    },
+    "error.body.conflict.json": {
+      "schema": "ErrorBody",
+      "kind": "response",
+      "route": "any",
+      "status": 409
+    },
+    "error.body.event_closed.json": {
+      "schema": "ErrorBody",
+      "kind": "response",
+      "route": "any",
+      "status": 409
+    },
+    "error.body.forbidden.json": {
+      "schema": "ErrorBody",
+      "kind": "response",
+      "route": "any",
+      "status": 403
+    },
+    "error.body.hash_mismatch.json": {
+      "schema": "ErrorBody",
+      "kind": "response",
+      "route": "any",
+      "status": 422
+    },
+    "error.body.internal.json": {
+      "schema": "ErrorBody",
+      "kind": "response",
+      "route": "any",
+      "status": 500
+    },
+    "error.body.invalid_image.json": {
+      "schema": "ErrorBody",
+      "kind": "response",
+      "route": "any",
+      "status": 422
+    },
+    "error.body.invalid_request.json": {
+      "schema": "ErrorBody",
+      "kind": "response",
+      "route": "any",
+      "status": 400
+    },
+    "error.body.not_found.json": {
+      "schema": "ErrorBody",
+      "kind": "response",
+      "route": "any",
+      "status": 404
+    },
+    "error.body.photo_limit.json": {
+      "schema": "ErrorBody",
+      "kind": "response",
+      "route": "any",
+      "status": 409
+    },
+    "error.body.rate_limited.json": {
+      "schema": "ErrorBody",
+      "kind": "response",
+      "route": "any",
+      "status": 429
+    },
+    "error.body.too_large.json": {
+      "schema": "ErrorBody",
+      "kind": "response",
+      "route": "any",
+      "status": 413
+    },
+    "error.body.unauthorized.json": {
+      "schema": "ErrorBody",
+      "kind": "response",
+      "route": "any",
+      "status": 401
+    },
+    "error.body.upload_expired.json": {
+      "schema": "ErrorBody",
+      "kind": "response",
+      "route": "any",
+      "status": 410
+    },
+    "gallery.photos-page.first.json": {
+      "schema": "GalleryPhotosPage",
+      "kind": "response",
+      "route": "GET /e/{publicId}/api/photos",
+      "status": 200
+    },
+    "gallery.photos-page.last.json": {
+      "schema": "GalleryPhotosPage",
+      "kind": "response",
+      "route": "GET /e/{publicId}/api/photos",
+      "status": 200
+    },
+    "gallery.session-request.valid.json": {
+      "schema": "GallerySessionRequest",
+      "kind": "request",
+      "route": "POST /e/{publicId}/api/session"
+    },
+    "gallery.session-response.valid.json": {
+      "schema": "GallerySessionResponse",
+      "kind": "response",
+      "route": "POST /e/{publicId}/api/session",
+      "status": 200
+    }
+  }
+}

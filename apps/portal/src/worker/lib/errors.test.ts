@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
+import { ErrorBody } from "../../shared/schemas";
 import { requestId } from "../middleware/requestId";
 import type { AppEnv } from "../types";
 import { AppError, handleError, handleNotFound } from "./errors";
@@ -36,22 +37,45 @@ describe("error mapping", () => {
     const res = await appThatThrows(new Error("db password is hunter2")).request("/boom");
     expect(res.status).toBe(500);
     const json = await body(res);
-    expect(json.code).toBe("internal_error");
+    expect(json.code).toBe("internal");
     expect(JSON.stringify(json)).not.toContain("hunter2");
   });
 
-  it("uses the status, code and message of an AppError", async () => {
-    const res = await appThatThrows(new AppError(409, "conflict", "Already exists")).request("/boom");
+  it("uses the code and message of an AppError, with the code's status", async () => {
+    const res = await appThatThrows(new AppError("photo_limit", "Event is full")).request("/boom");
     expect(res.status).toBe(409);
-    expect(await body(res)).toMatchObject({ code: "conflict", message: "Already exists" });
+    expect(await body(res)).toMatchObject({ code: "photo_limit", message: "Event is full" });
   });
 
-  it("maps a Hono HTTPException to its status with a generic message", async () => {
-    const res = await appThatThrows(new HTTPException(413, { message: "internal detail" })).request("/boom");
-    expect(res.status).toBe(413);
+  it("gives every code its one status", async () => {
+    for (const [code, status] of [["too_large", 413], ["upload_expired", 410], ["hash_mismatch", 422], ["rate_limited", 429]] as const) {
+      expect((await appThatThrows(new AppError(code, "x")).request("/boom")).status).toBe(status);
+    }
+  });
+
+  it.each([
+    [400, 400, "invalid_request"],
+    [401, 401, "unauthorized"],
+    [403, 403, "forbidden"],
+    [404, 404, "not_found"],
+    [413, 413, "too_large"],
+    [429, 429, "rate_limited"],
+    [405, 400, "invalid_request"],
+    [503, 500, "internal"],
+  ] as const)("maps a Hono HTTPException %i to %i %s with a generic message", async (thrown, status, code) => {
+    const res = await appThatThrows(new HTTPException(thrown, { message: "internal detail" })).request("/boom");
+    expect(res.status).toBe(status);
     const json = await body(res);
-    expect(json.code).toBe("http_error");
+    expect(json.code).toBe(code);
     expect(JSON.stringify(json)).not.toContain("internal detail");
+  });
+
+  it("every error body matches the contract's ErrorBody", async () => {
+    for (const error of [new Error("x"), new AppError("conflict", "x"), new HTTPException(401)]) {
+      const res = await appThatThrows(error).request("/boom");
+      expect(ErrorBody.safeParse(await res.json()).success).toBe(true);
+    }
+    expect(ErrorBody.safeParse(await (await appThatThrows(new Error()).request("/nope")).json()).success).toBe(true);
   });
 
   it("returns the not_found shape for unmatched routes", async () => {

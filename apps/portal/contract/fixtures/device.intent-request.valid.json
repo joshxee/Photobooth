@@ -1,0 +1,19 @@
+{
+  "eventId": "019a0b6c-4f00-7a3e-9c41-5b2d8e0f1a01",
+  "clientPhotoId": "5f0c2b1e-8d3a-4c6f-9b2e-7a1d4e6f8c90",
+  "sessionId": "6a3f1c20-3",
+  "shot": 2,
+  "capturedAt": "2026-10-22T09:30:12.345Z",
+  "width": 2560,
+  "height": 1707,
+  "variants": {
+    "thumb": {
+      "bytes": 21873,
+      "sha256": "f8c433f29893f048dc2505a5dc8b39fe57bf0b4a66a0374476a142c58b640646"
+    },
+    "hd": {
+      "bytes": 416204,
+      "sha256": "2c71895fa8203ccefdb64c5c05f6c6d7b9394913c2ac32004c4717a984d151e8"
+    }
+  }
+}

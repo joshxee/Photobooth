@@ -1,0 +1,28 @@
+{
+  "eventName": "Smith wedding",
+  "localDate": "2026-10-22",
+  "eventOpen": true,
+  "photos": [
+    {
+      "id": "019a0b7e-9d32-7e16-b407-1f2a3b4c5d6e",
+      "sessionId": "6a3f1c20-3",
+      "shot": 2,
+      "width": 2560,
+      "height": 1707,
+      "publishedAt": "2026-10-22T09:30:14.001Z"
+    },
+    {
+      "id": "019a0b7e-8c21-7d05-a3f6-0e1f2a3b4c5d",
+      "sessionId": "6a3f1c20-3",
+      "shot": 1,
+      "width": 1707,
+      "height": 2560,
+      "publishedAt": "2026-10-22T09:30:13.512Z"
+    }
+  ],
+  "nextCursor": "MjAyNi0xMC0yMlQwOTozMDoxMy41MTJafDAxOWEwYjdlLThjMjEtN2QwNS1hM2Y2LTBlMWYyYTNiNGM1ZA",
+  "contact": {
+    "address": "34b Malvern Road, Morningside, Auckland",
+    "email": "privacy@example.invalid"
+  }
+}

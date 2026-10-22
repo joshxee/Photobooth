@@ -101,7 +101,7 @@ describe("security headers", () => {
     const res = await app.fetch(new Request(`${GALLERY}/boom`), env, createExecutionContext());
     expect(res.status).toBe(500);
     expectSecurityHeaders(res);
-    expect(await res.json()).toMatchObject({ code: "internal_error" });
+    expect(await res.json()).toMatchObject({ code: "internal" });
   });
 });
 
