@@ -20,7 +20,7 @@ this file first, so state facts and not intentions.
 ---
 
 ## 06 — Upload intent, upload and validation — DONE — 2026-10-23
-- PR: #PRNUM (branch `portal/06-upload-validation`)
+- PR: #26 (branch `portal/06-upload-validation`)
 - **Unblocks 07, 10, 11, 16.** The booth's client (09/10) can now run against `wrangler dev`; the contract (fixtures, statuses) is unchanged.
 - Built:
   - `POST /v1/device/photos` (`routes/device/photos.ts`): `deviceAuth`, `INTENT_LIMITER` per device ID (120/min, 429 + `Retry-After: 60`), 4 KB body cap, `PhotoIntentRequest`, 413 `too_large` over the byte caps, unknown event 404, deleted event 409 `event_closed`, then 03's atomic insert (open event) or, when the event no longer accepts uploads, a lookup of the device's existing row (DESIGN §9.2: closing blocks new photos only; a new photo gets `event_closed`). A retry must repeat the whole declaration (event, hashes, bytes, HD size) or 409 `conflict`. Answers READY, REJECTED `{reason}` or PENDING with signed URLs for the unstored variants only; a PENDING row with both variants stored (event deleted mid-upload, then restored) is published here.
