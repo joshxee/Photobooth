@@ -36,6 +36,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use bytes::Bytes;
 use sha2::{Digest, Sha256};
 use thiserror::Error;
+use tokio::sync::watch;
 
 pub use backoff::{
     backoff_delay, retry_delay, FixedJitter, Jitter, RandomJitter, BACKOFF_BASE, BACKOFF_CAP,
@@ -147,6 +148,8 @@ struct Inner {
     entries: Mutex<Entries>,
     jitter: Arc<dyn Jitter>,
     disk: Arc<dyn DiskSpace>,
+    /// Bumped by every state change, so the app can re-read [`Outbox::stats`].
+    changes: watch::Sender<u64>,
 }
 
 /// The outbox. Cheap to clone; clones share state. File I/O is blocking and small (a few
@@ -179,12 +182,32 @@ impl Outbox {
                 entries: Mutex::new(entries),
                 jitter: options.jitter,
                 disk: options.disk,
+                changes: watch::channel(0).0,
             }),
         })
     }
 
     pub fn dir(&self) -> &Path {
         &self.inner.dir
+    }
+
+    /// Changes whenever an item is queued, claimed, retried, stopped, finished or dismissed,
+    /// i.e. whenever [`Outbox::stats`] may have changed (free space aside).
+    pub fn subscribe(&self) -> watch::Receiver<u64> {
+        self.inner.changes.subscribe()
+    }
+
+    fn changed(&self) {
+        self.inner.changes.send_modify(|n| *n = n.wrapping_add(1));
+    }
+
+    /// Items not yet READY, whatever their state (`X-Outbox-Depth`).
+    pub fn len(&self) -> usize {
+        self.entries().items.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
     }
 
     // Every operation is a few map calls plus small file writes; none panics midway with the
@@ -267,6 +290,7 @@ impl Outbox {
             "shot queued"
         );
         self.entries().items.insert(id, item.clone());
+        self.changed();
         Ok(item)
     }
 
@@ -309,7 +333,64 @@ impl Outbox {
         let id = next_due_in(&entries, now)?.client_photo_id.clone();
         let item = entries.items.get_mut(&id)?;
         item.state = ItemState::Uploading;
-        Some(item.clone())
+        let claimed = item.clone();
+        drop(entries);
+        tracing::info!(
+            id = %claimed.client_photo_id,
+            attempts = claimed.attempts,
+            "upload started"
+        );
+        self.changed();
+        Some(claimed)
+    }
+
+    /// Hands a claimed item back untouched: no attempt counted, still due (a revoked device
+    /// isn't the item's fault). Memory only, like the claim.
+    pub(crate) fn unclaim(&self, id: &str) {
+        let mut entries = self.entries();
+        if let Some(item) = entries.items.get_mut(id) {
+            if item.state == ItemState::Uploading {
+                item.state = ItemState::Queued;
+                drop(entries);
+                tracing::info!(id, "upload stopped: the portal refused the device");
+                self.changed();
+            }
+        }
+    }
+
+    /// Makes the oldest queued item that is backing off due at `now`: the upload loop's
+    /// connectivity probe after an offline spell. Memory only; `false` if none was waiting.
+    pub fn expedite_next(&self, now: SystemTime) -> bool {
+        let mut entries = self.entries();
+        let next = entries
+            .items
+            .values_mut()
+            .filter(|i| i.state == ItemState::Queued && i.next_attempt_at > now)
+            .min_by(|a, b| {
+                (a.captured_at, &a.client_photo_id).cmp(&(b.captured_at, &b.client_photo_id))
+            });
+        match next {
+            Some(item) => {
+                item.next_attempt_at = now;
+                true
+            }
+            None => false,
+        }
+    }
+
+    /// Makes every queued item that is backing off due at `now` (the portal answers again).
+    /// The attempt counts stay, so an item that still fails keeps backing off. Memory only;
+    /// returns how many were brought forward.
+    pub fn expedite_all(&self, now: SystemTime) -> usize {
+        let mut entries = self.entries();
+        let mut count = 0;
+        for item in entries.items.values_mut() {
+            if item.state == ItemState::Queued && item.next_attempt_at > now {
+                item.next_attempt_at = now;
+                count += 1;
+            }
+        }
+        count
     }
 
     /// The server confirmed READY: deletes the variants, then the record. A crash between
@@ -317,12 +398,26 @@ impl Outbox {
     /// retry then re-posts the intent, which answers READY again and finishes the delete.
     pub fn mark_ready(&self, id: &str) -> Result<(), OutboxError> {
         let mut entries = self.entries();
-        if !entries.items.contains_key(id) {
+        let Some(item) = entries.items.get(id) else {
             return Err(OutboxError::UnknownItem(id.to_owned()));
-        }
+        };
+        let (session_id, shot, captured_at) =
+            (item.session_id.clone(), item.shot, item.captured_at);
         delete_files(self.dir(), id)?;
         entries.items.remove(id);
-        tracing::info!(id, "upload confirmed READY; local variants deleted");
+        drop(entries);
+        self.changed();
+        // `since_capture_ms` is for the operator's timings only (wiki/Booth-Upload.md).
+        let since_capture_ms = SystemTime::now()
+            .duration_since(captured_at)
+            .map_or(0, |d| d.as_millis() as u64);
+        tracing::info!(
+            id,
+            session_id,
+            shot,
+            since_capture_ms,
+            "upload confirmed READY; local variants deleted"
+        );
         Ok(())
     }
 
@@ -354,8 +449,10 @@ impl Outbox {
             "upload will be retried"
         );
         let next = item.next_attempt_at;
-        persist(self.dir(), item)?;
-        Ok(next)
+        let persisted = persist(self.dir(), item);
+        drop(entries);
+        self.changed();
+        persisted.map(|()| next)
     }
 
     /// A `hash_mismatch` answer: retried up to [`MAX_HASH_MISMATCH_RETRIES`] times, then the
@@ -396,7 +493,10 @@ impl Outbox {
         };
         item.last_error = Some(reason.to_owned());
         tracing::warn!(id, reason, "upload needs attention");
-        persist(self.dir(), item)
+        let persisted = persist(self.dir(), item);
+        drop(entries);
+        self.changed();
+        persisted
     }
 
     /// The operator's retry of an item that needs attention: back to the queue, due at once,
@@ -421,7 +521,11 @@ impl Outbox {
         item.attempts = 0;
         item.hash_mismatches = 0;
         item.next_attempt_at = UNIX_EPOCH;
-        persist(self.dir(), item)
+        tracing::info!(id, "upload retried by the operator");
+        let persisted = persist(self.dir(), item);
+        drop(entries);
+        self.changed();
+        persisted
     }
 
     /// The operator's dismiss (after confirming in the UI; the SD card still has the
@@ -450,6 +554,8 @@ impl Outbox {
         } else {
             return Err(OutboxError::UnknownItem(id.to_owned()));
         }
+        drop(entries);
+        self.changed();
         tracing::info!(id, "outbox entry dismissed by the operator");
         Ok(())
     }
