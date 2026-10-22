@@ -1,6 +1,14 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
-import { cameras, defaultSettings, flush, installBackend, removeBackend, until } from "../test/ipc";
+import {
+  cameras,
+  defaultSettings,
+  enrolledStatus,
+  flush,
+  installBackend,
+  removeBackend,
+  until,
+} from "../test/ipc";
 import { errorMessage, refreshCameras, startBridge } from "./bridge";
 import {
   resetBooth,
@@ -88,6 +96,7 @@ describe("bridge", () => {
       session_state: () => ({ state: "attract" }),
       camera_list: () => cameras(),
       settings_get: () => defaultSettings(),
+      portal_status: () => enrolledStatus(),
     });
 
   test("loads the initial snapshots", async () => {
@@ -97,6 +106,7 @@ describe("bridge", () => {
     expect(s.cameras).toHaveLength(3);
     expect(s.settings?.selected_camera).toBe("test");
     expect(s.session.state).toBe("attract");
+    expect(s.portal?.device_name).toBe("Booth 1");
     detach();
   });
 

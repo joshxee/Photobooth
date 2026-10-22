@@ -52,11 +52,43 @@ export interface Settings {
   mirror_preview: boolean;
   start_trigger: "tap" | "gesture";
   test_mode: TestModeSettings;
+  /** Changed only by enrolment (portal_enrol). */
+  portal_url: string;
+  /** Changed only by event selection (portal_select_event, portal_clear_event). */
+  selected_event: SelectedEvent | null;
 }
 
-export type SettingsPatch = Partial<Omit<Settings, "test_mode">> & {
+export type SettingsPatch = Partial<
+  Omit<Settings, "test_mode" | "portal_url" | "selected_event">
+> & {
   test_mode?: Partial<TestModeSettings>;
 };
+
+/** The portal event new photos go to. */
+export interface SelectedEvent {
+  id: string;
+  name: string;
+  /** `YYYY-MM-DD`, in the event's time zone. */
+  local_date: string;
+}
+
+/** What the operator UI knows about the portal. Never the device credential. */
+export interface PortalStatus {
+  enrolled: boolean;
+  /** The enrolled portal, or the address the enrolment form starts with. */
+  portal_url: string;
+  portal_host: string | null;
+  device_name: string | null;
+  selected_event: SelectedEvent | null;
+  /** Why the stored enrolment can't be used. */
+  problem: string | null;
+}
+
+/** An event that accepts uploads now. */
+export interface PortalEvent extends SelectedEvent {
+  venue: string;
+  timezone: string;
+}
 
 /** A rectangle in the camera frame, as fractions of its width and height (unmirrored). */
 export interface FrameRegion {

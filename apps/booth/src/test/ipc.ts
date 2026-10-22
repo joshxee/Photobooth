@@ -4,7 +4,7 @@ import { emit } from "@tauri-apps/api/event";
 import { clearMocks, mockIPC } from "@tauri-apps/api/mocks";
 import { waitFor } from "@testing-library/react";
 
-import type { CameraInfo, Settings } from "../ipc/types";
+import type { CameraInfo, PortalEvent, PortalStatus, Settings } from "../ipc/types";
 
 export interface Call {
   cmd: string;
@@ -35,8 +35,48 @@ export const defaultSettings = (over: Partial<Settings> = {}): Settings => ({
   mirror_preview: true,
   start_trigger: "tap",
   test_mode: { capture_delay_ms: 300, fail_every_n: 0, pattern: "bars" },
+  portal_url: "",
+  selected_event: null,
   ...over,
 });
+
+/** A booth that is not enrolled; the form starts at local `wrangler dev`. */
+export const portalStatus = (over: Partial<PortalStatus> = {}): PortalStatus => ({
+  enrolled: false,
+  portal_url: "http://photos.localhost:8787",
+  portal_host: null,
+  device_name: null,
+  selected_event: null,
+  problem: null,
+  ...over,
+});
+
+export const SMITH = {
+  id: "019a0b6c-4f00-7a3e-9c41-5b2d8e0f1a01",
+  name: "Smith wedding",
+  local_date: "2026-10-22",
+};
+
+/** Enrolled with the example portal, no event selected. */
+export const enrolledStatus = (over: Partial<PortalStatus> = {}): PortalStatus =>
+  portalStatus({
+    enrolled: true,
+    portal_url: "https://photos.example.invalid",
+    portal_host: "photos.example.invalid",
+    device_name: "Booth 1",
+    ...over,
+  });
+
+export const portalEvents = (): PortalEvent[] => [
+  { ...SMITH, venue: "Morningside Hall", timezone: "Pacific/Auckland" },
+  {
+    id: "019a0b6d-2e10-7b4f-8d52-6c3e9f102b02",
+    name: "Ng 40th",
+    venue: "",
+    timezone: "Pacific/Auckland",
+    local_date: "2026-10-24",
+  },
+];
 
 export const cameras = (over: Partial<Record<string, Partial<CameraInfo>>> = {}): CameraInfo[] => [
   {

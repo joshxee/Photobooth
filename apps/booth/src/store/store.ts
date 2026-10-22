@@ -9,6 +9,7 @@ import type {
   CameraStatus,
   CameraStatusEvent,
   GestureUpdate,
+  PortalStatus,
   SessionState,
   Settings,
 } from "../ipc/types";
@@ -30,6 +31,8 @@ interface BoothState {
   cameras: CameraInfo[];
   cameraStatus: Record<string, CameraStatus>;
   settings: Settings | null;
+  /** Enrolment and the selected event; null until loaded. */
+  portal: PortalStatus | null;
   /** The latest open-palm update; null until the first one arrives. */
   gesture: GestureUpdate | null;
   eventLog: LogEntry[];
@@ -42,6 +45,7 @@ interface BoothState {
   applyGesture(update: GestureUpdate): void;
   setCameras(cameras: CameraInfo[]): void;
   setSettings(settings: Settings): void;
+  setPortal(portal: PortalStatus): void;
   setNotice(notice: string | null): void;
 }
 
@@ -73,6 +77,7 @@ const initial = () => ({
   cameras: [] as CameraInfo[],
   cameraStatus: {} as Record<string, CameraStatus>,
   settings: null as Settings | null,
+  portal: null as PortalStatus | null,
   gesture: null as GestureUpdate | null,
   eventLog: [] as LogEntry[],
   notice: null as string | null,
@@ -113,6 +118,7 @@ export const useBooth = create<BoothState>()((set) => ({
     })),
 
   setSettings: (settings) => set({ settings }),
+  setPortal: (portal) => set({ portal }),
   setNotice: (notice) => set({ notice }),
 }));
 

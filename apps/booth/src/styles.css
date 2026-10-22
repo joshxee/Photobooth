@@ -369,6 +369,64 @@ select {
   line-height: 1.7;
 }
 
+/* ---------- guest portal (settings) ---------- */
+
+.portal p {
+  margin: 0;
+}
+
+.portal__state,
+.portal__title,
+.portal__event-name {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 500;
+}
+
+.portal__hint,
+.portal__event-date {
+  color: rgba(252, 250, 246, 0.7);
+}
+
+.portal__problem {
+  color: #f2b8a2;
+}
+
+.portal__facts {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 8px 20px;
+  margin: 0;
+  font-size: 18px;
+}
+
+.portal__facts dt {
+  color: rgba(252, 250, 246, 0.6);
+}
+
+.portal__facts dd {
+  margin: 0;
+}
+
+.portal__confirm {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.portal__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  margin-top: 6px;
+}
+
+.select__portal {
+  margin: 0;
+  color: rgba(252, 250, 246, 0.75);
+  font-size: 18px;
+}
+
 /* ---------- booth ---------- */
 
 .booth {
