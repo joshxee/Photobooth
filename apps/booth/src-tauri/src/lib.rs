@@ -10,6 +10,8 @@ mod logcat;
 mod logs;
 mod protocol;
 mod state;
+#[cfg(debug_assertions)]
+mod variant_probe;
 
 #[cfg(target_os = "android")]
 use std::sync::Arc;
@@ -230,6 +232,10 @@ pub fn run() {
                 logs,
                 Timings::default(),
             );
+            // Debug builds time the variant encoder on every completed session (session 08b's
+            // device check, wiki/Booth-Upload.md). Release builds have no probe.
+            #[cfg(debug_assertions)]
+            state.set_completion_hook(variant_probe::VariantProbe::spawn());
             tauri::async_runtime::spawn(session_task);
             spawn_event_forwarders(app.handle(), &state);
             // The tablet's recognizer; desktop has none, so only the developer panel's palm counts.
