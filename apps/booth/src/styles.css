@@ -427,6 +427,66 @@ select {
   font-size: 18px;
 }
 
+/* ---------- upload status (operator screens only) ---------- */
+
+.select__status {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 16px;
+}
+
+.upload-badge {
+  margin: 0;
+  padding: 4px 12px;
+  border-radius: 999px;
+  font-size: 16px;
+  border: 1px solid rgba(252, 250, 246, 0.25);
+  color: rgba(252, 250, 246, 0.8);
+}
+
+.upload-badge--busy {
+  border-color: var(--forest-2);
+  color: #cfe3d6;
+}
+
+.upload-badge--offline {
+  border-color: #b9a46a;
+  color: #e6d9b4;
+}
+
+.upload-badge--attention {
+  border-color: #f2b8a2;
+  color: #f2b8a2;
+}
+
+.queue__list {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.queue__entry {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px 0;
+  border-top: 1px solid rgba(252, 250, 246, 0.15);
+}
+
+.queue__title {
+  font-size: 18px;
+}
+
+.queue__reason {
+  color: rgba(252, 250, 246, 0.7);
+  font-family: var(--mono);
+  font-size: 15px;
+}
+
 /* ---------- booth ---------- */
 
 .booth {

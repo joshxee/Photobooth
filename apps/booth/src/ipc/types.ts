@@ -84,6 +84,38 @@ export interface PortalStatus {
   problem: string | null;
 }
 
+/** The upload queue, for the operator (`outbox_status`, `portal://outbox`). Counts only. */
+export interface OutboxStatus {
+  /** The outbox opened; false means this booth can't queue photos. */
+  available: boolean;
+  queued: number;
+  uploading: number;
+  /** Everything in the needs-attention list. */
+  needs_attention: number;
+  /** The last upload attempt got no answer from the portal. */
+  offline: boolean;
+  /** The portal refused this booth's credential; uploads wait for a new enrolment. */
+  revoked: boolean;
+  free_bytes: number | null;
+  /** Below 1 GB free. */
+  low_disk: boolean;
+}
+
+/** `upload`: retry or delete; `damaged`: files without a record; `not_queued`: never queued. */
+export type OutboxEntryKind = "upload" | "damaged" | "not_queued";
+
+/** One row of the needs-attention list (`outbox_items`). Never image bytes. */
+export interface OutboxEntry {
+  id: string;
+  kind: OutboxEntryKind;
+  reason: string;
+  session_id: string | null;
+  shot: number | null;
+  captured_at: string | null;
+  event_id: string | null;
+  can_retry: boolean;
+}
+
 /** An event that accepts uploads now. */
 export interface PortalEvent extends SelectedEvent {
   venue: string;

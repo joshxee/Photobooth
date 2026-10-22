@@ -4,7 +4,14 @@ import { emit } from "@tauri-apps/api/event";
 import { clearMocks, mockIPC } from "@tauri-apps/api/mocks";
 import { waitFor } from "@testing-library/react";
 
-import type { CameraInfo, PortalEvent, PortalStatus, Settings } from "../ipc/types";
+import type {
+  CameraInfo,
+  OutboxEntry,
+  OutboxStatus,
+  PortalEvent,
+  PortalStatus,
+  Settings,
+} from "../ipc/types";
 
 export interface Call {
   cmd: string;
@@ -66,6 +73,32 @@ export const enrolledStatus = (over: Partial<PortalStatus> = {}): PortalStatus =
     device_name: "Booth 1",
     ...over,
   });
+
+/** An empty, working upload queue with plenty of space. */
+export const outboxStatus = (over: Partial<OutboxStatus> = {}): OutboxStatus => ({
+  available: true,
+  queued: 0,
+  uploading: 0,
+  needs_attention: 0,
+  offline: false,
+  revoked: false,
+  free_bytes: 52_000_000_000,
+  low_disk: false,
+  ...over,
+});
+
+/** A stopped upload: shot 2 of a session, refused because the event closed. */
+export const stoppedUpload = (over: Partial<OutboxEntry> = {}): OutboxEntry => ({
+  id: "5f0c2b1e-8d3a-4c6f-9b2e-7a1d4e6f8c90",
+  kind: "upload",
+  reason: "event_closed (409)",
+  session_id: "6a3f1c20-3",
+  shot: 2,
+  captured_at: "2026-10-22T09:30:12.345Z",
+  event_id: SMITH.id,
+  can_retry: true,
+  ...over,
+});
 
 export const portalEvents = (): PortalEvent[] => [
   { ...SMITH, venue: "Morningside Hall", timezone: "Pacific/Auckland" },

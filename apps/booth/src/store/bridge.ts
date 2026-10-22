@@ -4,7 +4,9 @@ import {
   cameraList,
   onCameraStatus,
   onGestureUpdate,
+  onOutboxStatus,
   onSessionState,
+  outboxStatus,
   portalStatus,
   sessionState,
   settingsGet,
@@ -18,14 +20,16 @@ export function errorMessage(error: unknown): string {
 }
 
 /**
- * Starts listening to `session://state` and `camera://status`, then loads the initial
- * snapshots (the WebView may load, or reload in dev, while a session is running). Events are
- * attached first so nothing is missed; a snapshot never overwrites a newer event.
+ * Starts listening to the backend's events (session, camera, gesture, upload queue), then
+ * loads the initial snapshots (the WebView may load, or reload in dev, while a session is
+ * running). Events are attached first so nothing is missed; a snapshot never overwrites a
+ * newer event.
  * Returns a function that detaches the listeners.
  */
 export async function startBridge(): Promise<() => void> {
   const store = useBooth.getState();
   let sawSessionEvent = false;
+  let sawOutboxEvent = false;
 
   const unlisten = await Promise.all([
     onSessionState((state) => {
@@ -34,19 +38,25 @@ export async function startBridge(): Promise<() => void> {
     }),
     onCameraStatus((event) => useBooth.getState().applyCameraStatus(event)),
     onGestureUpdate((update) => useBooth.getState().applyGesture(update)),
+    onOutboxStatus((status) => {
+      sawOutboxEvent = true;
+      useBooth.getState().setOutbox(status);
+    }),
   ]);
 
   try {
-    const [session, cameras, settings, portal] = await Promise.all([
+    const [session, cameras, settings, portal, outbox] = await Promise.all([
       sessionState(),
       cameraList(),
       settingsGet(),
       portalStatus(),
+      outboxStatus(),
     ]);
     if (!sawSessionEvent) store.applySession(session);
     store.setCameras(cameras);
     store.setSettings(settings);
     store.setPortal(portal);
+    if (!sawOutboxEvent && outbox) store.setOutbox(outbox);
   } catch (error) {
     store.setNotice(errorMessage(error));
   }
