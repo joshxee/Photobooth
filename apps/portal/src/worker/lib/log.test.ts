@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { createLogger } from "./log";
 
 function capture() {
@@ -6,7 +6,20 @@ function capture() {
   return { lines, log: createLogger((line) => lines.push(line)) };
 }
 
+afterEach(() => vi.restoreAllMocks());
+
 describe("logger", () => {
+  it("sends each level to the matching console method", () => {
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    const logger = createLogger();
+    logger.info({ outcome: "a" });
+    logger.warn({ outcome: "b" });
+    logger.error({ outcome: "c" });
+    expect([log.mock.calls.length, warn.mock.calls.length, error.mock.calls.length]).toEqual([1, 1, 1]);
+  });
+
   it("writes one JSON object per line with level and timestamp", () => {
     const { lines, log } = capture();
     log.info({ requestId: "r1", eventId: "e1", photoId: "p1", deviceId: "d1", outcome: "ok" });

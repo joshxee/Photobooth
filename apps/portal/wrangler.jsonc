@@ -4,7 +4,9 @@
 // No account_id, secrets or real IDs here: the repo is public.
 {
   "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "portal",
+  // Not "portal": that is the production Worker, and a bare `wrangler deploy` (no --env) would
+  // overwrite it with this local-development config.
+  "name": "portal-local",
   "main": "src/worker/index.ts",
   "compatibility_date": "2026-10-22",
 
@@ -14,7 +16,7 @@
   "observability": { "enabled": true },
 
   // run_worker_first: every response, including static assets, goes through the Worker so it
-  // gets the security headers and the host check (docs/wiki/Portal.md).
+  // gets the security headers and the host check (wiki/Portal.md).
   "assets": {
     "directory": "./dist",
     "binding": "ASSETS",
