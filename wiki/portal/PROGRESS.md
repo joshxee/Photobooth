@@ -20,7 +20,7 @@ this file first, so state facts and not intentions.
 ---
 
 ## 08 — Booth outbox — DONE — 2026-10-22
-- PR: #TBD (branch `portal/08-booth-outbox`)
+- PR: #23 (branch `portal/08-booth-outbox`)
 - Built:
   - `crates/photobooth-core/src/outbox/`: `EncodedShot` (08b's output type), `OutboxItem` + JSON record (`{"format":1,"item":…}`), three files per shot (`{id}.thumb.jpg`, `{id}.hd.jpg`, `{id}.json` last), each temp → `fsync` → rename with a directory `fsync` after the variants and after the record. `Outbox::open` deletes `*.tmp`, marks a record missing a variant needs attention (persisted), quarantines variants without a readable record (dismiss only); nothing else is deleted except by READY or the operator. `enqueue`, `next_due`, `next_attempt_at`, `mark_ready` (variants, then record), `mark_retry`, `mark_needs_attention`, `retry`, `dismiss`, `read_variant` (re-hashes before upload), `stats` (+ `DiskSpace` trait, `low_disk` < 1 GB).
   - `PortalClient` trait (`intent`, `upload`), `IntentOutcome`/`UploadOutcome`/`UploadDescriptor` (opaque, headers as given), `PortalError` + `ErrorCode` (the 13 contract codes with their statuses). `drain_once(client, now)`: two workers, oldest capture first, the §9.3 table exactly; `upload_expired` re-intents at once (≤ 3 intents per pass, then backoff); `hash_mismatch` retried 3×, the 4th needs attention; backoff 1 s × 2^(n−1) capped at 5 min with equal jitter, `Retry-After` wins up to 1 h; `RandomJitter` (xorshift64\* seeded from the OS via `uuid`), `FixedJitter` for tests. `iso_millis` formats `capturedAt` in the contract's form (no date crate).
