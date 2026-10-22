@@ -6,6 +6,7 @@ import { createMiddleware } from "hono/factory";
 import { EnrolRequest, EnrolResponse } from "../../../shared/schemas";
 import { insertEnrolAudit } from "../../db/audit";
 import { type DeviceRow, redeemEnrolCode } from "../../db/devices";
+import { enrolRateKey } from "../../domain/device";
 import { newDeviceCredential, newId, normaliseEnrolCode } from "../../domain/ids";
 import { hashToken } from "../../domain/tokens";
 import { readBody } from "../../lib/api";
@@ -23,12 +24,12 @@ const LIMIT_PERIOD_SECONDS = 60;
 const REFUSED = "That code is not valid. Ask for a new one.";
 
 /**
- * Per IP, before anything else, so every attempt counts, malformed ones included. Cloudflare
+ * Per IP (an IPv6 address by its /64), before anything else, so every attempt counts, malformed
+ * ones included. Cloudflare
  * always sets CF-Connecting-IP; only local tests can lack it.
  */
 const enrolRateLimit = createMiddleware<AppEnv>(async (c, next) => {
-  const ip = c.req.header("CF-Connecting-IP") ?? "unknown";
-  const { success } = await c.env.ENROL_LIMITER.limit({ key: `enrol:${ip}` });
+  const { success } = await c.env.ENROL_LIMITER.limit({ key: enrolRateKey(c.req.header("CF-Connecting-IP")) });
   if (success) return next();
   const res = errorResponse(c, "rate_limited", "Too many attempts. Wait a minute and try again.");
   res.headers.set("Retry-After", String(LIMIT_PERIOD_SECONDS));

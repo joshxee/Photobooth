@@ -94,6 +94,7 @@ devicesApi.post("/:id/revoke", async (c) => {
   // Both apply only if it isn't revoked yet, so revoking twice gets 409 and one audit row.
   const [, update] = await db.batch([insertAuditIfDeviceActive(db, entry, device.id), revokeDevice(db, device.id, now)]);
   if (update?.meta.changes !== 1) throw new AppError("conflict", "The device is already revoked.");
-  const revoked: DeviceRow = { ...device, revoked_at: now.toISOString(), enrol_code_hash: null, enrol_expires_at: null };
-  return c.json(AdminDevice.parse(toAdminDevice(revoked)));
+  // Re-read, so a heartbeat or enrolment that landed since the first read is reflected.
+  const revoked = await getDevice(db, device.id);
+  return c.json(AdminDevice.parse(toAdminDevice(revoked!)));
 });

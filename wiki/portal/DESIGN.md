@@ -522,7 +522,9 @@ day 1 to preserve this.
     signage must be reprinted after a rotation, and the rotate confirmation says so.
 - **Photos**: grid by state (pending, ready, rejected), hide and unhide, delete permanently (for
   removal requests).
-- **Devices**: create (shows the 10-minute code once), revoke, last seen, backlog, app version.
+- **Devices**: create (shows the 10-minute code once), re-issue the code (also re-enrols an
+  enrolled tablet), revoke, last seen, backlog, app version. On enrolment the device takes the name
+  the booth sends, replacing the admin's placeholder (session 05).
   This is the event-day health view.
 - **Audit**: event changes, publish and suspend, rotation, device create and revoke, hide and
   delete, restore.

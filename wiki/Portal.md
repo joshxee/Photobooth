@@ -279,10 +279,14 @@ Device routes on the gallery host (`routes/device/`):
   normalised as people type them (case, spaces, dashes, I/L → 1, O → 0).
 - **Why 40 bits and a per-IP limit are enough.** A code is 8 Crockford characters (2^40 ≈ 1.1 ×
   10^12), lives 10 minutes and works once, and only a handful are pending at a time (five tablets).
-  `ENROL_LIMITER` allows 10 attempts a minute per IP (keyed `enrol:<CF-Connecting-IP>`), checked
-  before the body is read, and answers 429 `rate_limited` with `Retry-After: 60`. Even an attacker
-  who spends the account's whole Workers Free allowance (100,000 requests a day) on guesses against
-  five live codes has about a 5 × 10^-7 chance a day. Cloudflare's docs advise against IP keys
+  `ENROL_LIMITER` allows 10 attempts a minute per IP (`enrolRateKey`: an IPv4 address, or an IPv6
+  address's /64, since one subscriber can rotate through a whole /64), checked before the body is
+  read, and answers 429 `rate_limited` with `Retry-After: 60`. The per-IP limit stops one client
+  guessing quickly; **the real bound is the account's request ceiling**, because an attacker with
+  many addresses can spread guesses across them. Spending the whole Workers Free allowance
+  (100,000 requests a day) on guesses against five live codes gives about a 5 × 10^-7 chance a day;
+  on Workers Paid the ceiling is soft, but 10 million guesses still give only about 4.5 × 10^-5.
+  Cloudflare's docs advise against IP keys
   because people share addresses; here sharing costs little (a venue's booths enrol once each), and
   there is no better key before a device has a credential. The binding is approximate and counted
   per Cloudflare location, which the arithmetic above doesn't depend on. The local simulation is
