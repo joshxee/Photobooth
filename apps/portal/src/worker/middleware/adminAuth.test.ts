@@ -4,6 +4,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { createHostApp } from "../lib/hostApp";
 import {
   ADMIN_EMAIL,
+  accessKey,
+  keyPair,
   AUD,
   CERTS_URL,
   SERVICE_CLIENT,
@@ -158,10 +160,26 @@ describe("adminAuth: token checks (401)", () => {
     await expectRejected(await call(`${none}.${payload}.`), 401);
   });
 
-  it("rejects HS256 (a symmetric alg signed with a guessable key)", async () => {
+  it("rejects HS256 with the published kid (alg confusion: the public key used as an HMAC secret)", async () => {
     stubAccessCerts();
-    const { sign } = await import("hono/utils/jwt/jwt");
-    await expectRejected(await call(await sign(userClaims(), "secret", "HS256")), 401);
+    const b64url = (bytes: Uint8Array) => btoa(String.fromCharCode(...bytes)).replace(/=+$/, "").replace(/\+/g, "-").replace(/\//g, "_");
+    const enc = new TextEncoder();
+    const header = b64url(enc.encode(JSON.stringify({ alg: "HS256", typ: "JWT", kid: accessKey.publicJwk.kid })));
+    const payload = b64url(enc.encode(JSON.stringify(userClaims())));
+    const secret = await crypto.subtle.importKey("raw", enc.encode(JSON.stringify(accessKey.publicJwk)), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+    const mac = new Uint8Array(await crypto.subtle.sign("HMAC", secret, enc.encode(`${header}.${payload}`)));
+    await expectRejected(await call(`${header}.${payload}.${b64url(mac)}`), 401);
+  });
+
+  it.each(["RS384", "ES256"] as const)("rejects %s even when its key is published (RS256 only)", async (alg) => {
+    const key = await keyPair(`key-${alg}`, alg);
+    stubAccessCerts([accessKey.publicJwk, key.publicJwk]);
+    await expectRejected(await call(await signJwt(userClaims(), key.privateJwk)), 401);
+  });
+
+  it("rejects an iat in the future", async () => {
+    stubAccessCerts();
+    await expectRejected(await call(await signJwt(userClaims({ iat: Math.floor(Date.now() / 1000) + 600 }))), 401);
   });
 
   it("rejects a token signed by another key with the same kid", async () => {
@@ -223,6 +241,42 @@ describe("adminAuth: key cache", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+describe("adminAuth: key cache freshness", () => {
+  afterEach(() => vi.useRealTimers());
+  const later = (ms: number) => vi.setSystemTime(Date.now() + ms);
+
+  it("refetches after the 10-minute TTL", async () => {
+    const fetchSpy = stubAccessCerts();
+    expect((await call(await signJwt(userClaims()))).status).toBe(200);
+    vi.useFakeTimers({ toFake: ["Date"] });
+    later(9 * 60_000);
+    expect((await call(await signJwt(userClaims()))).status).toBe(200);
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    later(2 * 60_000);
+    expect((await call(await signJwt(userClaims()))).status).toBe(200);
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
+  });
+
+  it("keeps using recent keys when a refresh fails, retries at most once a minute, then fails closed", async () => {
+    const fetchSpy = stubAccessCerts();
+    expect((await call(await signJwt(userClaims()))).status).toBe(200);
+    vi.mocked(globalThis.fetch).mockResolvedValue(new Response("down", { status: 503 }));
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    vi.useFakeTimers({ toFake: ["Date"] });
+    later(11 * 60_000);
+    // Stale but recent: still accepted, with a warning, and the outage isn't hammered.
+    for (let i = 0; i < 3; i++) expect((await call(await signJwt(userClaims()))).status).toBe(200);
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
+    expect(warn.mock.calls.join(" ")).toContain("access_certs_stale");
+    later(61_000);
+    expect((await call(await signJwt(userClaims()))).status).toBe(200);
+    expect(fetchSpy).toHaveBeenCalledTimes(3);
+    // Over an hour since the last good fetch: refused.
+    later(60 * 60_000);
+    await expectRejected(await call(await signJwt(userClaims())), 401);
   });
 });
 

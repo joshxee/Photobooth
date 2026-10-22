@@ -15,15 +15,18 @@ export const ADMIN_ORIGIN = "http://admin.localhost:8787";
 
 type Jwk = JsonWebKey & { kid: string; alg: string };
 
-async function keyPair(kid: string): Promise<{ publicJwk: Jwk; privateJwk: Jwk }> {
-  const pair = (await crypto.subtle.generateKey(
-    { name: "RSASSA-PKCS1-v1_5", modulusLength: 2048, publicExponent: new Uint8Array([1, 0, 1]), hash: "SHA-256" },
-    true,
-    ["sign", "verify"],
-  )) as CryptoKeyPair;
+const ALGORITHMS = {
+  RS256: { name: "RSASSA-PKCS1-v1_5", modulusLength: 2048, publicExponent: new Uint8Array([1, 0, 1]), hash: "SHA-256" },
+  RS384: { name: "RSASSA-PKCS1-v1_5", modulusLength: 2048, publicExponent: new Uint8Array([1, 0, 1]), hash: "SHA-384" },
+  ES256: { name: "ECDSA", namedCurve: "P-256" },
+} as const;
+
+/** A key pair as JWKs carrying `kid` and `alg`, as Access publishes them. */
+export async function keyPair(kid: string, alg: keyof typeof ALGORITHMS = "RS256"): Promise<{ publicJwk: Jwk; privateJwk: Jwk }> {
+  const pair = (await crypto.subtle.generateKey(ALGORITHMS[alg], true, ["sign", "verify"])) as CryptoKeyPair;
   const publicJwk = (await crypto.subtle.exportKey("jwk", pair.publicKey)) as JsonWebKey;
   const privateJwk = (await crypto.subtle.exportKey("jwk", pair.privateKey)) as JsonWebKey;
-  return { publicJwk: { ...publicJwk, kid, alg: "RS256" }, privateJwk: { ...privateJwk, kid, alg: "RS256" } };
+  return { publicJwk: { ...publicJwk, kid, alg }, privateJwk: { ...privateJwk, kid, alg } };
 }
 
 /** The key Access "publishes", and one it doesn't (a token signed by someone else). */

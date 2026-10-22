@@ -16,12 +16,23 @@ export const DEV_ACTOR = "dev@admin.localhost";
 
 /** Keys are kept this long, then refetched on the next request. */
 const KEY_TTL_MS = 10 * 60 * 1000;
-/** A token whose `kid` isn't cached triggers a refetch at most this often (key rotation). */
-const MISS_REFETCH_MS = 60 * 1000;
+/**
+ * At most one fetch attempt this often per isolate, whether for a `kid` that isn't cached (key
+ * rotation), a stale cache, or a retry after a failed fetch.
+ */
+const REFETCH_INTERVAL_MS = 60 * 1000;
+/**
+ * If a refresh fails, keys fetched within this long are still used rather than locking every
+ * admin out during a certs-endpoint hiccup. Bounded, so a key Access withdrew isn't trusted for
+ * long during an outage.
+ */
+const STALE_MAX_MS = 60 * 60 * 1000;
 
 interface CachedKeys {
   keys: HonoJsonWebKey[];
   fetchedAt: number;
+  /** The last fetch attempt, successful or not. */
+  attemptedAt: number;
 }
 
 // Per isolate, keyed by certs URL. Losing it (a new isolate) only costs one fetch.
@@ -40,17 +51,32 @@ async function fetchKeys(url: string): Promise<HonoJsonWebKey[]> {
   return body.keys as HonoJsonWebKey[];
 }
 
-/** The cached keys, refreshed when stale, or when `kid` is unknown and the last fetch is old enough. */
-async function keysFor(url: string, kid: string | undefined): Promise<HonoJsonWebKey[]> {
+/**
+ * The cached keys, refreshed when stale or when `kid` is unknown, at most once per
+ * REFETCH_INTERVAL_MS. With no usable cache a failed fetch throws (the request gets 401).
+ */
+async function keysFor(url: string, kid: string | undefined, onStale: () => void): Promise<HonoJsonWebKey[]> {
   const now = Date.now();
   const cached = keyCache.get(url);
-  const stale = !cached || now - cached.fetchedAt >= KEY_TTL_MS;
-  const missing = cached !== undefined && !cached.keys.some((k) => k.kid === kid);
-  if (stale || (missing && now - cached.fetchedAt >= MISS_REFETCH_MS)) {
+  if (!cached) {
     const keys = await fetchKeys(url);
-    keyCache.set(url, { keys, fetchedAt: now });
+    keyCache.set(url, { keys, fetchedAt: now, attemptedAt: now });
     return keys;
   }
+  const stale = now - cached.fetchedAt >= KEY_TTL_MS;
+  const missing = !cached.keys.some((k) => k.kid === kid);
+  if ((stale || missing) && now - cached.attemptedAt >= REFETCH_INTERVAL_MS) {
+    cached.attemptedAt = now;
+    try {
+      const keys = await fetchKeys(url);
+      keyCache.set(url, { keys, fetchedAt: now, attemptedAt: now });
+      return keys;
+    } catch (err) {
+      if (now - cached.fetchedAt >= STALE_MAX_MS) throw err;
+      onStale();
+    }
+  }
+  if (now - cached.fetchedAt >= STALE_MAX_MS) throw new Error("certs too old to use");
   return cached.keys;
 }
 
@@ -124,7 +150,9 @@ export const adminAuth = () =>
     const certsUrl = `https://${team}/cdn-cgi/access/certs`;
     let payload: JWTPayload;
     try {
-      const keys = await keysFor(certsUrl, kidOf(token));
+      const keys = await keysFor(certsUrl, kidOf(token), () =>
+        log.warn({ requestId: c.get("requestId"), outcome: "access_certs_stale" }),
+      );
       payload = await verifyWithJwks(token, {
         keys,
         allowedAlgorithms: ["RS256"],

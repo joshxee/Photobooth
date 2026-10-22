@@ -159,9 +159,13 @@ or HEAD.
   and Access sends the bare token in its own header, so the middleware calls `verifyWithJwks` (the
   function `jwk` wraps) directly. Same checks, same code (DESIGN §13 says so).
 - **The keys are cached per isolate** for 10 minutes. A token whose `kid` isn't cached causes a
-  refetch, at most once a minute, so a key rotation is picked up quickly (Access rotates every 6
-  weeks and keeps the old key valid for 7 days) and a flood of forged `kid`s can't become a flood
-  of certs fetches. If the certs can't be fetched, the request is refused (fail closed). An unset
+  refetch, and every fetch attempt (refresh, unknown `kid` or retry after a failure) happens at most
+  once a minute, so a key rotation is picked up quickly (Access rotates every 6 weeks and keeps the
+  old key valid for 7 days) and a flood of forged `kid`s or an outage can't become a flood of certs
+  fetches. If a refresh fails, keys fetched within the last hour are still used (with a warning
+  log), so a certs-endpoint hiccup doesn't lock every admin out; with no keys that recent, or no
+  cache at all, the request is refused (fail closed). Concurrent requests on a cold cache each
+  fetch once; admin traffic is too low to need coalescing. An unset
   or malformed `ACCESS_TEAM_DOMAIN` (a bare hostname, no scheme) or `ACCESS_AUD` also refuses
   everything, with a warning log.
 - **`Cf-Access-Authenticated-User-Email` is never read.** It is a plain header; only the signed
@@ -182,7 +186,9 @@ or HEAD.
   `ADMIN_SERVICE_CLIENTS`) takes effect on the first request after the deploy, even for someone
   whose Access session is still valid, because the Worker checks the claim on every request and
   keeps no admin session of its own. Removing a person from the Access policy, or revoking their
-  Access session, stops them at the edge as well. A revoked service token can't get a JWT at all.
+  Access session, stops them at the edge as well. Revoking a service token (or an Access session)
+  is enforced by Access at the edge: the Worker has no revocation list, so a JWT Access already
+  issued stays signature-valid until its `exp`. Take it off the allowlist too for an immediate cut-off.
 - **CSRF.** Non-GET requests need `Origin` equal to `https://<ADMIN_HOST>` (or `http://` for a
   local `*.localhost` host) and `Content-Type: application/json`. A cross-site form can't send JSON,
   and a cross-site `fetch` with a JSON body needs a CORS preflight, which never succeeds because the
@@ -347,3 +353,6 @@ EOI only), so the header walk (session 06) accepts them and browsers display the
   on service tokens, `aud` as an array) follows Cloudflare's docs and is **unverified** until
   staging (session 07).
 - The certs cache is per isolate, so each new isolate fetches the certs once.
+- `GET /api/events` is unpaginated and the response schema caps it at 1,000 events, so the list
+  would return a 500 past that. At about four events a month that is decades away; paginate it
+  (session 14 or later) well before then.
