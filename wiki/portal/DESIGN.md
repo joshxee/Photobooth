@@ -241,6 +241,15 @@ audit(id, at, actor, action, event_id, target_id, detail)   -- INDEX(event_id, a
 - Admins come from the Worker variable `ADMIN_EMAILS` plus the Access policy. There is no
   admins table.
 - Migrations are additive only, applied with `wrangler d1 migrations apply`.
+- Refinements made when the schema was written (session 03, `apps/portal/migrations/0001_init.sql`):
+  - IDs are UUIDv7 (time-ordered); times are UTC ISO-8601 text from `toISOString()`.
+  - `CHECK`s beyond the status enums: `deleted_at` and `purge_after` are set together; READY
+    needs both `*_stored` flags and `published_at`; REJECTED needs `reject_reason`; sha256
+    columns are 64 lowercase hex; `variant_bytes` and `audit.detail` are valid JSON.
+  - `devices.enrol_code_hash` is `UNIQUE`, because enrolment looks the device up by the code's hash.
+  - `photos.event_id` is `ON DELETE CASCADE`, so purging an event row removes its photo rows.
+    `audit` has no foreign key, so it outlives the event it describes.
+  - `events.venue` is `NOT NULL DEFAULT ''`.
 
 ## 7. Storage layout and lifecycle (one private bucket)
 
@@ -268,7 +277,8 @@ was dropped because it keeps that EXIF whatever `metadata` is set to; spike Q6.)
 ## 8. API
 
 All bodies are JSON validated by zod, unknown fields are rejected, and body sizes are capped.
-Errors look like `{code, message, correlationId}`.
+Errors look like `{code, message, correlationId}`; `code` comes from a closed set with one HTTP
+status per code (`apps/portal/src/shared/schemas.ts`, listed in `wiki/Portal.md`).
 
 **Device** (`photos.<domain>`, `Authorization: Bearer <device credential>`, except enrolment):
 
@@ -311,7 +321,7 @@ Booth                         Worker                                   D1 / R2
   metadata (D14); the outbox stores the two variants, not the original
 1 POST /v1/device/photos {eventId, clientPhotoId, sessionId, shot, capturedAt, width, height,
                           variants: {thumb: {bytes, sha256}, hd: {bytes, sha256}}}
-                              device active? event OPEN, not deleted? thumb ≤ 200 KB,
+                              device active? event OPEN, not deleted, not expired? thumb ≤ 200 KB,
                                      hd ≤ 3 MB and ≤ 2560 px?
                               INSERT-if-under-limit … ON CONFLICT(device_id, client_photo_id)
    ◄── READY  → done (nothing to upload)
