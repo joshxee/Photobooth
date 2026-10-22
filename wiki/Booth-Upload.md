@@ -3,8 +3,8 @@
 How the booth gets photos to the portal: a durable outbox in the Rust core, drained through a
 `PortalClient` trait. This page holds the reasons; the behaviour spec is
 [DESIGN.md §9–§10](./portal/DESIGN.md). Built so far: the outbox and its retry state machine
-(session 08). The variant encoder (08b), the reqwest client and enrolment (09), and the upload
-loop and operator status (10) come next and extend this page.
+(session 08) and the variant encoder (08b). The reqwest client and enrolment (09), and the
+upload loop and operator status (10) come next and extend this page.
 
 ## What is queued, and when
 
@@ -30,6 +30,99 @@ The outbox stores the two variants the booth makes (`EncodedShot`: thumb 480 px 
 2560 px q85, orientation applied, no metadata), never the camera's original. The original
 stays in memory for the strip and on the camera's SD card, which remains the archive (D1). So
 the booth's disk holds 0.25–0.62 MB per shot instead of 11–17 MB, and only until READY.
+
+## The variant encoder (session 08b)
+
+`photobooth-core::variants::encode_variants` makes the two variants from the in-memory camera
+JPEG. Its guarantees are in [Core-Domain.md](./Core-Domain.md); this section holds the reasons.
+
+**Why the booth makes the variants, not Cloudflare (D14).** The Images binding kept GPS and
+camera/lens serial numbers whatever `metadata` was set to (spike Q6), needed Workers Paid for
+its CPU (355–470 ms per photo against Free's 10 ms, Q11), and meant uploading 11–17 MB per shot
+over venue networks instead of about 0.3 MB (Q10). Re-encoding the pixels on the booth drops
+every metadata segment by construction, and the Worker's header walk (DESIGN §9.1) checks it
+again. The cost is this encoder plus about half a second of tablet CPU per shot, off the
+capture path.
+
+**Pipeline.** Read the EXIF orientation (own small parser: one tag, every read bounds-checked),
+decode with DCT scaling to the smallest of 1/1, 1/2, 1/4, 1/8 whose long edge is still at least
+2560 (a 6000×4000 Sony frame decodes at 3000×2000), Lanczos3 to the HD size, drop the decoded
+frame, rotate or flip HD upright, encode HD, resize HD to the thumb, encode the thumb. Sizes are
+computed from the stored size, so 6000×4000 gives exactly 2560×1707 and 480×320. Nothing is
+upscaled.
+
+**Crate choice.** Measured on the PC and on the Xiaomi Pad 6 with the same inputs (the spike's
+24 MP sample JPEGs, 11.3 and 17.5 MB, 6000×4000), release build, one thread, whole pipeline:
+
+| Decoder (+ `fast_image_resize` + `jpeg-encoder`) | PC (i5-13600KF) | Xiaomi Pad 6 |
+|---|---|---|
+| **`jpeg-decoder` 0.3, DCT-scaled 1/2 (chosen)** | 186–224 ms | **464–541 ms** |
+| `zune-jpeg` 0.4 (NEON), full decode | 213–248 ms | 536–577 ms |
+| `jpeg-decoder`, full decode | 233–274 ms | 730–806 ms |
+| `jpeg-decoder` with its `rayon` feature | slower than without | not run |
+
+`zune-jpeg` decodes faster on the tablet (its NEON path), but it can't scale during decode, so
+the resize then starts from 24 MP and costs more than the decode saves, and the decoded frame is
+72 MB instead of 18 MB. All three crates are pure Rust and build for `aarch64-linux-android`
+with only the NDK linker the app already uses. `turbojpeg` was not built: it needs a CMake build
+of libjpeg-turbo for Android (and NASM on x86), which the existing Android build doesn't have;
+the spike's Pillow/libjpeg-turbo numbers on the same PC (0.25–0.33 s) are its reference.
+`jpeg-decoder` is used without default features (no `rayon`, which was slower here).
+
+**Encoder settings that matter.** `jpeg-encoder` writes one scan per component when its
+optimised Huffman tables are on, and the header rules refuse more than one scan, so the encoder
+uses the standard tables (one interleaved scan; outputs are a few percent larger). Chroma is
+4:2:0 with box-averaged samples (`ChromaSubsamplingMethod::Average`), not the crate's default
+of taking the top-left pixel. No ICC profile is written (the camera shoots sRGB, DESIGN §7).
+
+**Every output is checked.** `check_segments` applies the Worker's rules (SOI; only APP0, APP14,
+DQT, DHT, DRI and exactly one 8-bit SOF0 before the scan; SOS within 64 KB) and walks the scan
+too (only stuffed bytes and RSTn, so a single scan, and EOI as the last two bytes). `encode`
+also checks the frame size and the portal's byte caps (thumb ≤ 200 KB, HD ≤ 3 MB). A failure is
+a `VariantError`, never an upload. Inputs over 50 MP are refused before decoding, and the
+decoder's own buffers are capped at 256 MB, so a strange file is an error rather than an
+out-of-memory kill.
+
+**Debug builds time it on real captures.** `apps/booth/src-tauri/src/variant_probe.rs`
+(`#[cfg(debug_assertions)]`) is a completion hook that encodes each completed session's shots
+one at a time on one background thread and logs a `variant probe` line per shot, then drops the
+output. It holds at most one waiting session. Release builds don't contain it; session 10
+replaces it with the real hook. The root `Cargo.toml` builds `jpeg-encoder`, `jpeg-decoder`,
+`fast_image_resize` and `photobooth-core` at `opt-level = 3` in the dev profile, so the debug
+APK times optimised code.
+
+### Measured on the tablet (2026-10-22)
+
+Xiaomi Pad 6, debug APK of the 08b branch, Sony A7 III over USB (PC Remote, JPEG only), 10
+sessions × 3 shots driven with `adb shell input tap`, numbers from `logcat -s Photobooth`:
+
+| Per shot (n = 30) | min | p50 | p95 | max |
+|---|---|---|---|---|
+| **total** | 404 ms | **420 ms** | **540 ms** | 542 ms |
+| decode (scaled 1/2) | 227 | 248 | 327 | 333 |
+| both resizes | 98 | 103 | 122 | 140 |
+| orient | 0 | 0 | 0 | 0 |
+| both encodes + checks | 69 | 72 | 78 | 83 |
+| HD bytes | 278,443 | 303,701 | 327,407 | 328,485 |
+| thumb bytes | 10,970 | 11,167 | 11,355 | 11,420 |
+
+- **Gate (p95 ≤ 3 s per shot): passed.** p95 is 0.54 s, at the low end of the spike's
+  0.6–1.6 s estimate, so a session's three shots take about 1.3 s in all. Every shot was
+  6000×4000, orientation 1 (the camera was level), HD 2560×1707. The first shot of a session is
+  the slowest (446–542 ms, against 404–453 ms for shots 2 and 3), most likely CPU frequency
+  ramp-up.
+- **Sony JPEG size (spike Q8):** 11,185,804–11,924,782 bytes (p50 11,456,490, mean 11.50 MB),
+  6000×4000, from the `downloading the captured object` line. The camera reports width and
+  height 0 in its object info; `sony-ptp` then reads the size from the JPEG header.
+- **Memory**, `dumpsys meminfo` sampled every 1–2 s through one extra session: the native heap
+  went from about 90 MB idle to a peak of about 175 MB, and total PSS from about 490 MB to about
+  790 MB. That covers the capture, the WebView's strip review and the encode together, so it is
+  not the encoder alone; the encoder's own peak is about 31 MB (the 18 MB scaled frame plus the
+  13 MB HD frame).
+- Only log lines left the device. Nothing was written to disk; the shots stay on the camera's
+  SD card as usual.
+- **Not covered:** a rotated (portrait) Sony capture on the tablet. Orientation is covered by
+  the unit tests, including at 24 MP.
 
 ## Format on disk
 
@@ -136,9 +229,9 @@ on disk and drains at the next start; the SD card has every original regardless.
 
 ## Not done yet, and unverified
 
-- Nothing calls `enqueue` in the app yet: the encoder is 08b, and the hook implementation and
-  upload loop are session 10. Until then the outbox exists only as tested library code plus a
-  debug-build probe that opens it at startup.
+- Nothing calls `enqueue` in the app yet: the hook implementation and upload loop are session
+  10. Until then the outbox and the encoder exist as tested library code plus two debug-build
+  probes (the outbox opened at startup, the encoder timed on completed sessions).
 - File I/O is blocking. `drain_once` reads each variant (typically 0.25–0.62 MB, up to the
   contract's 3 MB HD cap) and writes and `fsync`s records inline, holding the outbox lock
   during each write; an `fsync` on f2fs can take tens of milliseconds. Session 10 must run
