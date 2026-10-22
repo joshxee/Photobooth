@@ -39,21 +39,3 @@ export function parseBearer(header: string | undefined): string | null {
   const match = /^Bearer ([A-Za-z0-9_-]{43})$/i.exec(header ?? "");
   return match ? match[1]! : null;
 }
-
-/**
- * The enrolment limiter's key for a client address. IPv4 is keyed by address. IPv6 is keyed by
- * its /64, because one subscriber usually holds a whole /64 and could otherwise rotate through
- * 2^64 keys. Anything unparseable is keyed as given.
- */
-export function enrolRateKey(ip: string | undefined): string {
-  if (!ip) return "enrol:unknown";
-  if (!ip.includes(":")) return `enrol:${ip}`;
-  const [head = "", tail, extra] = ip.toLowerCase().split("::");
-  if (extra !== undefined) return `enrol:${ip}`;
-  const part = (s: string) => (s === "" ? [] : s.split(":").flatMap((g) => (g.includes(".") ? ["0", "0"] : [g])));
-  const left = part(head);
-  const groups = tail === undefined ? left : [...left, ...Array(Math.max(8 - left.length - part(tail).length, 0)).fill("0"), ...part(tail)];
-  const prefix = groups.slice(0, 4);
-  if (prefix.length < 4 || !prefix.every((g) => /^[0-9a-f]{1,4}$/.test(g))) return `enrol:${ip}`;
-  return `enrol:${prefix.map((g) => parseInt(g, 16).toString(16)).join(":")}::/64`;
-}

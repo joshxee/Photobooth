@@ -6,8 +6,8 @@ import { createMiddleware } from "hono/factory";
 import { EnrolRequest, EnrolResponse } from "../../../shared/schemas";
 import { insertEnrolAudit } from "../../db/audit";
 import { type DeviceRow, redeemEnrolCode } from "../../db/devices";
-import { enrolRateKey } from "../../domain/device";
 import { newDeviceCredential, newId, normaliseEnrolCode } from "../../domain/ids";
+import { ipRateKey } from "../../domain/rateKey";
 import { hashToken } from "../../domain/tokens";
 import { readBody } from "../../lib/api";
 import { AppError, errorResponse } from "../../lib/errors";
@@ -29,7 +29,7 @@ const REFUSED = "That code is not valid. Ask for a new one.";
  * always sets CF-Connecting-IP; only local tests can lack it.
  */
 const enrolRateLimit = createMiddleware<AppEnv>(async (c, next) => {
-  const { success } = await c.env.ENROL_LIMITER.limit({ key: enrolRateKey(c.req.header("CF-Connecting-IP")) });
+  const { success } = await c.env.ENROL_LIMITER.limit({ key: ipRateKey("enrol", c.req.header("CF-Connecting-IP")) });
   if (success) return next();
   const res = errorResponse(c, "rate_limited", "Too many attempts. Wait a minute and try again.");
   res.headers.set("Retry-After", String(LIMIT_PERIOD_SECONDS));
