@@ -121,8 +121,9 @@ control contains, so a few selectors must be patterns (learned running the flows
 The Guest Portal section in Settings (`PortalSettings.tsx`, session 09) follows the same rules:
 text fields labelled `Portal address`, `Enrolment code`, `Booth name`; buttons `Enrol booth`,
 `Choose event` / `Change event`, `Use this event` / `Switch to this event`, `Cancel`,
-`Clear event`, `Unenrol booth` then `Unenrol`, and `Remove enrolment` for a damaged one. The
+`Clear event` then `Stop sending photos`, `Unenrol booth` then `Unenrol`, and `Remove enrolment` for a damaged one. The
 confirmations are separate views with their own heading (`Use this event?`, `Switch event?`,
+`Stop sending photos to {event}?`,
 `Unenrol this booth?`), not dialogs, so a flow can wait for the heading.
 ## Camera problems: one voice, and no photo you cannot take
 

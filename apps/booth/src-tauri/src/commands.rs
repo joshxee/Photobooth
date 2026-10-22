@@ -144,8 +144,8 @@ pub async fn portal_select_event(
 }
 
 #[tauri::command]
-pub fn portal_clear_event(state: State<'_, AppState>) -> CommandResult<PortalStatus> {
-    state.portal_clear_event()
+pub async fn portal_clear_event(state: State<'_, AppState>) -> CommandResult<PortalStatus> {
+    state.portal_clear_event().await
 }
 
 /// Developer-panel fault injection. Only reachable through the `dev` capability.

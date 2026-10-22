@@ -227,6 +227,11 @@ impl HttpPortalClient {
             body.extend_from_slice(&chunk);
         }
         let status = response.status();
+        if status.is_redirection() {
+            return Err(PortalError::Network(
+                "the portal redirected the request (not followed)".into(),
+            ));
+        }
         if !status.is_success() {
             return Err(http_error(status, response.headers(), &body));
         }
@@ -501,8 +506,7 @@ mod tests {
     #[tokio::test]
     async fn enrolment_sends_the_contract_body_without_a_bearer() {
         let portal =
-            MockPortal::start(|_| Canned::json(201, fixture("device.enrol-response.valid.json")))
-                .await;
+            MockPortal::start(|_| Canned::fixture("device.enrol-response.valid.json")).await;
         let enrolled = unauthenticated(&portal)
             .enrol("7K3M9Q2Z", "Booth 1")
             .await
@@ -525,13 +529,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_refused_enrolment_code_is_a_401_with_its_code() {
-        let portal = MockPortal::start(|_| {
-            Canned::json(
-                401,
-                include_str!("../../../../portal/contract/fixtures/error.body.unauthorized.json"),
-            )
-        })
-        .await;
+        let portal = MockPortal::start(|_| Canned::fixture("error.body.unauthorized.json")).await;
         let err = unauthenticated(&portal)
             .enrol("WRONG", "Booth 1")
             .await
@@ -542,11 +540,7 @@ mod tests {
     #[tokio::test]
     async fn rate_limiting_carries_retry_after() {
         let portal = MockPortal::start(|_| {
-            Canned::json(
-                429,
-                include_str!("../../../../portal/contract/fixtures/error.body.rate_limited.json"),
-            )
-            .with_header("Retry-After", "60")
+            Canned::fixture("error.body.rate_limited.json").with_header("Retry-After", "60")
         })
         .await;
         let err = unauthenticated(&portal)
@@ -566,8 +560,8 @@ mod tests {
     #[tokio::test]
     async fn events_and_event_detail_send_the_bearer_and_device_headers() {
         let portal = MockPortal::start(|r| match r.target.as_str() {
-            "/v1/device/events" => Canned::json(200, fixture("device.events-response.valid.json")),
-            _ => Canned::json(200, fixture("device.event-detail.live.json")),
+            "/v1/device/events" => Canned::fixture("device.events-response.valid.json"),
+            _ => Canned::fixture("device.event-detail.live.json"),
         })
         .await;
         let client = client(&portal);
@@ -624,13 +618,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_revoked_credential_is_a_401() {
-        let portal = MockPortal::start(|_| {
-            Canned::json(
-                401,
-                include_str!("../../../../portal/contract/fixtures/error.body.unauthorized.json"),
-            )
-        })
-        .await;
+        let portal = MockPortal::start(|_| Canned::fixture("error.body.unauthorized.json")).await;
         let err = client(&portal).events().await.unwrap_err();
         assert_eq!(err, PortalError::code(ErrorCode::Unauthorized));
     }
@@ -638,8 +626,7 @@ mod tests {
     #[tokio::test]
     async fn the_intent_body_is_the_contract_fixture() {
         let portal =
-            MockPortal::start(|_| Canned::json(200, fixture("device.intent-response.ready.json")))
-                .await;
+            MockPortal::start(|_| Canned::fixture("device.intent-response.ready.json")).await;
         let outcome = client(&portal).intent(&item()).await.unwrap();
         assert_eq!(outcome, IntentOutcome::Ready);
         let requests = portal.requests();
@@ -663,7 +650,7 @@ mod tests {
             ),
             ("device.intent-response.pending-hd.json", vec![Variant::Hd]),
         ] {
-            let portal = MockPortal::start(move |_| Canned::json(200, fixture(name))).await;
+            let portal = MockPortal::start(move |_| Canned::fixture(name)).await;
             let IntentOutcome::Pending { uploads } = client(&portal).intent(&item()).await.unwrap()
             else {
                 panic!("{name}: pending");
@@ -682,10 +669,8 @@ mod tests {
 
     #[tokio::test]
     async fn a_rejected_intent_carries_the_reason() {
-        let portal = MockPortal::start(|_| {
-            Canned::json(200, fixture("device.intent-response.rejected.json"))
-        })
-        .await;
+        let portal =
+            MockPortal::start(|_| Canned::fixture("device.intent-response.rejected.json")).await;
         let outcome = client(&portal).intent(&item()).await.unwrap();
         assert_eq!(
             outcome,
@@ -697,24 +682,14 @@ mod tests {
 
     #[tokio::test]
     async fn intent_errors_map_to_their_codes() {
-        for (status, file, code) in [
-            (
-                409,
-                "device.intent-response.conflict.json",
-                ErrorCode::Conflict,
-            ),
-            (409, "error.body.event_closed.json", ErrorCode::EventClosed),
-            (409, "error.body.photo_limit.json", ErrorCode::PhotoLimit),
-            (413, "error.body.too_large.json", ErrorCode::TooLarge),
-            (500, "error.body.internal.json", ErrorCode::Internal),
+        for (file, code) in [
+            ("device.intent-response.conflict.json", ErrorCode::Conflict),
+            ("error.body.event_closed.json", ErrorCode::EventClosed),
+            ("error.body.photo_limit.json", ErrorCode::PhotoLimit),
+            ("error.body.too_large.json", ErrorCode::TooLarge),
+            ("error.body.internal.json", ErrorCode::Internal),
         ] {
-            let body = std::fs::read_to_string(
-                std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-                    .join("../../portal/contract/fixtures")
-                    .join(file),
-            )
-            .unwrap();
-            let portal = MockPortal::start(move |_| Canned::json(status, &body)).await;
+            let portal = MockPortal::start(move |_| Canned::fixture(file)).await;
             let err = client(&portal).intent(&item()).await.unwrap_err();
             assert_eq!(err, PortalError::code(code), "{file}");
         }
@@ -750,16 +725,18 @@ mod tests {
         ));
     }
 
+    /// Not followed, and retried like any answer that isn't the portal's (a captive portal on
+    /// plain http redirects to its login page), not parked as needing attention.
     #[tokio::test]
     async fn redirects_are_not_followed() {
         let portal = MockPortal::start(|r| match r.target.as_str() {
             "/v1/device/events" => Canned::json(302, "{}").with_header("Location", "/elsewhere"),
-            _ => Canned::json(200, fixture("device.events-response.valid.json")),
+            _ => Canned::fixture("device.events-response.valid.json"),
         })
         .await;
         let err = client(&portal).events().await.unwrap_err();
         assert!(
-            matches!(err, PortalError::Http { status: 302, .. }),
+            matches!(&err, PortalError::Network(m) if m.contains("redirect")),
             "{err:?}"
         );
         assert_eq!(portal.requests().len(), 1);
@@ -781,8 +758,7 @@ mod tests {
     #[tokio::test]
     async fn an_upload_sends_exactly_the_given_headers_and_no_bearer() {
         let portal =
-            MockPortal::start(|_| Canned::json(200, fixture("device.upload-response.stored.json")))
-                .await;
+            MockPortal::start(|_| Canned::fixture("device.upload-response.stored.json")).await;
         let mut upload = put_descriptor(&portal, Variant::Thumb);
         upload
             .headers
@@ -821,29 +797,19 @@ mod tests {
 
     #[tokio::test]
     async fn upload_statuses_map_to_outcomes() {
-        for (status, file, expected) in [
+        for (file, expected) in [
+            ("device.upload-response.stored.json", UploadOutcome::Stored),
+            ("device.upload-response.ready.json", UploadOutcome::Ready),
             (
-                200,
-                "device.upload-response.stored.json",
-                UploadOutcome::Stored,
-            ),
-            (
-                201,
-                "device.upload-response.ready.json",
-                UploadOutcome::Ready,
-            ),
-            (
-                202,
                 "device.upload-response.processing.json",
                 UploadOutcome::Processing {
                     retry_after: Some(Duration::from_secs(5)),
                 },
             ),
         ] {
-            let portal = MockPortal::start(move |_| {
-                Canned::json(status, fixture(file)).with_header("Retry-After", "5")
-            })
-            .await;
+            let portal =
+                MockPortal::start(move |_| Canned::fixture(file).with_header("Retry-After", "5"))
+                    .await;
             let upload = put_descriptor(&portal, Variant::Hd);
             let outcome = client(&portal)
                 .upload(&upload, Bytes::from_static(b"x"))
@@ -874,31 +840,13 @@ mod tests {
 
     #[tokio::test]
     async fn upload_errors_map_to_their_codes() {
-        for (status, file, code) in [
-            (
-                410,
-                "error.body.upload_expired.json",
-                ErrorCode::UploadExpired,
-            ),
-            (
-                422,
-                "error.body.hash_mismatch.json",
-                ErrorCode::HashMismatch,
-            ),
-            (
-                422,
-                "error.body.invalid_image.json",
-                ErrorCode::InvalidImage,
-            ),
-            (403, "error.body.forbidden.json", ErrorCode::Forbidden),
+        for (file, code) in [
+            ("error.body.upload_expired.json", ErrorCode::UploadExpired),
+            ("error.body.hash_mismatch.json", ErrorCode::HashMismatch),
+            ("error.body.invalid_image.json", ErrorCode::InvalidImage),
+            ("error.body.forbidden.json", ErrorCode::Forbidden),
         ] {
-            let body = std::fs::read_to_string(
-                std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-                    .join("../../portal/contract/fixtures")
-                    .join(file),
-            )
-            .unwrap();
-            let portal = MockPortal::start(move |_| Canned::json(status, &body)).await;
+            let portal = MockPortal::start(move |_| Canned::fixture(file)).await;
             let upload = put_descriptor(&portal, Variant::Hd);
             let err = client(&portal)
                 .upload(&upload, Bytes::from_static(b"x"))

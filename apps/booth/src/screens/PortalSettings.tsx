@@ -12,6 +12,7 @@ import {
   portalUnenrol,
   type PortalEvent,
   type PortalStatus,
+  type SelectedEvent,
 } from "../ipc";
 import { errorMessage } from "../store/bridge";
 import { useBooth } from "../store/store";
@@ -21,6 +22,7 @@ type View =
   | { kind: "main" }
   | { kind: "events"; events: PortalEvent[] }
   | { kind: "confirm"; event: PortalEvent }
+  | { kind: "clear"; event: SelectedEvent }
   | { kind: "unenrol" };
 
 const MAIN: View = { kind: "main" };
@@ -156,7 +158,7 @@ function Enrolled({
             type="button"
             className="pill pill--medium pill--outline"
             disabled={busy}
-            onClick={() => void run(portalClearEvent)}
+            onClick={() => setView({ kind: "clear", event: selected })}
           >
             Clear event
           </button>
@@ -271,6 +273,48 @@ function ConfirmEvent({
   );
 }
 
+function ConfirmClear({
+  event,
+  setView,
+}: {
+  event: SelectedEvent;
+  setView: (view: View) => void;
+}) {
+  const [busy, setBusy] = useState(false);
+
+  const clear = async () => {
+    setBusy(true);
+    const ok = await run(portalClearEvent);
+    setBusy(false);
+    if (ok) setView(MAIN);
+  };
+
+  return (
+    <div className="portal__confirm">
+      <h3 className="portal__title">{`Stop sending photos to ${event.name}?`}</h3>
+      <p>New photos stay on the camera's SD card until you choose an event again.</p>
+      <div className="portal__actions">
+        <button
+          type="button"
+          className="pill pill--medium"
+          disabled={busy}
+          onClick={() => void clear()}
+        >
+          Stop sending photos
+        </button>
+        <button
+          type="button"
+          className="pill pill--medium pill--outline"
+          disabled={busy}
+          onClick={() => setView(MAIN)}
+        >
+          Cancel
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function ConfirmUnenrol({ setView }: { setView: (view: View) => void }) {
   const [busy, setBusy] = useState(false);
 
@@ -340,6 +384,8 @@ export function PortalSettings() {
     body = <EnrolForm status={status} />;
   } else if (view.kind === "events") {
     body = <EventList events={view.events} setView={setView} />;
+  } else if (view.kind === "clear") {
+    body = <ConfirmClear event={view.event} setView={setView} />;
   } else if (view.kind === "confirm") {
     body = <ConfirmEvent event={view.event} current={status.selected_event} setView={setView} />;
   } else {

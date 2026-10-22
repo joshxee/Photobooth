@@ -176,10 +176,19 @@ describe("PortalSettings: enrolled", () => {
     expect(screen.getByText("No event selected")).toBeTruthy();
   });
 
-  test("clearing the event sends portal_clear_event", async () => {
+  test("clearing the event needs a confirmation, since it stops uploads", async () => {
     const backend = installBackend({ portal_clear_event: () => enrolledStatus() });
     mount(enrolledStatus({ selected_event: SMITH }));
     fireEvent.click(button("Clear event"));
+    expect(
+      screen.getByRole("heading", { name: "Stop sending photos to Smith wedding?" }),
+    ).toBeTruthy();
+    fireEvent.click(button("Cancel"));
+    await flush();
+    expect(backend.callsTo("portal_clear_event")).toHaveLength(0);
+
+    fireEvent.click(button("Clear event"));
+    fireEvent.click(button("Stop sending photos"));
     await until(() => backend.callsTo("portal_clear_event").length === 1, "cleared");
     await until(() => useBooth.getState().portal?.selected_event === null, "store");
   });

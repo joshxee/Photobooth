@@ -47,6 +47,25 @@ impl Canned {
         }
     }
 
+    /// A contract fixture (`apps/portal/contract/fixtures/{name}`) with the status
+    /// `manifest.json` gives it, so a contract change to either fails the tests.
+    pub fn fixture(name: &str) -> Self {
+        let contract =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../portal/contract");
+        let read = |path: std::path::PathBuf| {
+            std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("{}: {e}", path.display()))
+        };
+        let manifest: serde_json::Value =
+            serde_json::from_str(&read(contract.join("manifest.json"))).unwrap();
+        let status = manifest["fixtures"][name]["status"]
+            .as_u64()
+            .unwrap_or_else(|| panic!("{name} has no status in the manifest"));
+        Self::json(
+            u16::try_from(status).unwrap(),
+            &read(contract.join("fixtures").join(name)),
+        )
+    }
+
     pub fn with_header(mut self, name: &str, value: &str) -> Self {
         self.headers.push((name.into(), value.into()));
         self

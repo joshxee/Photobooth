@@ -257,7 +257,9 @@ dependency tree for tests that need one request at a time.
   (an open map, so presigned URLs can add headers later, DESIGN §9.4) and nothing of ours.
   `X-Outbox-Depth` and `X-App-Version` go with the authenticated calls only (session 05).
 - **No redirects at all.** The API never redirects, and a followed redirect is where a
-  credential or a signed URL leaks to another host. A 3xx is an HTTP error.
+  credential or a signed URL leaks to another host. A 3xx is retried like a network
+  error rather than parked as needing attention: on plain http a captive portal redirects
+  to its login page.
 - **An https portal never uploads over http**, whatever URL the intent returns.
 - **Errors never contain a URL**: reqwest's messages quote it, and PUT URLs carry their
   signature, which would land in `last_error` and the logs. The client reports the root cause
@@ -305,6 +307,9 @@ hosts (`PHOTOBOOTH_PORTAL_URL` at build time overrides both).
 
 ### Enrolment and event selection, and why they work this way
 
+- **Portal changes run one at a time** (`AppState::portal_ops`), each together with its
+  settings write, so a double tap can't enrol twice and an unenrol can't slip between an
+  event check and saving the selection.
 - **Enrolment is refused while enrolled.** The operator unenrols first (behind a
   confirmation), so a credential is never replaced by a mistyped code. A revoked booth gets
   "Unenrol, then enrol again with a new code" on its next call (any 401 outside enrolment).
@@ -320,7 +325,9 @@ hosts (`PHOTOBOOTH_PORTAL_URL` at build time overrides both).
   `settings_set` patch can't change them, and a settings reset keeps them). Unenrolling clears
   the event; the address is kept for the next enrolment.
 - The camera picker (the operator's landing screen) shows a status line: the event and its
-  date, "no event selected (photos stay on the SD card)", or "not enrolled". Session 10 adds
+  date, "no event selected (photos stay on the SD card)", or "not enrolled". Clearing the
+  event has its own confirmation too, since it stops uploads; removing a damaged enrolment
+  does not, because a damaged credential can't upload anything anyway. Session 10 adds
   the upload counts.
 
 ## Not done yet, and unverified

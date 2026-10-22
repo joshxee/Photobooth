@@ -40,7 +40,7 @@ impl PortalConfig {
     }
 }
 
-/// The contract's `Name`: 1–100 characters, and printable.
+/// The contract's `Name`: 1–100 characters as zod counts them (UTF-16 units), printable.
 const MAX_NAME_CHARS: usize = 100;
 /// The contract's enrolment code field is at most 32 characters (the code itself is 8).
 const MAX_CODE_CHARS: usize = 32;
@@ -49,8 +49,6 @@ pub struct PortalService {
     credentials: CredentialStore,
     config: PortalConfig,
     http: OnceLock<Result<reqwest::Client, String>>,
-    /// Enrol, unenrol and select run one at a time, so a double tap can't enrol twice.
-    ops: tokio::sync::Mutex<()>,
     /// `X-Outbox-Depth`. Nothing is queued before session 10, which passes the outbox's
     /// length.
     outbox_depth: OutboxDepth,
@@ -62,7 +60,6 @@ impl PortalService {
             credentials,
             config,
             http: OnceLock::new(),
-            ops: tokio::sync::Mutex::new(()),
             outbox_depth: Arc::new(|| 0),
         }
     }
@@ -88,7 +85,6 @@ impl PortalService {
         code: &str,
         name: &str,
     ) -> Result<StoredCredential, CommandError> {
-        let _op = self.ops.lock().await;
         if self.enrolment()?.is_some() {
             return Err(CommandError::new(
                 "This booth is already enrolled. Unenrol it first.",
@@ -98,7 +94,7 @@ impl PortalService {
             PortalOrigin::parse(url, self.config.allow_lan_http).map_err(CommandError::new)?;
         let name = name.trim();
         if name.is_empty()
-            || name.chars().count() > MAX_NAME_CHARS
+            || name.encode_utf16().count() > MAX_NAME_CHARS
             || name.chars().any(char::is_control)
         {
             return Err(CommandError::new(format!(
@@ -141,7 +137,6 @@ impl PortalService {
 
     /// Forgets the credential. The portal still lists the device until an admin revokes it.
     pub async fn unenrol(&self) -> Result<(), CommandError> {
-        let _op = self.ops.lock().await;
         self.credentials
             .delete()
             .map_err(|err| CommandError::new(format!("Couldn't remove the enrolment: {err}")))?;
@@ -159,7 +154,6 @@ impl PortalService {
 
     /// Re-fetches event `id` and returns it for selection if it accepts uploads now.
     pub async fn open_event(&self, id: &str) -> Result<SelectedEvent, CommandError> {
-        let _op = self.ops.lock().await;
         if !is_contract_id(id) {
             return Err(CommandError::new("That isn't an event from the portal."));
         }
@@ -291,12 +285,8 @@ mod tests {
     /// A portal that answers each device route from its fixture (event detail: `detail`).
     async fn portal(detail: &'static str) -> MockPortal {
         MockPortal::start(move |r| match (r.method.as_str(), r.target.as_str()) {
-            ("POST", "/v1/device/enrol") => {
-                Canned::json(201, fixture("device.enrol-response.valid.json"))
-            }
-            ("GET", "/v1/device/events") => {
-                Canned::json(200, fixture("device.events-response.valid.json"))
-            }
+            ("POST", "/v1/device/enrol") => Canned::fixture("device.enrol-response.valid.json"),
+            ("GET", "/v1/device/events") => Canned::fixture("device.events-response.valid.json"),
             ("GET", _) => Canned::json(200, detail),
             _ => Canned::json(404, "{}"),
         })
@@ -346,6 +336,9 @@ mod tests {
         let portal = portal(fixture("device.event-detail.live.json")).await;
         let service = service(&dir);
         let long_name = "x".repeat(101);
+        // 51 emoji: 51 characters, but 102 UTF-16 units, which is what the portal counts.
+        let emoji_name = "\u{1F4F8}".repeat(51);
+        assert_eq!(emoji_name.chars().count(), 51);
         for (url, code, name) in [
             ("http://photos.example.invalid", "CODE", "Booth 1"),
             ("http://192.168.1.20:8787", "CODE", "Booth 1"),
@@ -354,6 +347,7 @@ mod tests {
             (portal.base.as_str(), &"C".repeat(33), "Booth 1"),
             (portal.base.as_str(), "CODE", ""),
             (portal.base.as_str(), "CODE", &long_name),
+            (portal.base.as_str(), "CODE", &emoji_name),
             (portal.base.as_str(), "CODE", "Booth\n1"),
         ] {
             assert!(
@@ -368,13 +362,7 @@ mod tests {
     #[tokio::test]
     async fn a_refused_code_is_explained_and_nothing_is_stored() {
         let dir = tempfile::tempdir().unwrap();
-        let portal = MockPortal::start(|_| {
-            Canned::json(
-                401,
-                include_str!("../../../../portal/contract/fixtures/error.body.unauthorized.json"),
-            )
-        })
-        .await;
+        let portal = MockPortal::start(|_| Canned::fixture("error.body.unauthorized.json")).await;
         let service = service(&dir);
         let err = service
             .enrol(&portal.base, "WRONG", "Booth 1")
@@ -457,12 +445,9 @@ mod tests {
             .replace(EVENT_ID, "019a0b6d-2e10-7b4f-8d52-6c3e9f102b02")
             .leak();
         let portal = MockPortal::start(move |r| match r.target.as_str() {
-            "/v1/device/enrol" => Canned::json(201, fixture("device.enrol-response.valid.json")),
+            "/v1/device/enrol" => Canned::fixture("device.enrol-response.valid.json"),
             t if t.ends_with("1a01") => Canned::json(200, other),
-            _ => Canned::json(
-                404,
-                include_str!("../../../../portal/contract/fixtures/error.body.not_found.json"),
-            ),
+            _ => Canned::fixture("error.body.not_found.json"),
         })
         .await;
         let service = service(&dir);
@@ -489,11 +474,8 @@ mod tests {
     async fn a_revoked_booth_is_told_to_enrol_again() {
         let dir = tempfile::tempdir().unwrap();
         let portal = MockPortal::start(|r| match r.target.as_str() {
-            "/v1/device/enrol" => Canned::json(201, fixture("device.enrol-response.valid.json")),
-            _ => Canned::json(
-                401,
-                include_str!("../../../../portal/contract/fixtures/error.body.unauthorized.json"),
-            ),
+            "/v1/device/enrol" => Canned::fixture("device.enrol-response.valid.json"),
+            _ => Canned::fixture("error.body.unauthorized.json"),
         })
         .await;
         let service = service(&dir);
@@ -509,11 +491,7 @@ mod tests {
     async fn rate_limiting_says_how_long_to_wait() {
         let dir = tempfile::tempdir().unwrap();
         let portal = MockPortal::start(|_| {
-            Canned::json(
-                429,
-                include_str!("../../../../portal/contract/fixtures/error.body.rate_limited.json"),
-            )
-            .with_header("Retry-After", "60")
+            Canned::fixture("error.body.rate_limited.json").with_header("Retry-After", "60")
         })
         .await;
         let err = service(&dir)

@@ -185,6 +185,9 @@ pub struct AppState {
     live: tokio::sync::Mutex<Option<JoinHandle<()>>>,
     logs: LogRingBuffer,
     portal: PortalService,
+    /// Portal changes run one at a time, each with its settings write, so a double tap can't
+    /// enrol twice and an unenrol can't interleave with a selection.
+    portal_ops: tokio::sync::Mutex<()>,
 }
 
 impl AppState {
@@ -249,6 +252,7 @@ impl AppState {
                 live: tokio::sync::Mutex::new(None),
                 logs,
                 portal,
+                portal_ops: tokio::sync::Mutex::new(()),
             },
             task,
         )
@@ -367,6 +371,7 @@ impl AppState {
         code: &str,
         name: &str,
     ) -> Result<PortalStatus, CommandError> {
+        let _op = self.portal_ops.lock().await;
         let enrolled = self.portal.enrol(url, code, name).await?;
         let saved = self.change_settings(|s| {
             s.portal_url = enrolled.portal_url.clone();
@@ -382,6 +387,7 @@ impl AppState {
 
     /// Deletes the credential and the event selection. The UI confirms first.
     pub async fn portal_unenrol(&self) -> Result<PortalStatus, CommandError> {
+        let _op = self.portal_ops.lock().await;
         self.portal.unenrol().await?;
         self.change_settings(|s| s.selected_event = None)?;
         Ok(self.portal_status())
@@ -400,13 +406,15 @@ impl AppState {
     /// Makes event `id` the destination for new photos, if the portal says it is OPEN now.
     /// Photos already queued keep their event (DESIGN §10).
     pub async fn portal_select_event(&self, id: &str) -> Result<PortalStatus, CommandError> {
+        let _op = self.portal_ops.lock().await;
         let event = self.portal.open_event(id).await?;
         tracing::info!(event_id = %event.id, "portal event selected");
         self.change_settings(|s| s.selected_event = Some(event))?;
         Ok(self.portal_status())
     }
 
-    pub fn portal_clear_event(&self) -> Result<PortalStatus, CommandError> {
+    pub async fn portal_clear_event(&self) -> Result<PortalStatus, CommandError> {
+        let _op = self.portal_ops.lock().await;
         self.change_settings(|s| s.selected_event = None)?;
         tracing::info!("portal event cleared");
         Ok(self.portal_status())
@@ -836,13 +844,9 @@ mod tests {
 
     async fn mock_portal() -> MockPortal {
         MockPortal::start(|r| match (r.method.as_str(), r.target.as_str()) {
-            ("POST", "/v1/device/enrol") => {
-                Canned::json(201, fixture("device.enrol-response.valid.json"))
-            }
-            ("GET", "/v1/device/events") => {
-                Canned::json(200, fixture("device.events-response.valid.json"))
-            }
-            _ => Canned::json(200, fixture("device.event-detail.live.json")),
+            ("POST", "/v1/device/enrol") => Canned::fixture("device.enrol-response.valid.json"),
+            ("GET", "/v1/device/events") => Canned::fixture("device.events-response.valid.json"),
+            _ => Canned::fixture("device.event-detail.live.json"),
         })
         .await
     }
@@ -958,12 +962,17 @@ mod tests {
         assert!(status.enrolled);
         assert_eq!(status.selected_event, Some(event));
 
-        let cleared = rig.state.portal_clear_event().unwrap();
+        let cleared = rig.state.portal_clear_event().await.unwrap();
         assert_eq!(cleared.selected_event, None);
         rig.state.portal_select_event(EVENT_ID).await.unwrap();
         let status = rig.state.portal_unenrol().await.unwrap();
         assert!(!status.enrolled);
         assert_eq!(status.selected_event, None, "no event without an enrolment");
+        assert_eq!(
+            rig.state.settings().selected_event,
+            None,
+            "cleared in the settings too, not only hidden by the status"
+        );
         assert_eq!(
             status.portal_url, portal.base,
             "kept for the next enrolment"
