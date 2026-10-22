@@ -7,6 +7,7 @@ import {
   galleryVisible,
   isDeleted,
   isPurgeDue,
+  localDate,
   purgeAfter,
   uploadsUntil,
   uploadWindowClosed,
@@ -191,5 +192,20 @@ describe("dates", () => {
 
   it("purge_after is deleted_at + 7 days", () => {
     expect(purgeAfter(new Date("2026-12-30T23:00:00.000Z"))).toBe("2027-01-06T23:00:00.000Z");
+  });
+});
+
+describe("localDate", () => {
+  it("is the start date in the event's own time zone", () => {
+    // 11:30 UTC is 00:30 the next day in Auckland (NZDT, +13).
+    expect(localDate("2026-10-22T11:30:00.000Z", "Pacific/Auckland")).toBe("2026-10-23");
+    expect(localDate("2026-10-22T10:30:00.000Z", "Pacific/Auckland")).toBe("2026-10-22");
+    expect(localDate("2026-10-22T03:00:00.000Z", "America/Los_Angeles")).toBe("2026-10-21");
+    expect(localDate("2026-10-22T23:59:59.999Z", "UTC")).toBe("2026-10-22");
+  });
+
+  it("follows daylight saving (Auckland is +12 in winter)", () => {
+    expect(localDate("2026-06-30T12:30:00.000Z", "Pacific/Auckland")).toBe("2026-07-01");
+    expect(localDate("2026-06-30T11:30:00.000Z", "Pacific/Auckland")).toBe("2026-06-30");
   });
 });

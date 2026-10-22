@@ -69,6 +69,15 @@ export function isPurgeDue(e: Pick<EventState, "deleted_at" | "purge_after">, no
   return e.deleted_at !== null && e.purge_after !== null && now.getTime() >= Date.parse(e.purge_after);
 }
 
+/** An instant's calendar date (`YYYY-MM-DD`) in an IANA time zone: an event's local date. */
+export function localDate(iso: string, timeZone: string): string {
+  const parts = new Intl.DateTimeFormat("en-US", { timeZone, year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(
+    new Date(iso),
+  );
+  const part = (type: Intl.DateTimeFormatPartTypes) => parts.find((p) => p.type === type)!.value;
+  return `${part("year")}-${part("month")}-${part("day")}`;
+}
+
 /** May a booth create a photo intent for this event? (DESIGN §9.1) */
 export function acceptsUploads(e: EventState, now: Date): boolean {
   return e.upload_status === "OPEN" && !isDeleted(e) && !uploadWindowClosed(e, now);

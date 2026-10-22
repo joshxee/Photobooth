@@ -4,10 +4,11 @@ The guest web portal: one Cloudflare Worker in `apps/portal`. The behaviour spec
 [portal/DESIGN.md](./portal/DESIGN.md) and the build plan is [portal/README.md](./portal/README.md).
 This page records *why* the code is shaped the way it is, and is extended as each session lands.
 
-**Status (session 04):** the scaffold (02), the D1 schema, data layer, domain rules and shared
-contract (03), plus admin authentication (Cloudflare Access JWT, verified in code) and the admin
-events API with audit rows (04). There are no device or guest API routes yet. **Nothing here has
-run on real Cloudflare or against a real Access application.** It is verified with Vitest in
+**Status (session 05):** the scaffold (02), the D1 schema, data layer, domain rules and shared
+contract (03), admin authentication (Cloudflare Access JWT, verified in code) and the admin events
+API with audit rows (04), and devices: the admin devices API, enrolment and the authenticated device
+events API (05). There are no upload or guest API routes yet. **Nothing here has run on real
+Cloudflare or against a real Access application.** It is verified with Vitest in
 workerd (local D1, JWTs signed with a locally generated key), `wrangler dev`, `wrangler d1 … --local`
 and `wrangler deploy --dry-run` only.
 
@@ -68,7 +69,7 @@ need too.
   | Code | Status | Booth behaviour (DESIGN §9.3) |
   |---|---|---|
   | `invalid_request` | 400 | Bug: needs attention |
-  | `unauthorized` | 401 | Revoked or unknown credential: needs attention |
+  | `unauthorized` | 401 | Revoked or unknown credential: needs attention. Enrolment: the code was refused |
   | `forbidden` | 403 | Needs attention |
   | `not_found` | 404 | Needs attention (guests get it for every access failure) |
   | `conflict` | 409 | Same `clientPhotoId`, different hashes or event: needs attention |
@@ -241,6 +242,93 @@ or HEAD.
 - An unknown or malformed event ID is a 404 (a malformed one can't name an event, so it isn't a
   400). Bodies over 16 KB are 413 `too_large`; invalid JSON and schema failures are 400.
 
+## Devices and enrolment (session 05)
+
+Admin routes (`routes/admin/devices.ts`, under `/api/devices` on the admin host, behind Access and
+the same-origin check):
+
+| Route | Does |
+|---|---|
+| `GET /api/devices` | Every device in creation order (`AdminDeviceList`): name, enrolled, revoked, pending code expiry, last seen, backlog, app version |
+| `POST /api/devices` `{name}` | Create; returns `{deviceId, code, expiresAt}` **once** (201) |
+| `POST /api/devices/{id}/code` | Re-issue the code: the old one stops working. 409 for a revoked device |
+| `POST /api/devices/{id}/revoke` | Revoke now; voids a pending code. 409 if already revoked |
+
+Device routes on the gallery host (`routes/device/`):
+
+| Route | Auth | Does |
+|---|---|---|
+| `POST /v1/device/enrol` `{code, name, appVersion}` | the code | `{deviceId, name, credential}` (201), the credential once |
+| `GET /v1/device/events` | Bearer | Events that accept uploads now: OPEN, not deleted, before `uploads_until`; soonest start first, at most 100 |
+| `GET /v1/device/events/{id}` | Bearer | Any event that isn't deleted, with `galleryUrl` (and its `#k=` token) only while the gallery is LIVE |
+
+- **Codes and credentials are stored only as SHA-256.** The code is in the create (or re-issue)
+  response and nowhere else, not even the audit row; the credential is in the enrol response only.
+  Checked in the local D1 after a `wrangler dev` run, and by the tests.
+- **Enrolment is one statement** (`redeemEnrolCode`, an `UPDATE … RETURNING`): the code must match,
+  be unexpired and belong to an unrevoked device, and it is cleared in the same statement, so it
+  works once even under concurrent requests. The device takes the `name` the booth sends (the
+  operator names the tablet there; the admin's name is a placeholder until then) and counts as seen.
+  The enrolment's audit row (`device.enrol`, actor `device:<id>`) is in the same batch and finds the
+  device by its new credential hash, so a refused code writes nothing.
+- **Every refused code gets the same 401** `unauthorized` with the same message: unknown,
+  malformed, expired, already used, replaced by a re-issue, or a revoked device's. All but a
+  malformed code run the same single statement, so the timing doesn't separate them either; a
+  malformed one is refused before the database, which tells a guesser nothing about which codes
+  exist. A body that isn't a valid request is a 400, which says nothing about codes. Codes are
+  normalised as people type them (case, spaces, dashes, I/L → 1, O → 0).
+- **Why 40 bits and a per-IP limit are enough.** A code is 8 Crockford characters (2^40 ≈ 1.1 ×
+  10^12), lives 10 minutes and works once, and only a handful are pending at a time (five tablets).
+  `ENROL_LIMITER` allows 10 attempts a minute per IP (`enrolRateKey`: an IPv4 address, or an IPv6
+  address's /64, since one subscriber can rotate through a whole /64), checked before the body is
+  read, and answers 429 `rate_limited` with `Retry-After: 60`. The per-IP limit stops one client
+  guessing quickly; **the real bound is the account's request ceiling**, because an attacker with
+  many addresses can spread guesses across them. Spending the whole Workers Free allowance
+  (100,000 requests a day) on guesses against five live codes gives about a 5 × 10^-7 chance a day;
+  on Workers Paid the ceiling is soft, but 10 million guesses still give only about 4.5 × 10^-5.
+  Cloudflare's docs advise against IP keys
+  because people share addresses; here sharing costs little (a venue's booths enrol once each), and
+  there is no better key before a device has a credential. The binding is approximate and counted
+  per Cloudflare location, which the arithmetic above doesn't depend on. The local simulation is
+  exercised by the tests and by hand (the 11th attempt from one IP got 429).
+- **Re-issuing a code to an enrolled device is allowed:** redeeming it replaces the credential, so a
+  wiped or reinstalled tablet enrols again as the same device (its history stays), and the old
+  credential stops working at that moment. A revoked device can't get a code: create a new device.
+- **Credentials don't expire.** A booth is unattended at events, often offline, and an expiry would
+  strand it mid-event with no one to re-enrol it. What protects a lost tablet is revocation, which
+  takes effect on the device's next request (every request looks the device up; nothing is
+  cached), and last seen, which shows a tablet that went quiet. Revocation also covers 06's signed
+  upload URLs, because the PUT checks the device.
+- **`middleware/deviceAuth.ts`:** `Authorization: Bearer <43 base64url characters>` → SHA-256 →
+  `getDeviceByTokenHash`; no match or a revoked device is 401 `unauthorized` with no detail. It sets
+  `c.get("device")` for the route. Each device router mounts it itself (`routes/gallery.ts` mounts
+  the routers), so enrolment stays open and 06's upload PUT can use its signed URL instead.
+- **The heartbeat** (last seen, `X-Outbox-Depth`, `X-App-Version`; `DEVICE_HEADERS` in
+  `src/shared/schemas.ts`) is written **at most once a minute per device**. A booth calls the API on
+  every shot and every poll, and an admin only needs minute resolution, so this caps D1 writes
+  (100,000 a day on Free) at 1,440 per booth per day. The middleware skips the write when the row it
+  already read is under a minute old, which costs nothing, and the `UPDATE` repeats the condition so
+  two concurrent requests can't both write. A stored time in the future is overwritten, so a clock
+  jump can't freeze it. The backlog is an integer clamped to 0–100000; a missing or malformed header
+  keeps the stored value (`COALESCE`), and so does a malformed app version (1–32 printable ASCII).
+  The heartbeat is written before the route runs, so a request that then fails (an unknown event)
+  still counts as a sign of life. Enrolment sets last seen too.
+- **The event detail's `uploadStatus` is the effective one:** an OPEN event past `uploads_until`
+  reads CLOSED, because its intents would be refused (D15). A CLOSED event's detail is still served,
+  so a booth can keep showing its QR; a deleted event is 404. `localDate` is the start date in the
+  event's own time zone (`localDate` in `domain/eventState.ts`).
+- A device can read any non-deleted event's gallery link if it knows the event ID (only OPEN ones
+  are listed). Devices are enrolled by an admin and revocable, and the booth must show the QR, so
+  that is accepted.
+- **Audit actions:** `device.create` (detail `{name}`), `device.code`, `device.revoke` (by the admin)
+  and `device.enrol` (by the device, detail `{name, appVersion}`), each with `target_id` = the
+  device and no event. Re-issue and revoke put `insertAuditIfDeviceActive` before the write in one
+  batch, so both apply or neither does: revoking twice gives 409 and one audit row, also when two
+  admins race.
+- All device responses are `Cache-Control: no-store`. The tests check each response against its
+  `device.*` fixture field by field (the same keys and JSON types at every depth) as well as with
+  the schema.
+
 ## Data model (D1)
 
 The schema is `migrations/0001_init.sql`: DESIGN §6 plus the refinements listed there. The
@@ -345,7 +433,10 @@ EOI only), so the header walk (session 06) accepts them and browsers display the
 ## Known limits
 
 - The health version is the `package.json` version. A git SHA arrives with the deploy workflow in session 07.
-- The rate-limit bindings are declared but unused, and their thresholds are placeholders.
+- `ENROL_LIMITER` is used (session 05, 10 a minute per IP); `SESSION_LIMITER` and `INTENT_LIMITER`
+  are declared but unused, and their thresholds are placeholders. The limiter has only run in the
+  local simulation: its behaviour on Cloudflare (per location, approximate) is **unverified**.
+- `GET /api/devices` is unpaginated (schema cap 1,000); there are five tablets.
 - `ADMIN_EMAILS`, `ADMIN_SERVICE_CLIENTS`, `ACCESS_*` and `CONTACT_*` are empty vars here, so a
   deployed Worker refuses every admin request until session 07 sets them. The postal address in
   DESIGN §11 is not copied into the config.

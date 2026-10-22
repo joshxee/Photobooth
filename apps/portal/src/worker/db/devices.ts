@@ -1,4 +1,5 @@
 // `devices` table (DESIGN §6, D8). Secrets are stored only as SHA-256 hex (domain/tokens.ts).
+import { HEARTBEAT_INTERVAL_MS } from "../domain/device";
 
 export interface DeviceRow {
   id: string;
@@ -49,22 +50,45 @@ export function setEnrolCode(db: D1Database, id: string, codeHash: string, expir
 
 /**
  * Swaps a valid code for a credential in one statement, so a code can be used only once even
- * under concurrent requests. Returns the enrolled device, or null for an unknown, expired or used
- * code or a revoked device (the route gives all of these one identical error).
+ * under concurrent requests. The device takes the name the booth sends and counts as seen.
+ * RETURNING gives the enrolled device, or no row for an unknown, expired or used code or a revoked
+ * device (the route gives all of these one identical error). A statement, so the route can batch
+ * it with `insertEnrolAudit`. Redeeming a code re-issued to an enrolled device replaces its
+ * credential: the old one stops working.
  */
 export function redeemEnrolCode(
   db: D1Database,
-  args: { codeHash: string; tokenHash: string; appVersion: string; now: Date },
-): Promise<DeviceRow | null> {
+  args: { codeHash: string; tokenHash: string; name: string; appVersion: string; now: Date },
+): D1PreparedStatement {
   const now = args.now.toISOString();
   return db
     .prepare(
-      `UPDATE devices SET token_hash = ?, enrolled_at = ?, app_version = ?, enrol_code_hash = NULL, enrol_expires_at = NULL
+      `UPDATE devices SET token_hash = ?, enrolled_at = ?, name = ?, app_version = ?, last_seen_at = ?,
+         enrol_code_hash = NULL, enrol_expires_at = NULL
        WHERE enrol_code_hash = ? AND enrol_expires_at > ? AND revoked_at IS NULL
        RETURNING ${COLUMNS}`,
     )
-    .bind(args.tokenHash, now, args.appVersion, args.codeHash, now)
-    .first<DeviceRow>();
+    .bind(args.tokenHash, now, args.name, args.appVersion, now, args.codeHash, now);
+}
+
+/**
+ * The heartbeat of an authenticated device call (DESIGN §8): last seen, plus the backlog and app
+ * version when the request sent them (null keeps the stored value). The route skips it when the
+ * row it read was written less than a minute ago; the same condition here stops two concurrent
+ * requests both writing. A stored time in the future is overwritten. Never for a revoked device.
+ */
+export function recordHeartbeat(
+  db: D1Database,
+  args: { id: string; now: Date; backlog: number | null; appVersion: string | null },
+): D1PreparedStatement {
+  const now = args.now.toISOString();
+  const due = new Date(args.now.getTime() - HEARTBEAT_INTERVAL_MS).toISOString();
+  return db
+    .prepare(
+      `UPDATE devices SET last_seen_at = ?, last_backlog = COALESCE(?, last_backlog), app_version = COALESCE(?, app_version)
+       WHERE id = ? AND revoked_at IS NULL AND (last_seen_at IS NULL OR last_seen_at <= ? OR last_seen_at > ?)`,
+    )
+    .bind(now, args.backlog, args.appVersion, args.id, due, now);
 }
 
 /** Revokes a device (its credential stops working at once) and voids any pending code. */
