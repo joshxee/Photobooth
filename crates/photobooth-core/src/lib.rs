@@ -27,7 +27,8 @@ pub use gesture::{
 pub use mock::{MockCamera, MockCameraHandle};
 pub use photo_store::PhotoStore;
 pub use session::{
-    Session, SessionContext, SessionError, SessionHandle, SessionState, SessionTask, Timings,
+    CompletedSession, CompletedShot, OnSessionComplete, Session, SessionContext, SessionError,
+    SessionHandle, SessionState, SessionTask, Timings,
 };
 pub use settings::{
     Settings, SettingsError, SettingsPatch, SettingsStore, StartTriggerKind, TestModePatch,
