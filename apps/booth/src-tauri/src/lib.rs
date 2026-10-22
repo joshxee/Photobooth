@@ -33,6 +33,9 @@ use crate::state::Unavailable;
 use crate::state::{AppState, CameraSlot};
 
 const SETTINGS_FILE: &str = "settings.json";
+/// The portal upload outbox, under the app data directory (DESIGN §10).
+#[cfg(debug_assertions)]
+const OUTBOX_DIR: &str = "outbox";
 const LOG_LINES: usize = 500;
 
 /// Where console logs go: stderr on desktop, logcat on Android (stderr is not captured there).
@@ -204,6 +207,22 @@ pub fn run() {
             if data_dir.join(PTP_TRACE_FLAG).exists() {
                 PTP_TRACE.store(true, Ordering::Relaxed);
                 tracing::info!("PTP protocol tracing is on ({PTP_TRACE_FLAG} flag present)");
+            }
+            // Debug builds open the portal outbox at startup so its app-private directory and
+            // its recovery on open can be checked on the tablet (wiki/Booth-Upload.md, "Device
+            // check"). Nothing is queued or uploaded; session 10 wires the outbox in for real.
+            #[cfg(debug_assertions)]
+            match photobooth_core::outbox::Outbox::open(data_dir.join(OUTBOX_DIR)) {
+                Ok(outbox) => {
+                    let stats = outbox.stats();
+                    tracing::info!(
+                        dir = %outbox.dir().display(),
+                        queued = stats.queued,
+                        needs_attention = stats.needs_attention,
+                        "debug outbox probe"
+                    );
+                }
+                Err(err) => tracing::warn!(%err, "debug outbox probe failed"),
             }
             let (state, session_task) = AppState::new(
                 data_dir.join(SETTINGS_FILE),
