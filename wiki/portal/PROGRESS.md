@@ -40,6 +40,32 @@ this file first, so state facts and not intentions.
 
 ---
 
+## SETUP — B and E done, C and D waiting for the domain move on 2026-11-01 — PARTIAL — 2026-10-23
+- PR: #<n> (branch `claude/setup-guide-98d569`, app-created worktree branch). Docs only.
+- Done by the owner, guided step by step (every dashboard path checked against the current Cloudflare docs):
+  - **B:** business account `josh@knockbox.nz` (2FA, recovery codes), R2 on, Workers Free; the owner's Gmail is a second Super admin as a break-glass login; budget alerts USD 10 and USD 20.
+  - **C (part):** `knockbox.nz` registered 2026-10-21 with Cloudflare Registrar in the **personal** account. The business account holds the zone as **Pending** (Free plan, nameservers `fay`/`zeus.ns.cloudflare.com`) with all seven email records (Hostinger MX ×2, SPF, DMARC, DKIM CNAME ×3, verification TXT), checked against `fay` and `zeus` directly. DNSSEC was never on. The website Worker is rebuilt in the business account with `knockbox.nz` already attached.
+  - **D (part):** Zero Trust team `knockbox`, Free plan; login method Cloudflare (account members only), no OTP. Service token `agent-staging`, 1 year.
+  - **E:** account API tokens `ci-deploy` and `agent-readonly` (scopes in SETUP.md E); GitHub environments `staging` (4 secrets, no rules) and `production` (2 secrets, required reviewer joshxee, admin bypass off, `main` only).
+- Verified: `nslookup` against the personal (`cash`) and business (`fay`, `zeus`) nameservers; the `.nz` whois (`DNSSEC: unsigned`, created 2026-10-21T21:44:19Z); `curl` of the old and new website (byte-identical page); `https://knockbox.cloudflareaccess.com/cdn-cgi/access/certs` → 200; `gh api` GETs of both GitHub environments (rules and secret names); the owner ran a read-only check of `agent-readonly` (active, expires 2027-10-23, sees the `knockbox-website` Worker and the Pending zone). The `agent-staging` secret is **unverified** until the staging Access app exists. Nothing was changed by an agent.
+- Non-secret values for session 07 (`wrangler.jsonc`):
+  - Domain `knockbox.nz`: `photos-staging.knockbox.nz`, `admin-staging.knockbox.nz`, `photos.knockbox.nz`, `admin.knockbox.nz`.
+  - `ACCESS_TEAM_DOMAIN`: `knockbox.cloudflareaccess.com`.
+  - `ADMIN_EMAILS`: `josh@knockbox.nz,jbxcleland@gmail.com` (both the owner).
+  - `ADMIN_SERVICE_CLIENTS` (staging only): `95cbf1b7c7795c914e02b7b77543c3a8.access`.
+  - `ACCESS_AUD` staging and production: after the move (SETUP D).
+  - The account ID is the GitHub secret `CLOUDFLARE_ACCOUNT_ID` and the local `CLOUDFLARE_ACCOUNT_ID`, not committed.
+- Deviations from DESIGN.md: §4.1 domain paragraph rewritten (Cloudflare Registrar sells `.nz`; the inter-account move), §16 and §20 name the domain. SETUP B "second admin" is the owner's second login; billing alerts are 10/20 instead of 25/50/100 (20 is the budget); `ci-deploy` has R2 **Read** instead of Edit; `agent-readonly` adds Workers Tail Read and Workers Routes Read (no separate "Workers Observability" permission exists in the current list).
+- Wiki updated: `wiki/portal/SETUP.md` (B–E rewritten in the order that worked), `wiki/portal/DESIGN.md`.
+- Remaining: from **Sun 1 Nov 2026, 10:44 NZDT** (10 days after registration): the inter-account move and its acceptance (within 5 days), then check the zone is Active and mail flows; DNSSEC on; `privacy@`; the WAF rate-limit rule; both Access apps with their AUD tags and the Service Auth policy on staging; business Worker `workers.dev`/Preview URLs off. The SETUP session continues these with the owner and updates this entry.
+- Notes for next session:
+  - **Session 07 must not start until this entry says C and D are done.** Staging Custom Domains and Access need the zone Active in the business account.
+  - The domain is transfer-locked for 30 days after the move (Cloudflare Registrar rule); that only affects moving it again.
+  - The `knockbox-website` Worker (static `public/`, no script) shares the account's Workers Free 100k requests/day only for requests that run a script; static asset requests are free, so it uses none.
+  - `CLOUDFLARE_API_TOKEN` (read-only) is set machine-wide on this PC; running a write Wrangler command yourself needs `Remove-Item Env:CLOUDFLARE_API_TOKEN; npx wrangler login` in that window.
+
+---
+
 ## 09 — Booth portal client, enrolment and event selection — DONE — 2026-10-22
 - PR: #27 (branch `portal/09-booth-client-enrolment`)
 - Built:

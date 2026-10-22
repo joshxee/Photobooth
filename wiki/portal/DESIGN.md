@@ -125,16 +125,20 @@ benefit. Staging's synthetic traffic barely touches the free allowances.
   resources are deleted afterwards.
 - Set billing notifications as in section 15.
 
-**Domain.** The domain will most likely be a **`.co.nz`**, not yet registered. Register it
-before the first event and run its DNS on Cloudflare (the Free zone plan is enough).
-- Cloudflare Registrar does not sell `.nz` domains at the time of writing (check when buying).
-  Register with an InternetNZ-authorised registrar, then add the domain to Cloudflare and change
-  its nameservers to the two Cloudflare gives you.
-- Enable DNSSEC in Cloudflare, then add the DS record at the registrar. `.nz` supports DNSSEC.
-- Turn on registrar lock and auto-renew, and use a business-owned email as the registrant
-  contact.
-- Allow up to 24 hours for the nameserver change before the staging Access app and routes can
-  be created. Do this at least a week before the pilot event.
+**Domain.** **`knockbox.nz`**, registered on 2026-10-21 with Cloudflare Registrar (which now sells
+`.nz`). Its DNS runs on Cloudflare (the Free zone plan is enough). The step-by-step record is
+SETUP.md C.
+- It was registered in a personal Cloudflare account, because the business email (which the
+  business account logs in with) needed the domain first. Workers Custom Domains and Access
+  apps need the zone in the same account as the Worker, so the registration is moved to the
+  business account with Cloudflare Registrar's inter-account move. That move needs the domain to
+  be more than 10 days old and DNSSEC off, copies no DNS records or settings, and transfer-locks
+  the domain for 30 days afterwards.
+- Cloudflare Registrar domains always use Cloudflare nameservers; there is no nameserver change
+  at a registrar. Enable DNSSEC from **Manage Domains → Configuration** (Registrar publishes the
+  DS itself, within 1–2 days).
+- Registrar lock and auto-renew on; the registrant contact is the business email.
+- Do this at least a week before the pilot event.
 - **The design does not depend on the TLD.** Hostnames are Wrangler variables (`GALLERY_HOST`,
   `ADMIN_HOST`) and routes, and nothing in code or the booth hard-codes a domain. The booth's
   portal URL is an operator setting with a build-time default for each environment. Choosing `.com` instead changes only where you register
@@ -632,7 +636,7 @@ The full model, including the event-day request and D1 estimates, is in
 | R2 operations (≈ 4k Class A, ≈ 0.1–0.2 M Class B; 1 M / 10 M free) | 0.00 | 0.00 |
 | D1 (≤ 1.5 M rows read on an event day; 5 M/day free) | 0.00 | 0.00 |
 | Images | not used | not used |
-| Domain (`.co.nz`, about NZD 30/year) | ≈ 1.50 | ≈ 1.50 |
+| Domain (`knockbox.nz`, about NZD 30/year) | ≈ 1.50 | ≈ 1.50 |
 | **Total** | **≈ 1.50** | **≈ 6.50** |
 
 - **Free is a hard ceiling, not a bill.** Going over 100,000 requests/day, or over D1's daily
@@ -720,13 +724,13 @@ The full model, including the event-day request and D1 estimates, is in
 
 ## 20. Open questions
 
-1. Final domain name (expected `.co.nz`). It is needed before staging Access is set up
-   (phase 1), but not for the spike or local development.
+None open.
 
 Resolved:
+- Domain: `knockbox.nz` (2026-10-21; SETUP.md C).
 - D3: cancelled sessions do not upload.
 - D9: the share token is stored retrievably.
-- TLD: probably `.co.nz`. The design does not depend on it (section 4.1).
+- TLD: `.nz`. The design does not depend on it (section 4.1).
 - Post-shoot QR opens the guest's session; admins can also generate an event-wide QR.
 - Contact address: 34b Malvern Road, Morningside, Auckland, plus `privacy@<domain>`.
 - Environments: one dedicated business account with separate staging and production
