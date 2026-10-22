@@ -5,6 +5,7 @@ import {
   onCameraStatus,
   onGestureUpdate,
   onSessionState,
+  portalStatus,
   sessionState,
   settingsGet,
 } from "../ipc";
@@ -36,14 +37,16 @@ export async function startBridge(): Promise<() => void> {
   ]);
 
   try {
-    const [session, cameras, settings] = await Promise.all([
+    const [session, cameras, settings, portal] = await Promise.all([
       sessionState(),
       cameraList(),
       settingsGet(),
+      portalStatus(),
     ]);
     if (!sawSessionEvent) store.applySession(session);
     store.setCameras(cameras);
     store.setSettings(settings);
+    store.setPortal(portal);
   } catch (error) {
     store.setNotice(errorMessage(error));
   }

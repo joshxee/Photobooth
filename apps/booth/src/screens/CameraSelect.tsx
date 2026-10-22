@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { cameraSelect } from "../ipc";
 import { errorMessage, refreshCameras } from "../store/bridge";
 import { useBooth } from "../store/store";
+import { portalSummary } from "./portalText";
 
 const DESCRIPTIONS: Record<string, string> = {
   device: "Use your device's built-in camera",
@@ -16,6 +17,7 @@ const REFRESH_MS = 2000;
 export function CameraSelect() {
   const cameras = useBooth((s) => s.cameras);
   const settings = useBooth((s) => s.settings);
+  const portal = useBooth((s) => s.portal);
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
@@ -93,6 +95,10 @@ export function CameraSelect() {
           );
         })}
       </ul>
+
+      <p className="select__portal" role="status" aria-label="Portal status">
+        {portalSummary(portal)}
+      </p>
 
       <button
         type="button"

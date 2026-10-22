@@ -8,6 +8,7 @@ mod dto;
 #[cfg(target_os = "android")]
 mod logcat;
 mod logs;
+mod portal;
 mod protocol;
 mod state;
 #[cfg(debug_assertions)]
@@ -28,6 +29,7 @@ use tracing_subscriber::prelude::*;
 
 use crate::dto::{CameraStatusEvent, PreviewKind};
 use crate::logs::LogRingBuffer;
+use crate::portal::{CredentialStore, PortalConfig, PortalService};
 #[cfg(target_os = "android")]
 use crate::state::AlwaysAvailable;
 #[cfg(not(target_os = "android"))]
@@ -35,6 +37,8 @@ use crate::state::Unavailable;
 use crate::state::{AppState, CameraSlot};
 
 const SETTINGS_FILE: &str = "settings.json";
+/// The device credential, apart from the settings (DESIGN §10; `portal/credential.rs`).
+const PORTAL_CREDENTIAL_FILE: &str = "portal-credential.json";
 /// The portal upload outbox, under the app data directory (DESIGN §10).
 #[cfg(debug_assertions)]
 const OUTBOX_DIR: &str = "outbox";
@@ -226,8 +230,13 @@ pub fn run() {
                 }
                 Err(err) => tracing::warn!(%err, "debug outbox probe failed"),
             }
+            let portal = PortalService::new(
+                CredentialStore::new(data_dir.join(PORTAL_CREDENTIAL_FILE)),
+                PortalConfig::for_this_build(),
+            );
             let (state, session_task) = AppState::new(
                 data_dir.join(SETTINGS_FILE),
+                portal,
                 platform_slots(app.handle()),
                 logs,
                 Timings::default(),
@@ -267,6 +276,12 @@ pub fn run() {
             commands::session_state,
             commands::settings_get,
             commands::settings_set,
+            commands::portal_status,
+            commands::portal_enrol,
+            commands::portal_unenrol,
+            commands::portal_events,
+            commands::portal_select_event,
+            commands::portal_clear_event,
             commands::test_inject,
             commands::logs_recent,
         ])

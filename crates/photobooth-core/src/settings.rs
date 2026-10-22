@@ -8,6 +8,7 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 use crate::camera::CameraId;
+use crate::outbox::is_contract_id;
 
 /// How a guest starts a session from the attract screen.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -43,6 +44,17 @@ impl Default for TestModeSettings {
     }
 }
 
+/// The portal event this booth uploads to (DESIGN §10 item 2). Set only by event selection,
+/// which checks with the portal that the event is OPEN.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SelectedEvent {
+    /// The event's contract ID (a lowercase UUID).
+    pub id: String,
+    pub name: String,
+    /// The event's date in its own time zone, `YYYY-MM-DD`.
+    pub local_date: String,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Settings {
@@ -55,6 +67,11 @@ pub struct Settings {
     pub mirror_preview: bool,
     pub start_trigger: StartTriggerKind,
     pub test_mode: TestModeSettings,
+    /// The portal last enrolled against (or typed in); empty when never set. The device
+    /// credential is kept elsewhere, never in this file. Changed only by enrolment.
+    pub portal_url: String,
+    /// Changed only by event selection (not by a [`SettingsPatch`]).
+    pub selected_event: Option<SelectedEvent>,
 }
 
 impl Default for Settings {
@@ -69,12 +86,15 @@ impl Default for Settings {
             mirror_preview: true,
             start_trigger: StartTriggerKind::Tap,
             test_mode: TestModeSettings::default(),
+            portal_url: String::new(),
+            selected_event: None,
         }
     }
 }
 
 /// A partial update. Absent fields are left unchanged; unknown fields are rejected so a
-/// typo from the UI is an error instead of a silent no-op.
+/// typo from the UI is an error instead of a silent no-op. The portal fields are not here:
+/// only enrolment and event selection change them.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct SettingsPatch {
@@ -180,6 +200,19 @@ impl Settings {
                 reason: format!("must be one of {}", TEST_PATTERNS.join(", ")),
             });
         }
+        check_text("portal_url", &self.portal_url, 1024)?;
+        let scheme_ok = ["https://", "http://"]
+            .iter()
+            .any(|scheme| self.portal_url.starts_with(scheme));
+        if !self.portal_url.is_empty() && !scheme_ok {
+            return Err(SettingsError::Invalid {
+                field: "portal_url",
+                reason: "must start with https:// or http://".to_owned(),
+            });
+        }
+        if let Some(event) = &self.selected_event {
+            event.validate()?;
+        }
         Ok(())
     }
 
@@ -225,6 +258,36 @@ impl Settings {
         *self = next;
         Ok(())
     }
+}
+
+impl SelectedEvent {
+    fn validate(&self) -> Result<(), SettingsError> {
+        let invalid = |field, reason: &str| SettingsError::Invalid {
+            field,
+            reason: reason.to_owned(),
+        };
+        if !is_contract_id(&self.id) {
+            return Err(invalid("selected_event.id", "must be an event ID"));
+        }
+        // The contract's `Name`: 1–100 characters.
+        check_text("selected_event.name", &self.name, 100)?;
+        if self.name.is_empty() {
+            return Err(invalid("selected_event.name", "must not be empty"));
+        }
+        if !is_local_date(&self.local_date) {
+            return Err(invalid("selected_event.local_date", "must be YYYY-MM-DD"));
+        }
+        Ok(())
+    }
+}
+
+/// `YYYY-MM-DD` by shape (the portal sends a real date; this only keeps junk out).
+fn is_local_date(s: &str) -> bool {
+    s.len() == 10
+        && s.bytes().enumerate().all(|(i, b)| match i {
+            4 | 7 => b == b'-',
+            _ => b.is_ascii_digit(),
+        })
 }
 
 /// Reads and writes [`Settings`] at a fixed path.
@@ -466,6 +529,92 @@ mod tests {
         let store = SettingsStore::new(&path);
         assert!(matches!(store.load(), Err(SettingsError::Parse(_))));
         assert_eq!(store.load_or_default(), Settings::default());
+    }
+
+    fn selected_event() -> SelectedEvent {
+        SelectedEvent {
+            id: "019a0b6c-4f00-7a3e-9c41-5b2d8e0f1a01".to_owned(),
+            name: "Smith wedding".to_owned(),
+            local_date: "2026-10-22".to_owned(),
+        }
+    }
+
+    #[test]
+    fn portal_fields_default_to_unconfigured() {
+        let s = Settings::default();
+        assert_eq!(s.portal_url, "");
+        assert_eq!(s.selected_event, None);
+        // An older settings file without them still loads.
+        let old: Settings = serde_json::from_str(r#"{"headline":"Old file"}"#).unwrap();
+        assert_eq!(old.portal_url, "");
+        assert_eq!(old.selected_event, None);
+    }
+
+    #[test]
+    fn portal_fields_are_validated() {
+        let valid = Settings {
+            portal_url: "https://photos.example.invalid".to_owned(),
+            selected_event: Some(selected_event()),
+            ..Settings::default()
+        };
+        valid.validate().unwrap();
+        let json = serde_json::to_value(&valid).unwrap();
+        assert_eq!(json["selected_event"]["local_date"], "2026-10-22");
+
+        let with_url = |url: String| Settings {
+            portal_url: url,
+            ..Settings::default()
+        };
+        for url in ["ftp://x", "photos.example.invalid", "https://a\nb"] {
+            assert!(with_url(url.to_owned()).validate().is_err(), "{url:?}");
+        }
+        assert!(with_url(format!("https://{}", "a".repeat(1100)))
+            .validate()
+            .is_err());
+
+        let refused = |f: fn(&mut SelectedEvent)| {
+            let mut event = selected_event();
+            f(&mut event);
+            Settings {
+                selected_event: Some(event),
+                ..Settings::default()
+            }
+            .validate()
+            .is_err()
+        };
+        assert!(refused(|e| e.id = "not-an-id".to_owned()));
+        assert!(refused(|e| e.id = e.id.to_uppercase()));
+        assert!(refused(|e| e.name = String::new()));
+        assert!(refused(|e| e.name = "x".repeat(101)));
+        assert!(refused(|e| e.name = "a\u{7}b".to_owned()));
+        assert!(refused(|e| e.local_date = "22.10.2026".to_owned()));
+        assert!(refused(|e| e.local_date = "2026-1-022".to_owned()));
+    }
+
+    #[test]
+    fn the_portal_fields_cannot_be_patched() {
+        // Only enrolment and event selection change them, after talking to the portal.
+        for json in [
+            r#"{"portal_url":"https://elsewhere.example.invalid"}"#,
+            r#"{"selected_event":{"id":"019a0b6c-4f00-7a3e-9c41-5b2d8e0f1a01","name":"x","local_date":"2026-10-22"}}"#,
+        ] {
+            assert!(
+                serde_json::from_str::<SettingsPatch>(json).is_err(),
+                "{json}"
+            );
+        }
+    }
+
+    #[test]
+    fn patching_keeps_the_portal_fields() {
+        let mut s = Settings {
+            portal_url: "https://photos.example.invalid".to_owned(),
+            selected_event: Some(selected_event()),
+            ..Settings::default()
+        };
+        s.patch(patch_json(r#"{"headline":"New"}"#)).unwrap();
+        assert_eq!(s.portal_url, "https://photos.example.invalid");
+        assert_eq!(s.selected_event, Some(selected_event()));
     }
 
     #[test]

@@ -35,7 +35,7 @@ pub use session::{
     SessionHandle, SessionState, SessionTask, Timings,
 };
 pub use settings::{
-    Settings, SettingsError, SettingsPatch, SettingsStore, StartTriggerKind, TestModePatch,
-    TestModeSettings,
+    SelectedEvent, Settings, SettingsError, SettingsPatch, SettingsStore, StartTriggerKind,
+    TestModePatch, TestModeSettings,
 };
 pub use trigger::{DevPanelTrigger, StartTrigger, TapTrigger};

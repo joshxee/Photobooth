@@ -6,7 +6,7 @@ use photobooth_core::{CameraId, Region, SessionState, Settings, SettingsPatch};
 use tauri::ipc::{Channel, InvokeResponseBody};
 use tauri::State;
 
-use crate::dto::{CameraInfo, CommandError, Fault};
+use crate::dto::{CameraInfo, CommandError, Fault, PortalEvent, PortalStatus};
 use crate::state::{AppState, FrameSink};
 
 type CommandResult<T> = Result<T, CommandError>;
@@ -104,6 +104,48 @@ pub fn settings_get(state: State<'_, AppState>) -> Settings {
 #[tauri::command]
 pub fn settings_set(state: State<'_, AppState>, patch: SettingsPatch) -> CommandResult<Settings> {
     state.update_settings(patch)
+}
+
+/// Enrolment and the selected event. Never the credential.
+#[tauri::command]
+pub fn portal_status(state: State<'_, AppState>) -> PortalStatus {
+    state.portal_status()
+}
+
+#[tauri::command]
+pub async fn portal_enrol(
+    state: State<'_, AppState>,
+    url: String,
+    code: String,
+    name: String,
+) -> CommandResult<PortalStatus> {
+    state.portal_enrol(&url, &code, &name).await
+}
+
+/// Deletes the credential; the UI confirms first.
+#[tauri::command]
+pub async fn portal_unenrol(state: State<'_, AppState>) -> CommandResult<PortalStatus> {
+    state.portal_unenrol().await
+}
+
+/// The portal's OPEN events.
+#[tauri::command]
+pub async fn portal_events(state: State<'_, AppState>) -> CommandResult<Vec<PortalEvent>> {
+    state.portal_events().await
+}
+
+/// Re-fetches the event and selects it only if it is OPEN; the UI confirms first.
+#[tauri::command]
+pub async fn portal_select_event(
+    state: State<'_, AppState>,
+    id: String,
+) -> CommandResult<PortalStatus> {
+    state.portal_select_event(&id).await
+}
+
+#[tauri::command]
+pub async fn portal_clear_event(state: State<'_, AppState>) -> CommandResult<PortalStatus> {
+    state.portal_clear_event().await
 }
 
 /// Developer-panel fault injection. Only reachable through the `dev` capability.

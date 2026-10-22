@@ -2,7 +2,17 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { act, fireEvent, render, screen, within } from "@testing-library/react";
 
 import { resetBooth, useBooth } from "../store/store";
-import { cameras, defaultSettings, flush, installBackend, removeBackend, until } from "../test/ipc";
+import {
+  cameras,
+  defaultSettings,
+  enrolledStatus,
+  flush,
+  installBackend,
+  portalStatus,
+  removeBackend,
+  SMITH,
+  until,
+} from "../test/ipc";
 import { CameraSelect } from "./CameraSelect";
 
 beforeEach(() => {
@@ -113,5 +123,28 @@ describe("CameraSelect", () => {
       4000,
     );
     expect(screen.getByText("Wired USB • PC Remote mode • Full-resolution JPEG")).toBeTruthy();
+  });
+
+  describe("portal status for the operator", () => {
+    const status = () => screen.getByRole("status", { name: "Portal status" }).textContent;
+
+    test("names the selected event", async () => {
+      installBackend({ camera_list: () => cameras() });
+      useBooth.setState({ portal: enrolledStatus({ selected_event: SMITH }) });
+      await mount();
+      expect(status()).toBe("Portal: Smith wedding · Thu 22 Oct 2026");
+    });
+
+    test("says when no event is selected or the booth isn't enrolled", async () => {
+      installBackend({ camera_list: () => cameras() });
+      useBooth.setState({ portal: enrolledStatus() });
+      const { rerender } = await mount();
+      expect(status()).toBe("Portal: no event selected (photos stay on the SD card)");
+      act(() => {
+        useBooth.setState({ portal: portalStatus() });
+      });
+      rerender(<CameraSelect />);
+      expect(status()).toBe("Portal: not enrolled");
+    });
   });
 });

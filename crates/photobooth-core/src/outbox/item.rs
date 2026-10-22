@@ -144,7 +144,7 @@ pub struct Quarantined {
 }
 
 /// The contract's `Id`: a lowercase hyphenated UUID, versions 1–8, RFC 4122 variant.
-pub(crate) fn is_contract_id(s: &str) -> bool {
+pub fn is_contract_id(s: &str) -> bool {
     let b = s.as_bytes();
     if b.len() != 36 {
         return false;

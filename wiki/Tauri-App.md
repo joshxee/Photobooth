@@ -106,6 +106,16 @@ is what stops pieces from different threads interleaving (found by a concurrency
   only by `tauri.dev.conf.json`, so a release build never exposes fault injection and the dev
   panel never appears.
 - The camera/USB plugin commands are **not** exposed to the WebView at all.
+- The portal commands (`portal_status`, `portal_enrol`, `portal_unenrol`, `portal_events`,
+  `portal_select_event`, `portal_clear_event`) are in `default.json`: the operator's Settings
+  screen needs them and shares the one window with the guest UI, so there is no narrower
+  capability to put them in (the same reasoning as `settings_set`). Least-privilege review:
+  none returns the device credential (`PortalStatus` carries enrolled, host, device name and
+  event; a test serializes every result and checks), the WebView never talks to the portal
+  itself (the CSP still has no portal origin; Rust does the HTTP), `portal_select_event`
+  accepts only a contract ID and re-checks the event with the portal, and enrolment and
+  unenrolment are refused or confirmed rather than silently replacing a credential. See
+  [Booth-Upload.md](./Booth-Upload.md) for the credential's storage.
 
 ## Verified, and not
 

@@ -45,10 +45,12 @@ pub use client::{
     ErrorCode, IntentOutcome, PortalClient, PortalError, UploadDescriptor, UploadOutcome,
 };
 pub use drain::{DrainReport, MAX_CONCURRENT_UPLOADS, MAX_INTENTS_PER_ATTEMPT};
-pub use item::{EncodedShot, ItemState, OutboxItem, Quarantined, Variant, VariantInfo};
+pub use item::{
+    is_contract_id, EncodedShot, ItemState, OutboxItem, Quarantined, Variant, VariantInfo,
+};
 pub use time::iso_millis;
 
-use item::{is_contract_id, is_contract_session_id, record_file_name};
+use item::{is_contract_session_id, record_file_name};
 
 /// Below this much free space the operator is warned (DESIGN §10). Nothing is evicted.
 pub const LOW_DISK_BYTES: u64 = 1_000_000_000;
