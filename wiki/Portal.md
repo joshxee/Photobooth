@@ -4,11 +4,12 @@ The guest web portal: one Cloudflare Worker in `apps/portal`. The behaviour spec
 [portal/DESIGN.md](./portal/DESIGN.md) and the build plan is [portal/README.md](./portal/README.md).
 This page records *why* the code is shaped the way it is, and is extended as each session lands.
 
-**Status (session 06):** the scaffold (02), the D1 schema, data layer, domain rules and shared
+**Status (session 11):** the scaffold (02), the D1 schema, data layer, domain rules and shared
 contract (03), admin authentication (Cloudflare Access JWT, verified in code) and the admin events
 API with audit rows (04), devices: the admin devices API, enrolment and the authenticated device
 events API (05), and the live-delivery path: the upload intent, the signed per-variant PUT, the JPEG
-header walk and `processPhoto()` (06). There are no guest API routes yet. **Nothing here has run on
+header walk and `processPhoto()` (06), and the guest API: the token → cookie swap, the photo list
+and media (11). There is no gallery UI yet (12). **Nothing here has run on
 real Cloudflare or against a real Access application.** It is verified with Vitest in workerd (local
 D1 and R2, JWTs signed with a locally generated key), `wrangler dev` with `scripts/smoke.ts`,
 `wrangler d1 … --local` and `wrangler deploy --dry-run` only.
@@ -511,6 +512,118 @@ binding's real behaviour (approximate, per location), and concurrent PUTs on rem
 serialises statements, so the concurrency tests prove the conditional UPDATE, not remote
 scheduling). Session 07 checks the path on staging.
 
+## Guest access and the gallery API (session 11)
+
+Routes on the photos host, all under the event's path `/e/{publicId}/`:
+`POST …/api/session {token}`, `GET …/api/photos?cursor&session&limit`, and
+`GET …/m/{photoId}/{thumb|hd}[?download=1]`. Code: `lib/guestCookie.ts`, `middleware/guestAuth.ts`,
+`routes/guest/`.
+
+### Fragment → cookie
+
+The share link is `/e/{publicId}#k={token}`. The token sits in the fragment, so it is never sent
+in a request line, never logged, and never leaks in a `Referer` (DESIGN §11). The SPA (session 12)
+POSTs it once to `…/api/session` and removes the fragment; from then on the browser holds a cookie
+instead. The token comparison is constant-time (`timingSafeEqual`), and the event must be LIVE and
+not deleted (`galleryVisible`, no time limit since D15). A gallery past its upload window still
+opens.
+
+### A stateless cookie checked against `access_version`
+
+The cookie `g` is `{eventId}.{accessVersion}.{exp}.{sig}`, with `sig` = HMAC-SHA256 over
+`eventId|accessVersion|exp` with `SESSION_KEY`. There is no session table (D10). Each request:
+
+1. checks the signature and expiry before any D1 read, so a forged cookie costs no rows;
+2. reads the event by `publicId` (one row, the `UNIQUE` index) and requires the cookie's event,
+   gallery LIVE, not deleted, and the same `access_version`.
+
+So **rotating the link** (which bumps `access_version`), **suspending** the gallery or **deleting**
+the event takes effect on the very next request, with no revocation list. Suspension is a pause:
+publishing again lets the same cookies and link back in; only rotation revokes them. The fields are
+in clear because none is secret (the cookie is `HttpOnly`, and the event ID gives its holder nothing
+the link didn't). The cookie lasts 30 days and doesn't slide: a guest returning after a month
+reopens the link.
+
+**Path-scoped cookies, one per event.** `Path=/e/{publicId}`, `HttpOnly`, `Secure`,
+`SameSite=Lax`, `Max-Age=2592000`. A guest at two events holds two cookies with the same name and
+different paths, and each is sent only to its own event. A cookie presented on another event's path
+fails the event check anyway (tested).
+
+### Why every refusal is the same 404
+
+Wrong or old token, unknown event, suspended, hidden or deleted gallery, a malformed body; a
+missing, forged, expired or stale cookie: all get the same `404 not_found` "Not found." with
+`no-store`. A different status or message would let someone holding a forwarded or guessed link tell
+"this event exists but is suspended" from "wrong link", or confirm that an event exists at all. The
+cookie check's refusals also clear the cookie (`Max-Age=0` on the same path), so a browser stops
+sending a dead one. The two answers that differ say nothing about any event: **429** with
+`Retry-After: 60` when the caller's own IP is over the session limit (checked before anything else),
+and **400** for a bad query on the photo list, which only a holder of a valid cookie can reach.
+
+### The list: cheap enough to poll
+
+The list is the gallery's polling target (30 s while `eventOpen`, 10 s for the post-shoot session
+view), so its cost is pinned by tests through the access log's `rowsRead` (the event row plus each
+query's `meta.rows_read`): **1 event row and at most 26 photo rows** for a page of 24 (the page, one
+row to know there is a next page, and the boundary row a cursor seek lands on). The keyset cursor
+(`published_at`, `id`) keeps pages stable while photos arrive: new ones sort before the cursor, so
+they never shift a later page.
+
+The session filter (`?session=`) is the post-shoot view's. With the original
+`photos_session (event_id, session_id)` index SQLite chose `photos_gallery` and read every READY
+photo of the event to find one session's few: on a 2,000-photo event, the 12 polls of one session
+view would read about 24,000 rows, and a busy event day could spend half of D1's free 5 M rows on
+it. Migration `0002` widens `photos_session` to `(event_id, session_id, state, hidden,
+published_at, id)`, the gallery index's shape with the session added, and a session page now reads
+about one page of rows (tested). A session ID from another event matches nothing here, so it gives
+an empty page.
+
+### Media: immutable private caching
+
+Media follows DESIGN §11's four steps (cookie; event row; photo row: this event's, READY, not
+hidden; then R2): two D1 rows per request. The row check holds on its own: the R2 key also contains
+the event ID, but a test puts a stray object under the wrong event's prefix and still gets the 404.
+`Cache-Control: private, max-age=31536000, immutable`:
+
+- **Immutable** because a key never changes content (fixed keys, D6, and a READY photo takes no
+  more uploads). The browser never revalidates, which matters more than bytes: on Workers Free every
+  refetch is a request against the account's 100,000 a day (spike Q12), and a guest scrolling back
+  through a grid of 24 thumbnails would otherwise cost 24 requests each time.
+- **Private** so no shared cache keeps a guest's photo. The Worker runs first for every request, so
+  nothing is served without the access check.
+- **The trade-off:** a photo a browser has already loaded stays in that browser's cache after the
+  link is rotated, the gallery suspended or the photo hidden. Those controls stop new views, not
+  copies a guest already has (which they could have saved anyway).
+
+A refusal is `no-store`, never cached like the media it stands in for. `?download=1` adds
+`Content-Disposition: attachment; filename="<event-slug>-<session>-<shot>.jpg"`: the slug folds
+accents and keeps only `a-z0-9-` (at most 40 characters, `photo` if nothing is left), so the header
+needs no escaping. Session and shot keep a guest's downloads distinct and in strip order. `download`
+with any other value is inline. Only `thumb` and `hd` exist; anything else is the 404.
+
+### Rate limit, secrets and config
+
+- `SESSION_LIMITER`: 60 swaps a minute per IP (an IPv6 address by its /64, `ipRateKey`). A guest
+  swaps once per link opening, but a venue's guests often share one Wi-Fi address, so the limit
+  allows a crowd scanning the QR at once. The token is 128 bits, so the limit isn't what stops
+  guessing; it bounds the D1 rows a flood can spend.
+- `SESSION_KEY` (at least 32 characters, `secrets.required` in every environment) signs the
+  cookies, separate from `UPLOAD_KEY`. Without it every guest request fails closed (500). There is
+  one key at a time, so rotating it logs every guest out (they reopen the link).
+- `CONTACT_ADDRESS` and `CONTACT_EMAIL` are in every list response (the footer's removal contact).
+  Local placeholders are in `wrangler.jsonc`; staging and production are still empty, so the list
+  answers 500 there until session 07 sets them (the response schema requires both).
+
+### What was verified, and where
+
+Vitest in workerd (local D1 and R2): every DESIGN §11 *Media* step and the §13 cross-event row have
+named tests; rotation, suspension and deletion are checked on the very next request through the real
+admin API; 14 mutations of the checks were each caught. `scripts/smoke.ts` against `wrangler dev`
+covers the guest path after READY. **Not verified on real Cloudflare:** the cookie in a real browser
+on the real HTTPS domain (session 12 tries `photos.localhost` in a browser), the Rate Limiting
+binding's real behaviour, `CF-Connecting-IP`, and remote D1's `rows_read` counts (the tests pin
+local SQLite's).
+
 ## Data model (D1)
 
 The schema is `migrations/0001_init.sql`: DESIGN §6 plus the refinements listed there. The
@@ -615,16 +728,18 @@ EOI only), so the header walk (session 06) accepts them and browsers display the
 ## Known limits
 
 - The health version is the `package.json` version. A git SHA arrives with the deploy workflow in session 07.
-- `ENROL_LIMITER` (session 05, 10 a minute per IP) and `INTENT_LIMITER` (session 06, 120 a minute per
-  device) are used; `SESSION_LIMITER` is declared but unused, and its threshold is a placeholder. The
-  limiter has only run in the local simulation: its behaviour on Cloudflare (per location,
-  approximate) is **unverified**.
+- `ENROL_LIMITER` (session 05, 10 a minute per IP), `INTENT_LIMITER` (session 06, 120 a minute per
+  device) and `SESSION_LIMITER` (session 11, 60 a minute per IP) have only run in the local
+  simulation: their behaviour on Cloudflare (per location, approximate) is **unverified**.
+- `SESSION_KEY` has one value at a time, so rotating it logs every guest out.
+- Media already in a guest's browser cache stays viewable there after rotation, suspension or
+  hiding (immutable caching; see "Guest access and the gallery API").
 - `UPLOAD_KEY` has one value at a time, so rotating it voids every outstanding upload URL (the
   booth's items need the operator's retry). Rotate between events.
 - `GET /api/devices` is unpaginated (schema cap 1,000); there are five tablets.
-- `ADMIN_EMAILS`, `ADMIN_SERVICE_CLIENTS`, `ACCESS_*` and `CONTACT_*` are empty vars here, so a
-  deployed Worker refuses every admin request until session 07 sets them. The postal address in
-  DESIGN §11 is not copied into the config.
+- `ADMIN_EMAILS`, `ADMIN_SERVICE_CLIENTS`, `ACCESS_*` and `CONTACT_*` are empty vars in staging and
+  production, so a deployed Worker refuses every admin request, and answers the gallery list with a
+  500, until session 07 sets them. Only the local config has contact values.
 - Admin auth is tested only against tokens signed locally. The real Access JWT shape (`common_name`
   on service tokens, `aud` as an array) follows Cloudflare's docs and is **unverified** until
   staging (session 07).

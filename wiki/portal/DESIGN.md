@@ -260,6 +260,10 @@ audit(id, at, actor, action, event_id, target_id, detail)   -- INDEX(event_id, a
   - `photos.event_id` is `ON DELETE CASCADE`, so purging an event row removes its photo rows.
     `audit` has no foreign key, so it outlives the event it describes.
   - Index names: `photos_gallery`, `photos_session`, `audit_event_at`, `audit_at`.
+- Session 11 (`migrations/0002_photos_session_index.sql`): `photos_session` is
+  `(event_id, session_id, state, hidden, published_at, id)`, not `(event_id, session_id)`. With the
+  narrow index SQLite read every READY photo of the event for a session page, and the post-shoot
+  view polls that page every 10 s (D1 bills rows read; wiki/Portal.md → "Guest access").
 
 ## 7. Storage layout and lifecycle (one private bucket)
 
@@ -528,6 +532,20 @@ day 1 to preserve this.
   the postal address, because removal requests need a prompt channel. Deployment fails if either
   variable is empty.
 - **Accessibility**: keyboard-operable grid and lightbox, labelled controls, WCAG 2.2 AA target.
+- **Refinements (session 11)**, reasons in wiki/Portal.md → "Guest access and the gallery API":
+  - The cookie value is `{eventId}.{accessVersion}.{exp}.{sig}`, the MAC over
+    `eventId|accessVersion|exp` as above, so its signature is checked before any D1 read.
+    `Max-Age` 30 days, not sliding.
+  - Every refusal of the session swap and of the cookie check is the same `404 not_found`
+    (`no-store`); the cookie check's refusals also clear the cookie. Exceptions that reveal nothing
+    about an event: `429 rate_limited` (`Retry-After: 60`) from `SESSION_LIMITER`, 60 a minute per
+    IP (IPv6 by /64), checked first; `400 invalid_request` for a bad list query behind a valid cookie.
+  - Suspension then publish restores the same links and cookies; only rotation revokes them.
+  - `eventOpen` = the event accepts uploads now (OPEN, not deleted, before `uploads_until`).
+  - Download filename: `<event-slug>-<sessionId>-<shot>.jpg`, slug ASCII `a-z0-9-` (≤ 40, `photo`
+    if empty). Only `download=1` triggers it.
+  - Media refusals are `no-store`. A list page reads 1 event row and at most 26 photo rows
+    (page + lookahead + cursor boundary), a media request 2 rows.
 
 ## 12. Admin portal
 
