@@ -3,8 +3,8 @@
 How the booth gets photos to the portal: a durable outbox in the Rust core, drained through a
 `PortalClient` trait. This page holds the reasons; the behaviour spec is
 [DESIGN.md §9–§10](./portal/DESIGN.md). Built so far: the outbox and its retry state machine
-(session 08) and the variant encoder (08b). The reqwest client and enrolment (09), and the
-upload loop and operator status (10) come next and extend this page.
+(session 08), the variant encoder (08b), and the reqwest client, enrolment and event selection
+(09). The upload loop and operator status (10) come next and extend this page.
 
 ## What is queued, and when
 
@@ -227,8 +227,108 @@ runs keeps the outbox one process with one owner, and needs no Android foregroun
 WorkManager job or battery-optimisation exemption. Anything left when the app closes is still
 on disk and drains at the next start; the SD card has every original regardless.
 
+## The portal client, enrolment and event selection (session 09)
+
+Code: `apps/booth/src-tauri/src/portal/` (`types.rs`, `client.rs`, `credential.rs`,
+`service.rs`); the app-level glue is in `state.rs` (`portal_*`), the operator UI in
+`src/screens/PortalSettings.tsx`.
+
+### How the contract fixtures are consumed
+
+`portal/types.rs` has one serde type per device message. Its test compiles in every
+`apps/portal/contract/fixtures/device.*.json` with `include_str!`, looks up each file's schema
+in `contract/manifest.json`, parses it as the matching Rust type and serializes it back: the
+JSON must be identical. That catches a field the Rust type lacks or renames, and a `null`
+written where the contract omits an optional field. A second test fails if a `device.*`
+fixture is added to the directory or the manifest without a line in the test, so a contract
+change can't slip past `cargo test`. Response types don't `deny_unknown_fields` (a deployed
+booth must survive a server that adds a field); request types do. Statuses (`uploadStatus`,
+`galleryStatus`) stay strings for the same reason. The client tests answer from the same
+fixtures (`error.body.*` for errors) through a ~100-line HTTP/1.1 server on 127.0.0.1
+(`portal/test_server.rs`): hand-rolled rather than a mock-server crate, which would add a
+dependency tree for tests that need one request at a time.
+
+### `HttpPortalClient`
+
+- **The bearer goes only to the enrolled origin**, and only on the authenticated routes
+  (events, event detail, intent). The URL is built from the stored origin and checked again
+  before the header is attached (`authed`), so a path that resolves elsewhere is refused.
+  Enrolment and the upload PUTs never carry it: a PUT sends exactly `uploads.<variant>.headers`
+  (an open map, so presigned URLs can add headers later, DESIGN §9.4) and nothing of ours.
+  `X-Outbox-Depth` and `X-App-Version` go with the authenticated calls only (session 05).
+- **No redirects at all.** The API never redirects, and a followed redirect is where a
+  credential or a signed URL leaks to another host. A 3xx is an HTTP error.
+- **An https portal never uploads over http**, whatever URL the intent returns.
+- **Errors never contain a URL**: reqwest's messages quote it, and PUT URLs carry their
+  signature, which would land in `last_error` and the logs. The client reports the root cause
+  only ("could not connect: …").
+- **A 2xx the client can't parse is retried like a network error.** On venue Wi-Fi the usual
+  cause is a captive portal answering every request with its login page. For the PUT, status
+  and body must agree (200 STORED, 201 READY, 202 PROCESSING); a 200 HTML page is never
+  "stored".
+- Responses are read with a 256 KB cap; timeouts are 10 s to connect, 30 s per API call and
+  120 s per PUT (3 MB on slow Wi-Fi).
+- **TLS: rustls on `ring` with the Mozilla roots (webpki-roots)**, passed to reqwest 0.13 as a
+  preconfigured config. reqwest's own `rustls` feature uses aws-lc-rs (cmake and NASM to
+  cross-compile for Android) and `rustls-platform-verifier`, which needs JNI initialisation
+  from the Android side. The cost of webpki-roots: the root list is what the build shipped
+  with, not the tablet's trust store, so a new CA needs an app update. Cloudflare's
+  certificates chain to long-lived public roots, so this is acceptable for a kiosk app that is
+  rebuilt regularly. (`rustls-no-provider` still compiles the platform verifier and its JNI
+  crate; nothing calls it.)
+
+### The credential: where it lives and the limits
+
+The enrolment response's credential (256 bits, base64url) is written to
+`{app_data}/portal-credential.json`, its own file next to `settings.json`: temp file created
+with mode 0600, `fsync`, rename. It holds the portal origin it was issued for, the device ID
+and name, and the credential. It is **never** in the settings JSON, never in an IPC payload
+(the WebView sees `PortalStatus`: enrolled, host, device name, event) and never logged:
+`DeviceCredential` has no `Display` and a redacted `Debug`, a damaged file's parse error is
+dropped rather than quoted, and the bearer `HeaderValue` is marked sensitive. A test enrols,
+lists and selects against the mock portal with a TRACE-level log capture and checks that the
+secret appears in the credential file and the `Authorization` header only.
+
+Limits: the file is protected by Android's per-app sandbox (`/data/user/0/<package>`), so
+anyone with root or a debuggable build's `run-as` can read it. That is accepted for the MVP
+(DESIGN §10, §13): the real controls are revocation in the admin portal and last-seen
+monitoring. Wrapping it with an Android Keystore key through the Kotlin plugin is post-MVP.
+
+### Portal address rules
+
+The operator types the portal's address. `https://` is required, except plain `http` for
+`localhost`, `*.localhost` and loopback addresses (local `wrangler dev`), and, in **debug
+builds only**, private IPv4 addresses so the tablet can reach a dev PC on the LAN. Only an
+origin is accepted (no path, query, fragment or user info). Debug builds start the form at
+`http://photos.localhost:8787`; release builds start empty until sessions 07/18 settle the
+hosts (`PHOTOBOOTH_PORTAL_URL` at build time overrides both).
+
+### Enrolment and event selection, and why they work this way
+
+- **Enrolment is refused while enrolled.** The operator unenrols first (behind a
+  confirmation), so a credential is never replaced by a mistyped code. A revoked booth gets
+  "Unenrol, then enrol again with a new code" on its next call (any 401 outside enrolment).
+- **Selecting an event re-fetches it** (`GET /v1/device/events/{id}`) and accepts it only if
+  `uploadStatus` is `OPEN` now: the list may be minutes old, and the detail route returns
+  CLOSED and DRAFT events too.
+- **A confirmation screen names the event and its local date** and says "Photos from this
+  booth will appear in this event's gallery": the operator is choosing where guests' photos
+  go, and two events on consecutive days at one venue look alike in a list. Switching says
+  which event it replaces and that photos already taken stay with their event (each outbox
+  record carries its `event_id` from enqueue).
+- The selected event and the portal address live in the settings (validated there; a
+  `settings_set` patch can't change them, and a settings reset keeps them). Unenrolling clears
+  the event; the address is kept for the next enrolment.
+- The camera picker (the operator's landing screen) shows a status line: the event and its
+  date, "no event selected (photos stay on the SD card)", or "not enrolled". Session 10 adds
+  the upload counts.
+
 ## Not done yet, and unverified
 
+- The upload intent and PUT (`PortalClient::intent`/`upload`) are tested against the 03
+  fixtures and the mock server only: session 06 builds those routes in parallel, so they were
+  **not** run against `wrangler dev`. Enrolment, the event list and event detail were (see the
+  device check below).
 - Nothing calls `enqueue` in the app yet: the hook implementation and upload loop are session
   10. Until then the outbox and the encoder exist as tested library code plus two debug-build
   probes (the outbox opened at startup, the encoder timed on completed sessions).
