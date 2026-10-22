@@ -242,14 +242,21 @@ audit(id, at, actor, action, event_id, target_id, detail)   -- INDEX(event_id, a
   admins table.
 - Migrations are additive only, applied with `wrangler d1 migrations apply`.
 - Refinements made when the schema was written (session 03, `apps/portal/migrations/0001_init.sql`):
-  - IDs are UUIDv7 (time-ordered); times are UTC ISO-8601 text from `toISOString()`.
-  - `CHECK`s beyond the status enums: `deleted_at` and `purge_after` are set together; READY
-    needs both `*_stored` flags and `published_at`; REJECTED needs `reject_reason`; sha256
-    columns are 64 lowercase hex; `variant_bytes` and `audit.detail` are valid JSON.
+  - IDs are UUIDv7 (time-ordered). Times are exactly `toISOString()` text (UTC, milliseconds),
+    because SQL compares them as text; the API schemas accept only that form.
+  - `NOT NULL` on every column that always has a value: all of `events` except `deleted_at` and
+    `purge_after` (`venue` defaults to `''`, `access_version` to 1); `devices.name`; all of
+    `photos` except `reject_reason` and `published_at`; `audit.at`, `actor` and `action`.
+  - `CHECK`s beyond the status enums: `ends_at >= starts_at`; `deleted_at` and `purge_after` set
+    together; `enrol_code_hash` and `enrol_expires_at` set together; `token_hash` and
+    `enrolled_at` set together; READY needs both `*_stored` flags and `published_at`; REJECTED
+    needs `reject_reason`; sha256 columns are 64 lowercase hex; flags are 0/1; `shot`,
+    `last_backlog` and `photo_limit` ≥ 0, `access_version` ≥ 1, `width`/`height` > 0;
+    `variant_bytes` and `audit.detail` are valid JSON.
   - `devices.enrol_code_hash` is `UNIQUE`, because enrolment looks the device up by the code's hash.
   - `photos.event_id` is `ON DELETE CASCADE`, so purging an event row removes its photo rows.
     `audit` has no foreign key, so it outlives the event it describes.
-  - `events.venue` is `NOT NULL DEFAULT ''`.
+  - Index names: `photos_gallery`, `photos_session`, `audit_event_at`, `audit_at`.
 
 ## 7. Storage layout and lifecycle (one private bucket)
 
@@ -418,8 +425,9 @@ authorisation, validation or a synchronous result at upload time.
 4. we move to a zone plan where the body limit differs, or volume grows by about 100×.
 
 **Making the switch non-breaking.** The client treats `upload` as an opaque descriptor
-(`method`, `url`, `headers`, `expiresAt`). It already handles both `201 READY` and
-`202 PENDING`, and recovers by re-POSTing the intent. Moving to R2 presigned URLs then needs
+(`method`, `url`, `headers`, `expiresAt`), and `headers` is an open map that it sends as
+given. It already handles both `201 READY` and `202 {state: "PROCESSING"}`, and recovers by
+re-POSTing the intent. Moving to R2 presigned URLs then needs
 only server changes:
 - swap the HMAC signer for SigV4 presigning;
 - add an R2 object-created notification on `events/`, feeding a Queue consumer;

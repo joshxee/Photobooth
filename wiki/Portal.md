@@ -203,6 +203,12 @@ no modulo bias. Secrets are compared with `timingSafeEqual` (`domain/tokens.ts`)
   are strict (an unknown field fails), strings and arrays are capped, and response schemas have no
   transforms or defaults, so parsing a fixture returns it unchanged. Optional fields are omitted,
   never `null`; nullable fields are always present. serde's defaults expect the same.
+- **One exception to strictness:** an upload's `headers` is an open map (header names
+  `[A-Za-z0-9-]`, at most 16, `Content-Type: image/jpeg` required), and the booth sends it as given.
+  DESIGN §9.4 lets the server move to presigned R2 URLs, which add headers such as
+  `x-amz-checksum-sha256`; a fixed shape would make that a booth release.
+- **Times are exactly `toISOString()` form** (`2026-10-22T09:30:00.000Z`). The schemas reject
+  other precisions, because D1 compares stored times as text and `…00Z` sorts after `…00.500Z`.
 - The intent's byte caps (thumb 200,000 and HD 3,000,000 bytes, decimal) are **not** in the
   schema: the route checks them so the booth gets 413 `too_large` rather than 400
   `invalid_request`. The HD long edge (≤ 2560) is in the schema.
@@ -210,7 +216,7 @@ no modulo bias. Secrets are compared with `timingSafeEqual` (`domain/tokens.ts`)
   message and one of every error code. `contract/manifest.json` names each fixture's schema and,
   for responses, its HTTP status. `src/worker/contract.test.ts` checks that every file is in the
   manifest, parses with its schema unchanged, and **fails when an unknown field is added at any
-  depth**, which is how a non-strict nested object gets caught.
+  depth** (except inside `headers`), which is how a non-strict nested object gets caught.
 - **Why fixtures and not shared code:** the booth is Rust. Session 09 loads the same `device.*`
   files with `include_str!` into its serde types, so a contract change that isn't made on both
   sides fails one of the two test suites. Change a fixture only together with its schema, and say

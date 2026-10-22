@@ -44,7 +44,13 @@ describe("PhotoIntentRequest", () => {
 
   it("requires a UTC capture time", () => {
     expect(ok(PhotoIntentRequest, { ...intent, capturedAt: "2026-10-22T09:30:00+13:00" })).toBe(false);
-    expect(ok(PhotoIntentRequest, { ...intent, capturedAt: "2026-10-22T09:30:00Z" })).toBe(true);
+    expect(ok(PhotoIntentRequest, { ...intent, capturedAt: "2026-10-22T09:30:00.000Z" })).toBe(true);
+  });
+
+  it("requires toISOString() form, because D1 compares stored times as text", () => {
+    expect(ok(PhotoIntentRequest, { ...intent, capturedAt: "2026-10-22T09:30:00Z" })).toBe(false);
+    expect(ok(PhotoIntentRequest, { ...intent, capturedAt: "2026-10-22T09:30:00.5Z" })).toBe(false);
+    expect(ok(PhotoIntentRequest, { ...intent, capturedAt: "2026-10-22T09:30:00.123456Z" })).toBe(false);
   });
 
   it("limits sessionId to URL-safe characters", () => {
@@ -59,8 +65,22 @@ describe("PhotoIntentResponse", () => {
   });
 
   it("an upload is a PUT of image/jpeg", () => {
-    const thumb = { ...pendingBoth.uploads.thumb, method: "POST" };
-    expect(ok(PhotoIntentResponse, { ...pendingBoth, uploads: { thumb } })).toBe(false);
+    const thumb = pendingBoth.uploads.thumb;
+    expect(ok(PhotoIntentResponse, { ...pendingBoth, uploads: { thumb: { ...thumb, method: "POST" } } })).toBe(false);
+    expect(ok(PhotoIntentResponse, { ...pendingBoth, uploads: { thumb: { ...thumb, headers: {} } } })).toBe(false);
+    const png = { ...thumb, headers: { "Content-Type": "image/png" } };
+    expect(ok(PhotoIntentResponse, { ...pendingBoth, uploads: { thumb: png } })).toBe(false);
+  });
+
+  it("upload headers are an open, capped map, so the server can add headers without a booth release (§9.4)", () => {
+    const thumb = pendingBoth.uploads.thumb;
+    const extra = { ...thumb, headers: { ...thumb.headers, "x-amz-checksum-sha256": "q83vEjRWeJA=" } };
+    expect(ok(PhotoIntentResponse, { ...pendingBoth, uploads: { thumb: extra } })).toBe(true);
+    const bad = { ...thumb, headers: { ...thumb.headers, "bad header": "x" } };
+    expect(ok(PhotoIntentResponse, { ...pendingBoth, uploads: { thumb: bad } })).toBe(false);
+    const many = Object.fromEntries(Array.from({ length: 16 }, (_, i) => [`x-h${i}`, "v"]));
+    const tooMany = { ...thumb, headers: { ...thumb.headers, ...many } };
+    expect(ok(PhotoIntentResponse, { ...pendingBoth, uploads: { thumb: tooMany } })).toBe(false);
   });
 
   it("READY carries no uploads", () => {

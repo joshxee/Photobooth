@@ -27,11 +27,15 @@ function schemaFor(name: string): z.ZodType {
   return schema as z.ZodType;
 }
 
-/** Every path to a JSON object inside `value`, the root included. */
+/** Open maps by design: an upload's `headers` (schemas.ts `UploadHeaders`, DESIGN §9.4). */
+const OPEN_MAPS = new Set(["headers"]);
+
+/** Every path to a strict JSON object inside `value`, the root included. */
 function objectPaths(value: unknown, path: (string | number)[] = []): (string | number)[][] {
   if (Array.isArray(value)) return value.flatMap((item, i) => objectPaths(item, [...path, i]));
   if (value === null || typeof value !== "object") return [];
-  return [path, ...Object.entries(value).flatMap(([key, child]) => objectPaths(child, [...path, key]))];
+  const children = Object.entries(value).flatMap(([key, child]) => objectPaths(child, [...path, key]));
+  return OPEN_MAPS.has(String(path.at(-1))) ? children : [path, ...children];
 }
 
 function withUnknownField(value: unknown, path: (string | number)[]): unknown {

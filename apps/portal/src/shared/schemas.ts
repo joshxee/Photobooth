@@ -8,7 +8,8 @@
 // - Strings and arrays have size caps.
 // - Response schemas have no transforms or defaults, so parsing a fixture returns it unchanged.
 // - Optional fields are omitted when absent, never null. Nullable fields are always present.
-// - Times are UTC ISO-8601 with `Z` (`2026-10-22T09:30:00.000Z`).
+// - Times are exactly `Date.toISOString()` form (`2026-10-22T09:30:00.000Z`: UTC, milliseconds),
+//   because D1 compares stored times as text and `…00Z` sorts after `…00.500Z`.
 import { z } from "zod";
 
 // ---------------------------------------------------------------------------------------
@@ -78,7 +79,7 @@ export type ErrorBody = z.infer<typeof ErrorBody>;
 /** Lowercase UUID (v1–v8). Row IDs are UUIDv7; clientPhotoId is whatever UUID the booth makes. */
 export const Id = z.string().regex(/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
 export const Sha256Hex = z.string().regex(/^[0-9a-f]{64}$/);
-export const IsoDateTime = z.iso.datetime();
+export const IsoDateTime = z.iso.datetime({ precision: 3 });
 export const LocalDate = z.iso.date();
 /** The booth's session ID (`{boot nonce hex}-{n}` today); appears in gallery links as `s=`. */
 export const SessionId = z.string().regex(/^[A-Za-z0-9_-]{1,64}$/);
@@ -165,11 +166,22 @@ export const PhotoIntentRequest = z.strictObject({
 });
 export type PhotoIntentRequest = z.infer<typeof PhotoIntentRequest>;
 
+/**
+ * Request headers the booth must send with the PUT, exactly as given. Deliberately an open map
+ * (the one non-strict object in the contract): DESIGN §9.4 lets the server move to presigned R2
+ * URLs, which add headers such as `x-amz-checksum-sha256`, without a booth release. Today it is
+ * only `Content-Type: image/jpeg`, which is always required.
+ */
+export const UploadHeaders = z
+  .record(z.string().regex(/^[A-Za-z0-9-]{1,64}$/), z.string().min(1).max(1024))
+  .refine((h) => Object.keys(h).length <= 16, "too many headers")
+  .refine((h) => h["Content-Type"] === "image/jpeg", "Content-Type must be image/jpeg");
+
 /** Where and how to PUT one variant. The URL is signed and expires (15 min). */
 export const UploadDescriptor = z.strictObject({
   method: z.literal("PUT"),
   url: Url,
-  headers: z.strictObject({ "Content-Type": z.literal("image/jpeg") }),
+  headers: UploadHeaders,
   expiresAt: IsoDateTime,
 });
 export type UploadDescriptor = z.infer<typeof UploadDescriptor>;

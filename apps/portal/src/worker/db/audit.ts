@@ -19,15 +19,16 @@ export function insertAudit(db: D1Database, a: AuditEntry): D1PreparedStatement 
     .bind(a.id, a.at, a.actor, a.action, a.event_id, a.target_id, a.detail === null ? null : JSON.stringify(a.detail));
 }
 
-/** Newest first, optionally for one event. */
+/**
+ * Newest first, optionally for one event. Two fixed statements rather than `? IS NULL OR …`,
+ * so each uses its index (`audit_event_at` or `audit_at`); see listGalleryPage.
+ */
 export async function listAudit(db: D1Database, args: { eventId?: string; limit: number }): Promise<AuditEntry[]> {
-  const { results } = await db
-    .prepare(
-      `SELECT id, at, actor, action, event_id, target_id, detail FROM audit
-       WHERE ?1 IS NULL OR event_id = ?1
-       ORDER BY at DESC, id DESC LIMIT ?2`,
-    )
-    .bind(args.eventId ?? null, args.limit)
-    .all<StoredEntry>();
+  const columns = "SELECT id, at, actor, action, event_id, target_id, detail FROM audit";
+  const statement =
+    args.eventId === undefined
+      ? db.prepare(`${columns} ORDER BY at DESC, id DESC LIMIT ?`).bind(args.limit)
+      : db.prepare(`${columns} WHERE event_id = ? ORDER BY at DESC, id DESC LIMIT ?`).bind(args.eventId, args.limit);
+  const { results } = await statement.all<StoredEntry>();
   return results.map((r) => ({ ...r, detail: r.detail === null ? null : (JSON.parse(r.detail) as Record<string, unknown>) }));
 }

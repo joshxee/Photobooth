@@ -38,15 +38,18 @@ type Rgb = [number, number, number];
 
 interface SeedPhoto {
   event: EventRow;
+  /** Unique across the seed (photo ID, client ID); `shot` is the position within its session. */
   n: number;
   session: string;
+  shot: number;
   portrait: boolean;
   colour: Rgb;
   state: "READY" | "PENDING" | "REJECTED";
 }
 
-function fixedId(n: number): string {
-  return `019a0000-0000-7000-8000-${n.toString(16).padStart(12, "0")}`;
+/** Fixed UUIDs per kind (events and the device are in SEED), so no two rows share an ID. */
+function fixedId(kind: "photo" | "audit", n: number): string {
+  return `019a0000-0000-7000-${kind === "photo" ? "8001" : "8002"}-${n.toString(16).padStart(12, "0")}`;
 }
 
 async function sha256Hex(bytes: Uint8Array): Promise<string> {
@@ -84,16 +87,16 @@ async function main(): Promise<void> {
   const eventB = event(SEED.eventB.id, SEED.eventB.publicId, SEED.eventB.shareToken, "Seed party (closed)", new Date(hour.getTime() - 7 * 24 * HOUR), "CLOSED");
 
   const photos: SeedPhoto[] = [
-    { event: eventA, n: 1, session: "5eed0001-1", portrait: false, colour: [214, 96, 77], state: "READY" },
-    { event: eventA, n: 2, session: "5eed0001-1", portrait: false, colour: [233, 161, 85], state: "READY" },
-    { event: eventA, n: 3, session: "5eed0001-1", portrait: true, colour: [240, 205, 110], state: "READY" },
-    { event: eventA, n: 4, session: "5eed0001-2", portrait: false, colour: [96, 168, 140], state: "READY" },
-    { event: eventA, n: 5, session: "5eed0001-2", portrait: true, colour: [80, 132, 196], state: "READY" },
-    { event: eventA, n: 6, session: "5eed0001-2", portrait: false, colour: [140, 104, 186], state: "READY" },
-    { event: eventA, n: 7, session: "5eed0001-3", portrait: false, colour: [128, 128, 128], state: "PENDING" },
-    { event: eventA, n: 8, session: "5eed0001-3", portrait: false, colour: [64, 64, 64], state: "REJECTED" },
-    { event: eventB, n: 9, session: "5eed0002-1", portrait: false, colour: [52, 73, 94], state: "READY" },
-    { event: eventB, n: 10, session: "5eed0002-1", portrait: true, colour: [192, 57, 43], state: "READY" },
+    { event: eventA, n: 1, session: "5eed0001-1", shot: 1, portrait: false, colour: [214, 96, 77], state: "READY" },
+    { event: eventA, n: 2, session: "5eed0001-1", shot: 2, portrait: false, colour: [233, 161, 85], state: "READY" },
+    { event: eventA, n: 3, session: "5eed0001-1", shot: 3, portrait: true, colour: [240, 205, 110], state: "READY" },
+    { event: eventA, n: 4, session: "5eed0001-2", shot: 1, portrait: false, colour: [96, 168, 140], state: "READY" },
+    { event: eventA, n: 5, session: "5eed0001-2", shot: 2, portrait: true, colour: [80, 132, 196], state: "READY" },
+    { event: eventA, n: 6, session: "5eed0001-2", shot: 3, portrait: false, colour: [140, 104, 186], state: "READY" },
+    { event: eventA, n: 7, session: "5eed0001-3", shot: 1, portrait: false, colour: [128, 128, 128], state: "PENDING" },
+    { event: eventA, n: 8, session: "5eed0001-3", shot: 2, portrait: false, colour: [64, 64, 64], state: "REJECTED" },
+    { event: eventB, n: 9, session: "5eed0002-1", shot: 1, portrait: false, colour: [52, 73, 94], state: "READY" },
+    { event: eventB, n: 10, session: "5eed0002-1", shot: 2, portrait: true, colour: [192, 57, 43], state: "READY" },
   ];
 
   const proxy = await getPlatformProxy<Env>({ configPath: "wrangler.jsonc", persist: true });
@@ -127,14 +130,14 @@ async function main(): Promise<void> {
         last_backlog: 1,
         app_version: "0.0.0-seed",
       }),
-      insertAudit(db, { id: fixedId(0xa0d17), at, actor: "system", action: "seed", event_id: null, target_id: null, detail: { photos: photos.length } }),
+      insertAudit(db, { id: fixedId("audit", 1), at, actor: "system", action: "seed", event_id: null, target_id: null, detail: { photos: photos.length } }),
     ]);
 
     for (const p of photos) {
       const [w, h] = p.portrait ? [1707, 2560] : [2560, 1707];
       const thumb = solidJpeg(p.portrait ? 320 : 480, p.portrait ? 480 : 320, p.colour);
       const hd = solidJpeg(w, h, p.colour);
-      const id = fixedId(p.n);
+      const id = fixedId("photo", p.n);
       const published = new Date(Date.parse(p.event.starts_at) + p.n * 60_000);
       const row: NewPhoto = {
         id,
@@ -142,7 +145,7 @@ async function main(): Promise<void> {
         device_id: SEED.device.id,
         client_photo_id: `5eed0000-0000-4000-8000-${p.n.toString(16).padStart(12, "0")}`,
         session_id: p.session,
-        shot: p.n,
+        shot: p.shot,
         captured_at: published.toISOString(),
         thumb_sha256: await sha256Hex(thumb),
         hd_sha256: await sha256Hex(hd),
