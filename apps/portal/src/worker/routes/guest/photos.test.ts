@@ -1,3 +1,4 @@
+import { createExecutionContext } from "cloudflare:test";
 import { env, exports } from "cloudflare:workers";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import firstFixture from "../../../../contract/fixtures/gallery.photos-page.first.json";
@@ -6,6 +7,7 @@ import manifest from "../../../../contract/manifest.json";
 import { AdminEvent, ErrorBody, GalleryPhotosPage } from "../../../shared/schemas";
 import { decodeCursor, encodeCursor } from "../../domain/cursor";
 import { newId, newPublicId } from "../../domain/ids";
+import { createApp } from "../../app";
 import { signGuestCookie } from "../../lib/guestCookie";
 import { adminHeaders, stubAccessCerts } from "../../test/access";
 import { expectFixtureShape } from "../../test/device";
@@ -210,6 +212,22 @@ describe("GET /e/{publicId}/api/photos", () => {
     }
   });
 
+  it("answers a 500 and logs an internal error when the contact variables are empty (a config fault, not the client's)", async () => {
+    const event = await liveEvent();
+    const cookie = await openGallery(event);
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+    for (const blank of [{ CONTACT_EMAIL: "" }, { CONTACT_ADDRESS: "" }]) {
+      const res = await createApp().fetch(
+        new Request(`http://photos.localhost:8787/e/${event.public_id}/api/photos`, { headers: { Cookie: cookie } }),
+        { ...env, ...blank },
+        createExecutionContext(),
+      );
+      expect(res.status).toBe(500);
+      expect(ErrorBody.parse(await res.json()).code).toBe("internal");
+    }
+    expect(errors.mock.calls.map((c) => JSON.parse(String(c[0])).outcome)).toEqual(["internal_error", "internal_error"]);
+  });
+
   it("still serves a gallery past its upload window (galleries don't expire, D15)", async () => {
     const event = await liveEvent({ upload_status: "CLOSED", uploads_until: "2026-01-01T00:00:00.000Z" });
     await readyPhotos(event, 1);
@@ -292,6 +310,16 @@ describe("guest session check (middleware/guestAuth)", () => {
     const cookie = await openGallery(event);
     await adminAction(event.id, "delete");
     await expectGuestRefusal(await guestGet(event.public_id, "/api/photos", cookie), event.public_id);
+  });
+
+  it("refuses a malformed publicId without echoing it into a Set-Cookie", async () => {
+    const event = await liveEvent();
+    const cookie = await openGallery(event);
+    for (const bad of ["x%3B%20Domain%3Dexample.com", event.public_id.toUpperCase(), event.public_id.slice(1), `${event.public_id}a`, "abcdefghijklmno1"]) {
+      const res = await guestGet(bad, "/api/photos", cookie);
+      expect(res.headers.get("Set-Cookie"), bad).toBeNull();
+      await expectGeneric404(res);
+    }
   });
 
   it("doesn't touch D1 for a cookie that fails its signature", async () => {

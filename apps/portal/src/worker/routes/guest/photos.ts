@@ -26,6 +26,9 @@ guestPhotosApi.get("/", async (c) => {
   const cursor = query.cursor === undefined ? null : decodeCursor(query.cursor);
   if (query.cursor !== undefined && cursor === null) throw new AppError("invalid_request", "The cursor is not valid.");
 
+  // DESIGN §11 requires both; empty is a deployment fault, so a logged 500 rather than the 400 a
+  // failed response parse would give.
+  if (!c.env.CONTACT_ADDRESS || !c.env.CONTACT_EMAIL) throw new Error("CONTACT_ADDRESS or CONTACT_EMAIL is not set");
   const event = c.get("guestEvent");
   const page = await listGalleryPage(c.env.DB, { eventId: event.id, sessionId: query.session, cursor, limit: query.limit });
   addRowsRead(c, page.rowsRead);

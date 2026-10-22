@@ -612,13 +612,16 @@ with any other value is inline. Only `thumb` and `hd` exist; anything else is th
   one key at a time, so rotating it logs every guest out (they reopen the link).
 - `CONTACT_ADDRESS` and `CONTACT_EMAIL` are in every list response (the footer's removal contact).
   Local placeholders are in `wrangler.jsonc`; staging and production are still empty, so the list
-  answers 500 there until session 07 sets them (the response schema requires both).
+  answers a logged 500 (`internal_error`) there until session 07 sets them.
+- The swap accepts only `Content-Type: application/json`. A cross-site page can't send that without
+  a CORS preflight, which the Worker never answers, so it can't plant its own gallery's cookie in a
+  visitor's browser (login CSRF; harmless here, but free to stop).
 
 ### What was verified, and where
 
 Vitest in workerd (local D1 and R2): every DESIGN §11 *Media* step and the §13 cross-event row have
 named tests; rotation, suspension and deletion are checked on the very next request through the real
-admin API; 14 mutations of the checks were each caught. `scripts/smoke.ts` against `wrangler dev`
+admin API; 17 mutations of the checks were each caught. `scripts/smoke.ts` against `wrangler dev`
 covers the guest path after READY. **Not verified on real Cloudflare:** the cookie in a real browser
 on the real HTTPS domain (session 12 tries `photos.localhost` in a browser), the Rate Limiting
 binding's real behaviour, `CF-Connecting-IP`, and remote D1's `rows_read` counts (the tests pin

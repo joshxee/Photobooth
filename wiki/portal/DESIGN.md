@@ -246,7 +246,8 @@ audit(id, at, actor, action, event_id, target_id, detail)   -- INDEX(event_id, a
   A single statement is atomic on D1, so no reservation or reconcile step is needed.
 - Admins come from the Worker variable `ADMIN_EMAILS` plus the Access policy. There is no
   admins table.
-- Migrations are additive only, applied with `wrangler d1 migrations apply`.
+- Migrations are additive only, applied with `wrangler d1 migrations apply`. Replacing an index
+  (no data or column changes, as in `0002`) is allowed.
 - Refinements made when the schema was written (session 03, `apps/portal/migrations/0001_init.sql`):
   - `retention_until` is named `uploads_until`, because it only closes uploads (D15).
   - IDs are UUIDv7 (time-ordered). Times are exactly `toISOString()` text (UTC, milliseconds),

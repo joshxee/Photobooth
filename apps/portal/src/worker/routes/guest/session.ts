@@ -39,6 +39,9 @@ export const guestSessionApi = new Hono<AppEnv>();
 
 guestSessionApi.post("/", sessionRateLimit, bodyLimit({ maxSize: MAX_BODY_BYTES, onError: refuse }), async (c) => {
   const publicId = c.req.param("publicId") ?? "";
+  // JSON only: a cross-site page can't send it without a CORS preflight this Worker never answers,
+  // so it can't plant another gallery's cookie in a visitor's browser.
+  if (c.req.header("Content-Type")?.split(";")[0]?.trim().toLowerCase() !== "application/json") return refuse(c);
   let body: unknown;
   try {
     body = await c.req.json();

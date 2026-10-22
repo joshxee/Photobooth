@@ -50,6 +50,8 @@ describe("POST /e/{publicId}/api/session", () => {
     );
     const exp = Number(cookie!.split(";")[0]!.split(".")[2]);
     expect(Math.abs(exp - (Date.now() / 1000 + 2_592_000))).toBeLessThan(60);
+    const charset = await postSession(event.public_id, { token: event.share_token }, { "Content-Type": "application/json; charset=utf-8" });
+    expect(charset.status).toBe(200);
   });
 
   it("accepts the contract's request shape", () => {
@@ -79,6 +81,9 @@ describe("POST /e/{publicId}/api/session", () => {
       postSession(event.public_id, { token: event.share_token, extra: 1 }),
       postSession(event.public_id, { token: "x".repeat(4096) }),
       postSession(event.public_id, JSON.stringify({ token: event.share_token, pad: "x".repeat(8192) })),
+      // A cross-site form or text/plain POST (no CORS preflight) can't swap a token.
+      postSession(event.public_id, JSON.stringify({ token: event.share_token }), { "Content-Type": "text/plain" }),
+      postSession(event.public_id, JSON.stringify({ token: event.share_token }), { "Content-Type": "application/x-www-form-urlencoded" }),
     ];
     const results = await Promise.all(refusals);
     const first = await comparable(results[0]!);
