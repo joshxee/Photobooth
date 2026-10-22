@@ -1,0 +1,30 @@
+{
+  "name": "portal",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "types": "wrangler types --include-runtime=false --strict-vars=false",
+    "build": "bun run build.ts && wrangler deploy --dry-run --outdir .wrangler/dry-run/default && wrangler deploy --dry-run --env staging --outdir .wrangler/dry-run/staging && wrangler deploy --dry-run --env production --outdir .wrangler/dry-run/production",
+    "typecheck": "tsc -p tsconfig.worker.json && tsc -p tsconfig.web.json",
+    "test": "vitest run && bun test src/web"
+  },
+  "dependencies": {
+    "hono": "^4.13.13",
+    "react": "19",
+    "react-dom": "19",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@cloudflare/vitest-plugin": "^1.4.6",
+    "@cloudflare/workers-types": "^5.20261021.1",
+    "@happy-dom/global-registrator": "^20.14.5",
+    "@types/bun": "^1.4.2",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "typescript": "^7.0.2",
+    "vitest": "^4.1.0",
+    "wrangler": "4.151.3"
+  }
+}

@@ -1,0 +1,4 @@
+[test]
+# Registers happy-dom (a DOM for React) before any test file loads. Only used by `bun test`;
+# Vitest runs the Worker tests and never reads this file.
+preload = ["./src/test/register.ts"]

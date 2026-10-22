@@ -17,7 +17,7 @@ This wiki documents the technical architecture, design decisions, and implementa
 
 - [Portal implementation plan](./portal/README.md) - 19 sessions (00-18) for the guest web portal on Cloudflare Workers; start with its [PROGRESS.md](./portal/PROGRESS.md)
 - [Portal design](./portal/DESIGN.md) - the accepted solution design
-- `Portal.md` - what was built and why (written as sessions land; not yet present)
+- [Portal](./Portal.md) - what was built and why (updated as sessions land): one Worker, host routing, `run_worker_first`, local hostnames
 - `Booth-Upload.md` - the booth outbox and upload loop (written as sessions land; not yet present)
 
 ## Purpose

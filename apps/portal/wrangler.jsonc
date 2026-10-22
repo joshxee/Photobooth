@@ -1,0 +1,106 @@
+// Portal Worker (DESIGN.md §4, §4.1, §5). One Worker serves the guest/device host and the admin
+// host. The top level is LOCAL DEVELOPMENT (`wrangler dev`, Vitest): localhost hosts and
+// placeholder IDs. `env.staging` and `env.production` are filled in by session 07.
+// No account_id, secrets or real IDs here: the repo is public.
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "portal",
+  "main": "src/worker/index.ts",
+  "compatibility_date": "2026-10-22",
+
+  // Disabled so the admin Access app can't be bypassed through an alternate hostname (§4).
+  "workers_dev": false,
+  "preview_urls": false,
+  "observability": { "enabled": true },
+
+  // run_worker_first: every response, including static assets, goes through the Worker so it
+  // gets the security headers and the host check (docs/wiki/Portal.md).
+  "assets": {
+    "directory": "./dist",
+    "binding": "ASSETS",
+    "run_worker_first": true,
+    "html_handling": "none",
+    "not_found_handling": "none"
+  },
+
+  // Daily at 14:00 UTC = 03:00 NZDT (summer) / 02:00 NZST (winter): cron has no time zone, so
+  // the NZ clock time drifts by an hour with DST. Harmless for a purge job.
+  "triggers": { "crons": ["0 14 * * *"] },
+
+  // Bindings and vars are NOT inherited by environments, so each block lists its own.
+  "d1_databases": [
+    { "binding": "DB", "database_name": "portal-local", "database_id": "00000000-0000-0000-0000-000000000000" }
+  ],
+  "r2_buckets": [{ "binding": "MEDIA", "bucket_name": "portal-media-local" }],
+  // Rate limits (DESIGN §13). Placeholders: the thresholds are tuned in the sessions that use them.
+  "ratelimits": [
+    { "name": "ENROL_LIMITER", "namespace_id": "1001", "simple": { "limit": 10, "period": 60 } },
+    { "name": "SESSION_LIMITER", "namespace_id": "1002", "simple": { "limit": 30, "period": 60 } },
+    { "name": "INTENT_LIMITER", "namespace_id": "1003", "simple": { "limit": 60, "period": 60 } }
+  ],
+  "vars": {
+    "GALLERY_HOST": "photos.localhost:8787",
+    "ADMIN_HOST": "admin.localhost:8787",
+    "ADMIN_EMAILS": "",
+    "ADMIN_SERVICE_CLIENTS": "",
+    "ACCESS_TEAM_DOMAIN": "",
+    "ACCESS_AUD": "",
+    "CONTACT_ADDRESS": "",
+    "CONTACT_EMAIL": ""
+  },
+
+  "env": {
+    "staging": {
+      "name": "portal-staging",
+      "routes": [
+        { "pattern": "photos-staging.example.invalid", "custom_domain": true },
+        { "pattern": "admin-staging.example.invalid", "custom_domain": true }
+      ],
+      "d1_databases": [
+        { "binding": "DB", "database_name": "portal-staging", "database_id": "00000000-0000-0000-0000-000000000000" }
+      ],
+      "r2_buckets": [{ "binding": "MEDIA", "bucket_name": "portal-media-staging" }],
+      "ratelimits": [
+        { "name": "ENROL_LIMITER", "namespace_id": "2001", "simple": { "limit": 10, "period": 60 } },
+        { "name": "SESSION_LIMITER", "namespace_id": "2002", "simple": { "limit": 30, "period": 60 } },
+        { "name": "INTENT_LIMITER", "namespace_id": "2003", "simple": { "limit": 60, "period": 60 } }
+      ],
+      "vars": {
+        "GALLERY_HOST": "photos-staging.example.invalid",
+        "ADMIN_HOST": "admin-staging.example.invalid",
+        "ADMIN_EMAILS": "",
+        "ADMIN_SERVICE_CLIENTS": "",
+        "ACCESS_TEAM_DOMAIN": "",
+        "ACCESS_AUD": "",
+        "CONTACT_ADDRESS": "",
+        "CONTACT_EMAIL": ""
+      }
+    },
+    "production": {
+      "name": "portal",
+      "routes": [
+        { "pattern": "photos.example.invalid", "custom_domain": true },
+        { "pattern": "admin.example.invalid", "custom_domain": true }
+      ],
+      "d1_databases": [
+        { "binding": "DB", "database_name": "portal", "database_id": "00000000-0000-0000-0000-000000000000" }
+      ],
+      "r2_buckets": [{ "binding": "MEDIA", "bucket_name": "portal-media" }],
+      "ratelimits": [
+        { "name": "ENROL_LIMITER", "namespace_id": "3001", "simple": { "limit": 10, "period": 60 } },
+        { "name": "SESSION_LIMITER", "namespace_id": "3002", "simple": { "limit": 30, "period": 60 } },
+        { "name": "INTENT_LIMITER", "namespace_id": "3003", "simple": { "limit": 60, "period": 60 } }
+      ],
+      "vars": {
+        "GALLERY_HOST": "photos.example.invalid",
+        "ADMIN_HOST": "admin.example.invalid",
+        "ADMIN_EMAILS": "",
+        "ADMIN_SERVICE_CLIENTS": "",
+        "ACCESS_TEAM_DOMAIN": "",
+        "ACCESS_AUD": "",
+        "CONTACT_ADDRESS": "",
+        "CONTACT_EMAIL": ""
+      }
+    }
+  }
+}
