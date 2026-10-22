@@ -20,7 +20,7 @@ this file first, so state facts and not intentions.
 ---
 
 ## 05 — Devices, enrolment and the device API — DONE — 2026-10-22
-- PR: #PR (branch `portal/05-devices-enrolment`)
+- PR: #24 (branch `portal/05-devices-enrolment`)
 - **Booth session 09 may now start** (08 has merged). The device contract it needs is complete: enrolment, the bearer, the two event routes and the heartbeat headers.
 - Built:
   - `routes/admin/devices.ts` under `/api/devices`: `GET` (list), `POST` `{name}` (201 `{deviceId, code, expiresAt}`, the code once), `POST /{id}/code` (re-issue; also for an enrolled device, which re-enrols it), `POST /{id}/revoke`. Audited in the same batch: `device.create`, `device.code`, `device.revoke`; re-issue and revoke use the new `insertAuditIfDeviceActive`, so a 409 (revoked) leaves no audit row.
