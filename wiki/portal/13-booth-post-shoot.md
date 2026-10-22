@@ -1,7 +1,8 @@
 # 13 — Booth post-shoot screen with session QR (critical)
 
 **Goal:** after each session the guest sees a QR code that opens the gallery filtered to their
-shots, which arrive within seconds. The post-shoot copy is redesigned for live delivery.
+shots, which arrive within seconds (the booth encodes the variants, then uploads them). The
+post-shoot copy is redesigned for live delivery.
 
 - **Depends on:** 10, 12. The device run needs 07 (staging).
 - **Unlocks:** 17.
@@ -9,7 +10,7 @@ shots, which arrive within seconds. The post-shoot copy is redesigned for live d
   phone.
 
 ## Read first
-- DESIGN.md §10 item 4, §11 (link format and session filter).
+- DESIGN.md §10 item 4, §11 (link format and session filter), §17 gate 5 (shot-to-READY).
 - `wiki/portal/design/post-shoot.*` and `design/README.md` criteria.
 - `wiki/Frontend.md` (screens, copy parity notes, selectors), `wiki/Tauri-App.md`.
 - `apps/booth/src/screens/BoothViews.tsx` (`StripReview`), `apps/booth/src/uiConfig.ts`
@@ -48,7 +49,9 @@ cd apps/booth && bun run typecheck && bun test && bun run build
 2. `screencap` the post-shoot screen and decode the QR from the screenshot (a small decoder
    script or a library in a dev-only script).
 3. Open the decoded URL with `chrome-devtools-axi` in mobile emulation and assert all 3 shots
-   appear as READY within 15 s.
+   appear. For each shot, shot-to-READY (capture time to `published_at`, from the staging admin
+   API) must be under 15 s, gate 5's metric; it includes on-tablet encoding. The gallery may
+   show a shot up to one poll interval (10 s) after READY; record both.
 
 Attach screenshots and timings.
 
@@ -57,7 +60,8 @@ about 1 m in booth lighting, confirm the shots arrive, download one, and check t
 well. Tick it in PROGRESS.md.
 
 ## Done when
-- [ ] The automated flow passes: QR decoded → gallery → 3 READY in under 15 s.
+- [ ] The automated flow passes: QR decoded → gallery shows all 3 shots, each READY under 15 s
+      from its capture.
 - [ ] The human scan is ticked, and the copy is approved.
 - [ ] No-event and not-enrolled modes behave as before (tested).
 

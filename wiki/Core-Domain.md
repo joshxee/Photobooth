@@ -37,10 +37,24 @@ blocking USB transaction already underway; the Sony backend must make `capture()
 cancellation-safe itself (the shutter drop-guard in `sony-ptp`). The alternative — wait for
 the capture, then discard it — would make "Cancel" feel hung for up to a few seconds.
 
-**Photos never touch disk.** `PhotoStore` is the only place they live; it is `Clone` (shared
-`Arc<Mutex<HashMap>>`) so the session writes and the `booth://` protocol handler reads. It
-is cleared on return to `Attract`, on cancel, on take-another and when a new session
-starts. A restart of the app loses them by design (the camera's SD card is the archive).
+**Originals never touch the booth's disk; the outbox is a transit buffer.** The camera's SD
+card is the archive, as before. `PhotoStore` holds the captured originals for the UI only; it
+is `Clone` (shared `Arc<Mutex<HashMap>>`) so the session writes and the `booth://` protocol
+handler reads. It is cleared on return to `Attract`, on cancel, on take-another and when a new
+session starts, and a restart loses it by design. The one thing written to disk is the portal
+outbox (`outbox`, see [Booth-Upload.md](./Booth-Upload.md)): for a *completed*, non-test
+session, two booth-made variants per shot (thumb and HD, no metadata, DESIGN D14) plus a small
+record, deleted as soon as the server confirms READY. Why the rule changed (DESIGN D1): live
+upload has to survive a crash, an outage or a closed app, which memory can't; and holding
+variants rather than originals keeps the disk footprint small (≈0.5 MB a shot, not 11–17 MB)
+and means a booth never stores more than the server would publish. The rule is now "nothing
+is kept on the booth after the server confirms it". The outbox never evicts to make room; the
+operator is warned below 1 GB free.
+
+**The completion hook gets owned bytes.** On entering `StripReview` the session hands the
+shots to `SessionContext::completion_hook` as `Bytes` clones with their metadata, not as store
+keys, because "take another" clears the store while the hook may still be encoding. The
+session never calls it for a cancelled or failed session, or for `CameraId::TEST`.
 
 **Settings validate on save *and* on load.** `patch()` merges a partial update on a clone and
 only commits it if the result validates, so a rejected patch never half-applies. Saves are

@@ -1,0 +1,13 @@
+{
+  "name": "portal-spike",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "types": "wrangler types",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "typescript": "5.9",
+    "wrangler": "4.151.3"
+  }
+}

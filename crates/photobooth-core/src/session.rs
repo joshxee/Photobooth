@@ -18,13 +18,14 @@ use std::pin::Pin;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
+use bytes::Bytes;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use tokio::sync::{broadcast, mpsc, watch};
 use tokio::task::{JoinError, JoinHandle};
 use tokio::time::{sleep_until, Instant};
 
-use crate::camera::{Camera, CameraError, CameraStatus, CapturedPhoto};
+use crate::camera::{Camera, CameraError, CameraId, CameraStatus, CapturedPhoto};
 use crate::photo_store::PhotoStore;
 use crate::settings::Settings;
 use crate::trigger::StartTrigger;
@@ -73,6 +74,42 @@ pub enum SessionState {
 pub trait SessionContext: Send + Sync + 'static {
     fn settings(&self) -> Settings;
     fn camera(&self) -> Option<Arc<dyn Camera>>;
+    /// Where completed sessions go (the portal outbox, a debug probe). Read when a session
+    /// reaches `StripReview`. None by default: nothing leaves the session.
+    fn completion_hook(&self) -> Option<Arc<dyn OnSessionComplete>> {
+        None
+    }
+}
+
+/// One shot of a completed session. `jpeg` is the session's own `Bytes` handle, not a
+/// [`PhotoStore`] key: the store is cleared on return to attract and on "take another", which
+/// can happen while the hook is still working.
+#[derive(Clone, Debug)]
+pub struct CompletedShot {
+    /// 1-based.
+    pub shot: u8,
+    pub jpeg: Bytes,
+    pub width: u32,
+    pub height: u32,
+    pub taken_at: SystemTime,
+}
+
+/// Every shot of a session that reached `StripReview`, in shot order.
+#[derive(Clone, Debug)]
+pub struct CompletedSession {
+    pub session_id: String,
+    pub camera: CameraId,
+    pub shots: Vec<CompletedShot>,
+}
+
+/// Receives each completed session. Called on the session task the moment `StripReview` is
+/// published, so implementations must return quickly and do their work (encoding, writing
+/// to the outbox) elsewhere.
+///
+/// Never called for a cancelled or failed session, nor for the test camera
+/// ([`CameraId::TEST`]): those shots must never be uploaded (DESIGN D3, §10).
+pub trait OnSessionComplete: Send + Sync {
+    fn on_session_complete(&self, session: CompletedSession);
 }
 
 /// Real-time durations; tests keep the defaults and let the paused clock fast-forward.
@@ -275,6 +312,8 @@ struct Run {
     strip_seconds: u8,
     camera: Arc<dyn Camera>,
     status: Option<watch::Receiver<CameraStatus>>,
+    /// Shots taken so far, for the completion hook.
+    shots: Vec<CompletedShot>,
 }
 
 enum OpOutput {
@@ -434,6 +473,9 @@ impl Actor {
                         remaining: run.strip_seconds,
                     };
                     self.deadline = Some(Instant::now() + self.timings.tick);
+                    self.publish();
+                    self.hand_over_completed_session();
+                    return;
                 }
                 self.publish();
             }
@@ -478,7 +520,14 @@ impl Actor {
             }
             (Phase::Arming, OpOutput::Armed(Err(err))) => self.go_error(err.to_string(), true),
             (&Phase::Capturing { shot }, OpOutput::Captured(Ok(photo))) => {
-                let Some(run) = &self.run else { return };
+                let Some(run) = &mut self.run else { return };
+                run.shots.push(CompletedShot {
+                    shot,
+                    jpeg: photo.jpeg.clone(),
+                    width: photo.width,
+                    height: photo.height,
+                    taken_at: photo.taken_at,
+                });
                 self.store.put(&run.session_id, shot, photo.jpeg);
                 self.phase = Phase::Flash { shot };
                 self.deadline = Some(Instant::now() + self.timings.flash);
@@ -541,6 +590,7 @@ impl Actor {
             strip_seconds: settings.strip_display_seconds,
             camera: camera.clone(),
             status: Some(status),
+            shots: Vec::new(),
         });
 
         self.phase = Phase::Arming;
@@ -565,6 +615,26 @@ impl Actor {
             OpOutput::Captured(camera.capture().await)
         }));
         self.publish();
+    }
+
+    /// Gives the completed session's shots to the app's hook, unless they came from the test
+    /// camera. Cancelled and failed sessions never get here: only the last flash leads to
+    /// `StripReview`.
+    fn hand_over_completed_session(&mut self) {
+        let Some(run) = &mut self.run else { return };
+        let camera = run.camera.id();
+        if camera == CameraId::TEST {
+            tracing::debug!("test-mode session: not handed to the completion hook");
+            return;
+        }
+        let Some(hook) = self.ctx.completion_hook() else {
+            return;
+        };
+        hook.on_session_complete(CompletedSession {
+            session_id: run.session_id.clone(),
+            camera,
+            shots: std::mem::take(&mut run.shots),
+        });
     }
 
     fn go_attract(&mut self) {
@@ -653,11 +723,13 @@ mod tests {
     use crate::mock::{MockCamera, MockCameraHandle};
     use crate::settings::TestModeSettings;
     use crate::trigger::{DevPanelTrigger, TapTrigger};
+    use bytes::Bytes;
     use tokio::sync::broadcast::Receiver;
 
     struct TestContext {
         settings: Settings,
         camera: Option<Arc<dyn Camera>>,
+        hook: Option<Arc<dyn OnSessionComplete>>,
     }
 
     impl SessionContext for TestContext {
@@ -666,6 +738,54 @@ mod tests {
         }
         fn camera(&self) -> Option<Arc<dyn Camera>> {
             self.camera.clone()
+        }
+        fn completion_hook(&self) -> Option<Arc<dyn OnSessionComplete>> {
+            self.hook.clone()
+        }
+    }
+
+    /// Records every completed session it is handed.
+    #[derive(Default)]
+    struct RecordingHook(std::sync::Mutex<Vec<CompletedSession>>);
+
+    impl OnSessionComplete for RecordingHook {
+        fn on_session_complete(&self, session: CompletedSession) {
+            self.0.lock().unwrap().push(session);
+        }
+    }
+
+    impl RecordingHook {
+        fn sessions(&self) -> Vec<CompletedSession> {
+            self.0.lock().unwrap().clone()
+        }
+    }
+
+    /// The mock camera under another id, standing in for a real backend: the session treats a
+    /// camera as test mode only when its id is [`CameraId::TEST`].
+    struct Relabelled(Arc<MockCamera>, CameraId);
+
+    #[async_trait::async_trait]
+    impl Camera for Relabelled {
+        fn id(&self) -> CameraId {
+            self.1.clone()
+        }
+        async fn connect(&self) -> Result<(), CameraError> {
+            self.0.connect().await
+        }
+        async fn disconnect(&self) -> Result<(), CameraError> {
+            self.0.disconnect().await
+        }
+        fn status(&self) -> watch::Receiver<CameraStatus> {
+            self.0.status()
+        }
+        async fn start_live_view(&self) -> Result<crate::camera::FrameStream, CameraError> {
+            self.0.start_live_view().await
+        }
+        async fn stop_live_view(&self) -> Result<(), CameraError> {
+            self.0.stop_live_view().await
+        }
+        async fn capture(&self) -> Result<CapturedPhoto, CameraError> {
+            self.0.capture().await
         }
     }
 
@@ -693,12 +813,29 @@ mod tests {
 
     fn rig_with(settings: Settings, triggers: Vec<Arc<dyn StartTrigger>>) -> Rig {
         let mock = Arc::new(MockCamera::new(settings.test_mode.clone()));
-        let camera = mock.handle();
+        rig_full(
+            settings,
+            triggers,
+            mock.clone() as Arc<dyn Camera>,
+            mock,
+            None,
+        )
+    }
+
+    fn rig_full(
+        settings: Settings,
+        triggers: Vec<Arc<dyn StartTrigger>>,
+        camera: Arc<dyn Camera>,
+        mock: Arc<MockCamera>,
+        hook: Option<Arc<dyn OnSessionComplete>>,
+    ) -> Rig {
         let store = PhotoStore::new();
         let ctx = Arc::new(TestContext {
             settings,
-            camera: Some(mock.clone() as Arc<dyn Camera>),
+            camera: Some(camera),
+            hook,
         });
+        let camera = mock.handle();
         let handle = Session::spawn(ctx, store.clone(), Timings::default(), triggers);
         let events = handle.subscribe();
         Rig {
@@ -1085,6 +1222,7 @@ mod tests {
         let ctx = Arc::new(TestContext {
             settings: settings(1, 1, 5),
             camera: None,
+            hook: None,
         });
         let handle = Session::spawn(ctx, PhotoStore::new(), Timings::default(), Vec::new());
         let mut events = handle.subscribe();
@@ -1164,6 +1302,129 @@ mod tests {
         until(&mut rig.events, |s| *s == countdown(1, 1, 3)).await;
         tap.fire();
         assert_eq!(next(&mut rig.events).await, countdown(1, 1, 2));
+    }
+
+    /// A rig whose camera is not the test camera, so completed sessions reach the hook.
+    fn hooked_rig(photos: u8, countdown: u8, strip: u8) -> (Rig, Arc<RecordingHook>) {
+        let settings = settings(photos, countdown, strip);
+        let mock = Arc::new(MockCamera::new(settings.test_mode.clone()));
+        let camera = Arc::new(Relabelled(mock.clone(), CameraId::SONY_USB));
+        let hook = Arc::new(RecordingHook::default());
+        let rig = rig_full(
+            settings,
+            Vec::new(),
+            camera,
+            mock,
+            Some(hook.clone() as Arc<dyn OnSessionComplete>),
+        );
+        (rig, hook)
+    }
+
+    fn strip_session_id(seen: &[SessionState]) -> String {
+        match seen.last() {
+            Some(SessionState::StripReview { session_id, .. }) => session_id.clone(),
+            other => panic!("expected StripReview, got {other:?}"),
+        }
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn reaching_strip_review_hands_every_shot_to_the_hook_once() {
+        let (mut rig, hook) = hooked_rig(3, 1, 5);
+        rig.handle.start().await.unwrap();
+        let session_id = strip_session_id(&until(&mut rig.events, is_strip).await);
+
+        let sessions = hook.sessions();
+        assert_eq!(sessions.len(), 1, "called once, on entering StripReview");
+        let done = &sessions[0];
+        assert_eq!(done.session_id, session_id);
+        assert_eq!(done.camera, CameraId::SONY_USB);
+        assert_eq!(
+            done.shots.iter().map(|s| s.shot).collect::<Vec<_>>(),
+            vec![1, 2, 3]
+        );
+        for shot in &done.shots {
+            assert_eq!(
+                Some(shot.jpeg.clone()),
+                rig.store.get(&session_id, shot.shot)
+            );
+            assert!(shot.width > 0 && shot.height > 0);
+        }
+
+        // The auto-return countdown does not call it again.
+        until(&mut rig.events, |s| matches!(s, SessionState::Attract)).await;
+        assert_eq!(hook.sessions().len(), 1);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn the_hook_keeps_every_shot_when_take_another_clears_the_store() {
+        let (mut rig, hook) = hooked_rig(2, 1, 30);
+        rig.handle.start().await.unwrap();
+        let session_id = strip_session_id(&until(&mut rig.events, is_strip).await);
+        let originals: Vec<Bytes> = (1..=2)
+            .map(|shot| rig.store.get(&session_id, shot).unwrap())
+            .collect();
+
+        // Straight after StripReview, before the hook could have done anything with them.
+        rig.handle.take_another().await.unwrap();
+        assert_eq!(next(&mut rig.events).await, SessionState::Arming);
+        assert!(rig.store.get(&session_id, 1).is_none(), "store was cleared");
+
+        let held: Vec<Bytes> = hook.sessions()[0]
+            .shots
+            .iter()
+            .map(|s| s.jpeg.clone())
+            .collect();
+        assert_eq!(held, originals, "the hook owns its bytes");
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn cancelled_sessions_never_reach_the_hook() {
+        let (mut rig, hook) = hooked_rig(3, 1, 5);
+
+        // Cancelled after one shot was taken.
+        rig.handle.start().await.unwrap();
+        until(&mut rig.events, |s| *s == countdown(2, 3, 1)).await;
+        rig.handle.cancel().await.unwrap();
+        until(&mut rig.events, |s| matches!(s, SessionState::Attract)).await;
+
+        // Cancelled during the last capture.
+        rig.handle.start().await.unwrap();
+        until(&mut rig.events, |s| *s == countdown(3, 3, 1)).await;
+        rig.camera.force_slow_next_capture(10_000);
+        until(&mut rig.events, |s| {
+            matches!(s, SessionState::Capturing { shot: 3, .. })
+        })
+        .await;
+        rig.handle.cancel().await.unwrap();
+        until(&mut rig.events, |s| matches!(s, SessionState::Attract)).await;
+
+        // A capture error, then home.
+        rig.camera.force_fail_next_capture();
+        rig.handle.start().await.unwrap();
+        until(&mut rig.events, |s| matches!(s, SessionState::Error { .. })).await;
+        rig.handle.return_home().await.unwrap();
+        until(&mut rig.events, |s| matches!(s, SessionState::Attract)).await;
+
+        tokio::time::sleep(Duration::from_secs(60)).await;
+        assert!(hook.sessions().is_empty());
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn test_camera_sessions_never_reach_the_hook() {
+        let settings = settings(2, 1, 5);
+        let mock = Arc::new(MockCamera::new(settings.test_mode.clone()));
+        let hook = Arc::new(RecordingHook::default());
+        let mut rig = rig_full(
+            settings,
+            Vec::new(),
+            mock.clone() as Arc<dyn Camera>,
+            mock,
+            Some(hook.clone() as Arc<dyn OnSessionComplete>),
+        );
+        rig.handle.start().await.unwrap();
+        until(&mut rig.events, is_strip).await;
+        until(&mut rig.events, |s| matches!(s, SessionState::Attract)).await;
+        assert!(hook.sessions().is_empty());
     }
 
     #[test]

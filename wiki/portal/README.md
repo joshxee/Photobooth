@@ -21,13 +21,14 @@ plan.
 ## Sessions and dependencies
 
 ```
-00 agent foundation ─► 01 spike ─► 02 portal scaffold ─► 03 schema + contracts
-                                                            │
-             ┌──────────────────────────────────────────────┴──────────────┐
+00 agent foundation ─► 01 spike ─► 01b ─► 02 portal scaffold ─► 03 schema + contracts
+                                                                   │
+             ┌─────────────────────────────────────────────────────┴───────┐
              ▼  portal track                                               ▼  booth track
-   04 admin auth + events API                                    08 booth outbox
-   05 devices + enrolment API                                    09 booth portal client, enrolment, event selection
-   06 upload + processing ──► 07 staging + CI deploy (SETUP B–E) 10 booth upload loop + operator status
+   04 admin auth + events API                                    08 booth outbox (stores variants)
+   05 devices + enrolment API                                    08b booth variant encoder (tablet timing)
+   06 upload + validation ──► 07 staging + CI deploy (SETUP B–E) 09 booth portal client, enrolment, event selection
+                                                                 10 booth upload loop + operator status
    11 guest access + gallery API                                       │
    12 gallery UI (needs design/)                                       │
    14 admin UI: events, QR, devices                                    │
@@ -44,27 +45,33 @@ plan.
 |---|---|---|---|---|
 | 00 | [Agent foundation](./00-agent-foundation.md) | — | n/a | — |
 | 01 | [Spike](./01-spike.md) | 00, SETUP A | n/a | Supplies sample JPEGs; go/no-go |
-| 02 | [Portal scaffold](./02-portal-scaffold.md) | 01 | n/a | — |
+| 02 | [Portal scaffold](./02-portal-scaffold.md) | 01, 01b | n/a | — |
 | 03 | [Schema and contracts](./03-schema-contracts.md) | 02 | n/a | — |
 | 04 | [Admin auth and events API](./04-admin-auth-events.md) | 03 | n/a | — |
 | 05 | [Devices and enrolment API](./05-devices-enrolment.md) | 04 | n/a | — |
-| 06 | [Upload and processing](./06-upload-processing.md) | 05 | n/a | — |
+| 06 | [Upload and validation](./06-upload-validation.md) | 05 | n/a | — |
 | 07 | [Staging and CI deploy](./07-staging-ci.md) | 06, SETUP B–E | n/a | Approves first deploy |
 | 08 | [Booth outbox](./08-booth-outbox.md) | 03 | automated | — |
+| 08b | [Booth variant encoder](./08b-booth-variant-encoder.md) | 08 | automated | Decides D14 if encode p95 > 3 s per shot |
 | 09 | [Booth portal client, enrolment, event selection](./09-booth-client-enrolment.md) | 05, 08 | automated | — |
-| 10 | [Booth upload loop and operator status](./10-booth-upload-status.md) | 06, 09 (07 for the device run) | **critical** | Once-over on the tablet |
+| 10 | [Booth upload loop and operator status](./10-booth-upload-status.md) | 06, 08b, 09 (07 for the device run) | **critical** | Once-over on the tablet |
 | 11 | [Guest access and gallery API](./11-guest-api.md) | 06 | n/a | — |
 | 12 | [Gallery UI](./12-gallery-ui.md) | 11, `design/` | n/a (browser) | Design sign-off |
 | 13 | [Booth post-shoot QR](./13-booth-post-shoot.md) | 10, 12 | **critical** | Once-over on the tablet |
 | 14 | [Admin UI: events, QR, devices](./14-admin-ui-events-devices.md) | 05, 11 | n/a (browser) | — |
 | 15 | [Admin UI: moderation and audit](./15-admin-ui-moderation.md) | 14 | n/a (browser) | — |
 | 16 | [Retention and deletion](./16-retention-deletion.md) | 06, 11 | n/a | — |
-| 17 | [Hardening and release gates](./17-hardening-gates.md) | all of 00–16 | **critical** | Runs critical gates |
+| 17 | [Hardening and release gates](./17-hardening-gates.md) | all of 00–16, including 08b | **critical** | Runs critical gates |
 | 18 | [Pilot and go-live](./18-pilot-go-live.md) | 17, SETUP F | **critical** | Real event |
 
 The two tracks can run in parallel once session 03 has merged. The session fixtures in
 `apps/portal/contract/fixtures/` are the shared contract between them. Within a track, run
-sessions in order.
+sessions in order (08b runs after 08 and before 10; it can run alongside 09, but they touch the
+same crates, so one at a time is simpler).
+
+**Session 01b** (plan alignment, docs only) brought the session files in line with D14 after
+the spike and PR #17, and marked D14 confirmed in DESIGN.md. It has no session file; see its
+PROGRESS.md entry.
 
 **Device check levels** (decided with the user):
 - **automated**: the agent verifies on the tablet itself (adb: `screencap`, `input`,
@@ -125,8 +132,12 @@ Always:
     sessions never upload.
   - Test-mode shots never upload.
   - The MVP gallery shows single images only.
-- `processPhoto()` takes no HTTP types, so the asynchronous path described in DESIGN.md §9.4
-  stays a server-only change.
+- The booth makes the variants and the Worker never decodes images (D14). No session adds the
+  Images binding, Workers Paid or an `incoming/` prefix without changing DESIGN.md first.
+- `processPhoto()` and the header walk take no HTTP types, so the presigned-upload path
+  described in DESIGN.md §9.4 stays a server-only change.
+- The account runs on Workers Free (DESIGN.md D14, §16): keep CPU per request well under 10 ms and
+  mind the daily request limit, which staging and production share.
 - Agents never deploy to production and never hold a Cloudflare write token. Staging deploys go
   through the `deploy-staging` workflow.
 - New dependencies: only those listed in DESIGN.md §5 or the session file. Any other addition

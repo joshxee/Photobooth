@@ -4,7 +4,7 @@ This wiki documents the technical architecture, design decisions, and implementa
 
 ## Contents
 
-- [Core Domain](./Core-Domain.md) - Camera trait, session state machine, settings, mock camera (Rust)
+- [Core Domain](./Core-Domain.md) - Camera trait, session state machine, settings, mock camera, outbox retention rule (Rust)
 - [Wired Camera Protocol](./Wired-Camera-Protocol.md) - Sony A7 III over PTP/USB: protocol, setup, unverified assumptions
 - [Native Camera Plugin](./Native-Camera-Plugin.md) - CameraX behind the WebView, USB host, fd lifetime contract
 - [Tauri App](./Tauri-App.md) - State flow, IPC design, security posture, on-device acceptance checklist
@@ -15,8 +15,8 @@ This wiki documents the technical architecture, design decisions, and implementa
 
 - [Portal implementation plan](./portal/README.md) - 19 sessions (00-18) for the guest web portal on Cloudflare Workers; start with its [PROGRESS.md](./portal/PROGRESS.md)
 - [Portal design](./portal/DESIGN.md) - the accepted solution design
-- `Portal.md` - what was built and why (written as sessions land; not yet present)
-- `Booth-Upload.md` - the booth outbox and upload loop (written as sessions land; not yet present)
+- [Portal](./Portal.md) - what was built and why (updated as sessions land): one Worker, host routing, `run_worker_first`, local hostnames
+- [Booth Upload](./Booth-Upload.md) - the booth outbox: format, durability, retry rules (session 08; client and upload loop to come)
 
 ## Purpose
 
