@@ -16,6 +16,12 @@ fn main() {
         "session_state",
         "settings_get",
         "settings_set",
+        "portal_status",
+        "portal_enrol",
+        "portal_unenrol",
+        "portal_events",
+        "portal_select_event",
+        "portal_clear_event",
         "test_inject",
         "logs_recent",
     ]);

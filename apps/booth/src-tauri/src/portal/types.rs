@@ -21,6 +21,7 @@ use serde::{Deserialize, Serialize};
 pub struct DeviceCredential(String);
 
 impl DeviceCredential {
+    #[cfg(test)]
     pub fn new(secret: impl Into<String>) -> Self {
         Self(secret.into())
     }

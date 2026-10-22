@@ -1,12 +1,12 @@
 //! Enrolment and event selection (DESIGN §10 items 1–2), without the settings: `AppState`
 //! stores what these return. Errors are written for the operator.
 
-use std::sync::OnceLock;
+use std::sync::{Arc, OnceLock};
 
 use photobooth_core::outbox::{is_contract_id, ErrorCode, PortalError};
 use photobooth_core::SelectedEvent;
 
-use super::client::{http_client, HttpPortalClient, PortalOrigin};
+use super::client::{http_client, HttpPortalClient, OutboxDepth, PortalOrigin};
 use super::credential::{CredentialStore, StoredCredential};
 use super::types::DeviceEvent;
 use crate::dto::CommandError;
@@ -51,6 +51,9 @@ pub struct PortalService {
     http: OnceLock<Result<reqwest::Client, String>>,
     /// Enrol, unenrol and select run one at a time, so a double tap can't enrol twice.
     ops: tokio::sync::Mutex<()>,
+    /// `X-Outbox-Depth`. Nothing is queued before session 10, which passes the outbox's
+    /// length.
+    outbox_depth: OutboxDepth,
 }
 
 impl PortalService {
@@ -60,6 +63,7 @@ impl PortalService {
             config,
             http: OnceLock::new(),
             ops: tokio::sync::Mutex::new(()),
+            outbox_depth: Arc::new(|| 0),
         }
     }
 
@@ -107,7 +111,13 @@ impl PortalService {
                 "Enter the enrolment code from the admin portal.",
             ));
         }
-        let client = HttpPortalClient::new(self.http()?, origin.clone(), None, self.app_version());
+        let client = HttpPortalClient::new(
+            self.http()?,
+            origin.clone(),
+            None,
+            self.app_version(),
+            self.outbox_depth.clone(),
+        );
         let enrolled = client
             .enrol(code, name)
             .await
@@ -193,6 +203,7 @@ impl PortalService {
             origin,
             Some(stored.credential),
             self.app_version(),
+            self.outbox_depth.clone(),
         ))
     }
 

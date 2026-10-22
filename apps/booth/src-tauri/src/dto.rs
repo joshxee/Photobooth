@@ -2,8 +2,10 @@
 
 use std::fmt;
 
-use photobooth_core::{CameraId, CameraStatus};
+use photobooth_core::{CameraId, CameraStatus, SelectedEvent};
 use serde::{Deserialize, Serialize};
+
+use crate::portal::types::DeviceEvent;
 
 /// How the live preview reaches the screen.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
@@ -33,6 +35,46 @@ pub struct CameraInfo {
 pub struct CameraStatusEvent {
     pub camera: CameraId,
     pub status: CameraStatus,
+}
+
+/// What the operator UI knows about the portal (`portal_status` and the portal commands).
+/// It never carries the device credential.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+pub struct PortalStatus {
+    pub enrolled: bool,
+    /// The enrolled portal, or else the address the enrolment form starts with.
+    pub portal_url: String,
+    /// `host[:port]` of the enrolled portal.
+    pub portal_host: Option<String>,
+    /// The booth's name as the portal stored it.
+    pub device_name: Option<String>,
+    /// Where new photos go; only while enrolled.
+    pub selected_event: Option<SelectedEvent>,
+    /// Why the stored enrolment can't be used (a damaged file), for the operator.
+    pub problem: Option<String>,
+}
+
+/// One OPEN event for the operator's picker.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+pub struct PortalEvent {
+    pub id: String,
+    pub name: String,
+    pub venue: String,
+    pub timezone: String,
+    /// `YYYY-MM-DD`, in the event's time zone.
+    pub local_date: String,
+}
+
+impl From<DeviceEvent> for PortalEvent {
+    fn from(e: DeviceEvent) -> Self {
+        Self {
+            id: e.id,
+            name: e.name,
+            venue: e.venue,
+            timezone: e.timezone,
+            local_date: e.local_date,
+        }
+    }
 }
 
 /// Faults and shortcuts for the developer panel (`test_inject`).

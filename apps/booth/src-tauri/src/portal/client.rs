@@ -24,7 +24,7 @@ use reqwest::{Method, RequestBuilder, Response, StatusCode, Url};
 use super::types::{
     DeviceCredential, DeviceEvent, DeviceEventDetail, DeviceEventsResponse, EnrolRequest,
     EnrolResponse, ErrorBody, IntentVariants, PhotoIntentRequest, PhotoIntentResponse,
-    UploadTarget, VariantDeclaration,
+    UploadResponse, UploadTarget, VariantDeclaration,
 };
 
 pub const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
@@ -125,13 +125,16 @@ fn is_private(host: &str) -> bool {
         .is_ok_and(|ip| ip.is_private() || ip.is_link_local())
 }
 
+/// Where `X-Outbox-Depth` comes from: the number of shots waiting to upload.
+pub type OutboxDepth = Arc<dyn Fn() -> usize + Send + Sync>;
+
 /// The device API for one portal, optionally with the device's credential.
 pub struct HttpPortalClient {
     http: reqwest::Client,
     origin: PortalOrigin,
     credential: Option<DeviceCredential>,
     app_version: String,
-    outbox_depth: Arc<dyn Fn() -> usize + Send + Sync>,
+    outbox_depth: OutboxDepth,
 }
 
 impl HttpPortalClient {
@@ -140,20 +143,15 @@ impl HttpPortalClient {
         origin: PortalOrigin,
         credential: Option<DeviceCredential>,
         app_version: impl Into<String>,
+        outbox_depth: OutboxDepth,
     ) -> Self {
         Self {
             http,
             origin,
             credential,
             app_version: app_version.into(),
-            outbox_depth: Arc::new(|| 0),
+            outbox_depth,
         }
-    }
-
-    /// Where `X-Outbox-Depth` comes from (session 10 passes the outbox's queue length).
-    pub fn with_outbox_depth(mut self, depth: Arc<dyn Fn() -> usize + Send + Sync>) -> Self {
-        self.outbox_depth = depth;
-        self
     }
 
     /// `POST /v1/device/enrol`: swaps a one-time code for the credential. No bearer.
@@ -304,11 +302,13 @@ impl PortalClient for HttpPortalClient {
             .headers(headers)
             .body(body)
             .timeout(UPLOAD_TIMEOUT);
-        let (response, _) = self.send(request).await?;
-        match response.status().as_u16() {
-            200 => Ok(UploadOutcome::Stored),
-            201 => Ok(UploadOutcome::Ready),
-            202 => Ok(UploadOutcome::Processing {
+        let (response, body) = self.send(request).await?;
+        // The status and the body must agree: a 200 that isn't the portal's answer (a captive
+        // portal's page) must not count as stored.
+        match (response.status().as_u16(), parse::<UploadResponse>(&body)?) {
+            (200, UploadResponse::Stored { .. }) => Ok(UploadOutcome::Stored),
+            (201, UploadResponse::Ready { .. }) => Ok(UploadOutcome::Ready),
+            (202, UploadResponse::Processing { .. }) => Ok(UploadOutcome::Processing {
                 retry_after: retry_after(response.headers()),
             }),
             _ => Err(unexpected()),
@@ -397,8 +397,8 @@ mod tests {
             PortalOrigin::parse(&portal.base, false).unwrap(),
             Some(DeviceCredential::new(SECRET)),
             "0.4.0",
+            Arc::new(|| 7),
         )
-        .with_outbox_depth(Arc::new(|| 7))
     }
 
     fn unauthenticated(portal: &MockPortal) -> HttpPortalClient {
@@ -407,6 +407,7 @@ mod tests {
             PortalOrigin::parse(&portal.base, false).unwrap(),
             None,
             "0.4.0",
+            Arc::new(|| 0),
         )
     }
 
@@ -852,6 +853,25 @@ mod tests {
         }
     }
 
+    /// A 200 that isn't the portal's answer (a captive portal's page), or a status that
+    /// disagrees with the body, is retried, never counted as stored.
+    #[tokio::test]
+    async fn an_upload_answer_must_be_the_portals() {
+        for (status, body) in [
+            (200, "<html>Sign in to the venue Wi-Fi</html>"),
+            (200, fixture("device.upload-response.ready.json")),
+            (201, fixture("device.upload-response.stored.json")),
+        ] {
+            let portal = MockPortal::start(move |_| Canned::json(status, body)).await;
+            let upload = put_descriptor(&portal, Variant::Hd);
+            let err = client(&portal)
+                .upload(&upload, Bytes::from_static(b"x"))
+                .await
+                .unwrap_err();
+            assert!(matches!(err, PortalError::Network(_)), "{status} {body}");
+        }
+    }
+
     #[tokio::test]
     async fn upload_errors_map_to_their_codes() {
         for (status, file, code) in [
@@ -895,6 +915,7 @@ mod tests {
             PortalOrigin::parse("https://photos.example.invalid", false).unwrap(),
             Some(DeviceCredential::new(SECRET)),
             "0.4.0",
+            Arc::new(|| 0),
         );
         let mut upload = put_descriptor(
             &MockPortal::start(|_| Canned::json(200, "{}")).await,

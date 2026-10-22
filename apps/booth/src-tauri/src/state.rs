@@ -18,8 +18,10 @@ use photobooth_core::{CameraError, CapturedPhoto};
 use tokio::sync::{broadcast, watch};
 use tokio::task::JoinHandle;
 
-use crate::dto::{CameraInfo, CommandError, Fault, PreviewKind};
+use crate::dto::{CameraInfo, CommandError, Fault, PortalEvent, PortalStatus, PreviewKind};
 use crate::logs::LogRingBuffer;
+use crate::portal::client::PortalOrigin;
+use crate::portal::PortalService;
 
 /// Decides whether a camera can be used right now and hands out its `Camera`.
 #[async_trait]
@@ -182,6 +184,7 @@ pub struct AppState {
     mock: MockCameraHandle,
     live: tokio::sync::Mutex<Option<JoinHandle<()>>>,
     logs: LogRingBuffer,
+    portal: PortalService,
 }
 
 impl AppState {
@@ -190,6 +193,7 @@ impl AppState {
     /// [`SessionTask`] must be spawned on the app's runtime.
     pub fn new(
         settings_path: PathBuf,
+        portal: PortalService,
         platform_slots: Vec<CameraSlot>,
         logs: LogRingBuffer,
         timings: Timings,
@@ -244,6 +248,7 @@ impl AppState {
                 mock,
                 live: tokio::sync::Mutex::new(None),
                 logs,
+                portal,
             },
             task,
         )
@@ -302,16 +307,109 @@ impl AppState {
     }
 
     fn reset_settings(&self) -> Result<Settings, CommandError> {
+        self.change_settings(|current| {
+            *current = Settings {
+                // Resetting must not yank the camera the operator is using, nor the portal
+                // and event the booth uploads to (those change only through the portal).
+                selected_camera: current.selected_camera.clone(),
+                portal_url: current.portal_url.clone(),
+                selected_event: current.selected_event.clone(),
+                ..Settings::default()
+            }
+        })
+    }
+
+    /// Applies `change`, validates and persists the result. Nothing changes if a step fails.
+    fn change_settings(
+        &self,
+        change: impl FnOnce(&mut Settings),
+    ) -> Result<Settings, CommandError> {
         let mut guard = lock(&self.shared.settings);
-        let next = Settings {
-            // Resetting must not yank the camera the operator is using.
-            selected_camera: guard.selected_camera.clone(),
-            ..Settings::default()
-        };
+        let mut next = guard.clone();
+        change(&mut next);
         self.settings_store.save(&next)?;
         self.mock.set_config(next.test_mode.clone());
         *guard = next.clone();
         Ok(next)
+    }
+
+    // ----- portal -----------------------------------------------------------------------
+
+    /// Enrolment and the selected event, for the operator UI. Local only: no network.
+    pub fn portal_status(&self) -> PortalStatus {
+        let settings = self.settings();
+        let (enrolment, problem) = match self.portal.enrolment() {
+            Ok(enrolment) => (enrolment, None),
+            Err(err) => (None, Some(err.0)),
+        };
+        let portal_url = match &enrolment {
+            Some(e) => e.portal_url.clone(),
+            None if !settings.portal_url.is_empty() => settings.portal_url.clone(),
+            None => self.portal.config().default_url.clone(),
+        };
+        PortalStatus {
+            enrolled: enrolment.is_some(),
+            portal_host: enrolment
+                .as_ref()
+                .and_then(|e| PortalOrigin::parse(&e.portal_url, true).ok())
+                .map(|origin| origin.host()),
+            device_name: enrolment.as_ref().map(|e| e.device_name.clone()),
+            selected_event: enrolment.and(settings.selected_event),
+            portal_url,
+            problem,
+        }
+    }
+
+    /// Enrols with the portal at `url` using a one-time `code`, as `name`.
+    pub async fn portal_enrol(
+        &self,
+        url: &str,
+        code: &str,
+        name: &str,
+    ) -> Result<PortalStatus, CommandError> {
+        let enrolled = self.portal.enrol(url, code, name).await?;
+        let saved = self.change_settings(|s| {
+            s.portal_url = enrolled.portal_url.clone();
+            s.selected_event = None;
+        });
+        if let Err(err) = saved {
+            // Half done is worse than not done: the operator retries with a new code.
+            let _ = self.portal.unenrol().await;
+            return Err(err);
+        }
+        Ok(self.portal_status())
+    }
+
+    /// Deletes the credential and the event selection. The UI confirms first.
+    pub async fn portal_unenrol(&self) -> Result<PortalStatus, CommandError> {
+        self.portal.unenrol().await?;
+        self.change_settings(|s| s.selected_event = None)?;
+        Ok(self.portal_status())
+    }
+
+    pub async fn portal_events(&self) -> Result<Vec<PortalEvent>, CommandError> {
+        Ok(self
+            .portal
+            .events()
+            .await?
+            .into_iter()
+            .map(PortalEvent::from)
+            .collect())
+    }
+
+    /// Makes event `id` the destination for new photos, if the portal says it is OPEN now.
+    /// Photos already queued keep their event (DESIGN §10).
+    pub async fn portal_select_event(&self, id: &str) -> Result<PortalStatus, CommandError> {
+        let event = self.portal.open_event(id).await?;
+        tracing::info!(event_id = %event.id, "portal event selected");
+        self.change_settings(|s| s.selected_event = Some(event))?;
+        Ok(self.portal_status())
+    }
+
+    pub fn portal_clear_event(&self) -> Result<PortalStatus, CommandError> {
+        self.change_settings(|s| s.selected_event = None)?;
+        tracing::info!("portal event cleared");
+        Ok(self.portal_status())
     }
 
     // ----- cameras ----------------------------------------------------------------------
@@ -632,6 +730,14 @@ mod tests {
     use super::*;
     use std::time::Duration;
     use tokio::sync::mpsc;
+    use tracing_subscriber::prelude::*;
+
+    use crate::portal::test_server::{Canned, MockPortal};
+    use crate::portal::types::tests::fixture;
+    use crate::portal::types::DeviceCredential;
+    use crate::portal::{CredentialStore, PortalConfig};
+
+    const CREDENTIAL_FILE: &str = "portal-credential.json";
 
     struct ChannelSink(mpsc::UnboundedSender<Bytes>);
 
@@ -644,6 +750,17 @@ mod tests {
     struct Rig {
         state: Arc<AppState>,
         dir: tempfile::TempDir,
+    }
+
+    fn test_portal(dir: &tempfile::TempDir) -> PortalService {
+        PortalService::new(
+            CredentialStore::new(dir.path().join(CREDENTIAL_FILE)),
+            PortalConfig {
+                app_version: "0.4.0".into(),
+                allow_lan_http: false,
+                default_url: "https://photos.example.invalid".into(),
+            },
+        )
     }
 
     fn rig() -> Rig {
@@ -664,6 +781,7 @@ mod tests {
         ];
         let (state, task) = AppState::new(
             dir.path().join("settings.json"),
+            test_portal(&dir),
             slots,
             LogRingBuffer::new(100),
             Timings::default(),
@@ -709,6 +827,205 @@ mod tests {
         rig.state.set_completion_hook(Arc::new(NoopHook));
         let got = rig.state.shared.completion_hook().expect("hook set");
         assert!(Arc::ptr_eq(&got, &hook), "the first hook is kept");
+    }
+
+    // ----- portal ---------------------------------------------------------------------
+    // Real time (not `start_paused`): these talk to a local HTTP server.
+
+    const EVENT_ID: &str = "019a0b6c-4f00-7a3e-9c41-5b2d8e0f1a01";
+
+    async fn mock_portal() -> MockPortal {
+        MockPortal::start(|r| match (r.method.as_str(), r.target.as_str()) {
+            ("POST", "/v1/device/enrol") => {
+                Canned::json(201, fixture("device.enrol-response.valid.json"))
+            }
+            ("GET", "/v1/device/events") => {
+                Canned::json(200, fixture("device.events-response.valid.json"))
+            }
+            _ => Canned::json(200, fixture("device.event-detail.live.json")),
+        })
+        .await
+    }
+
+    fn fixture_credential() -> String {
+        let response: serde_json::Value =
+            serde_json::from_str(fixture("device.enrol-response.valid.json")).unwrap();
+        let credential: DeviceCredential =
+            serde_json::from_value(response["credential"].clone()).unwrap();
+        credential.expose().to_owned()
+    }
+
+    #[tokio::test]
+    async fn portal_status_before_enrolment_offers_the_default_address() {
+        let rig = rig();
+        let status = rig.state.portal_status();
+        assert!(!status.enrolled);
+        assert_eq!(status.portal_url, "https://photos.example.invalid");
+        assert_eq!(status.portal_host, None);
+        assert_eq!(status.selected_event, None);
+        let err = rig.state.portal_select_event(EVENT_ID).await.unwrap_err();
+        assert!(err.0.contains("isn't enrolled"), "{err}");
+    }
+
+    /// Enrol, list, select: the credential reaches the credential file and the portal, and
+    /// nothing else (DESIGN §10; the session's "never in settings, logs or IPC").
+    #[tokio::test]
+    async fn the_credential_never_reaches_settings_logs_or_ipc() {
+        let logs = LogRingBuffer::new(1000);
+        let subscriber = tracing_subscriber::registry().with(
+            tracing_subscriber::fmt::layer()
+                .with_writer(logs.clone())
+                .with_ansi(false)
+                .with_filter(tracing_subscriber::filter::LevelFilter::TRACE),
+        );
+        let _guard = tracing::subscriber::set_default(subscriber);
+
+        let rig = rig();
+        let portal = mock_portal().await;
+        let secret = fixture_credential();
+
+        let mut ipc = Vec::new();
+        let enrolled = rig
+            .state
+            .portal_enrol(&portal.base, "7K3M9Q2Z", "Booth 1")
+            .await
+            .unwrap();
+        assert!(enrolled.enrolled);
+        assert_eq!(enrolled.device_name.as_deref(), Some("Booth 1"));
+        assert_eq!(
+            enrolled.portal_host.as_deref(),
+            Some(portal.base.trim_start_matches("http://"))
+        );
+        ipc.push(serde_json::to_string(&enrolled).unwrap());
+        ipc.push(serde_json::to_string(&rig.state.portal_events().await.unwrap()).unwrap());
+        ipc.push(
+            serde_json::to_string(&rig.state.portal_select_event(EVENT_ID).await.unwrap()).unwrap(),
+        );
+        ipc.push(serde_json::to_string(&rig.state.portal_status()).unwrap());
+        ipc.push(serde_json::to_string(&rig.state.settings()).unwrap());
+
+        for payload in &ipc {
+            assert!(
+                !payload.contains(&secret),
+                "IPC payload leaks it: {payload}"
+            );
+        }
+        let settings_file = std::fs::read_to_string(rig.dir.path().join("settings.json")).unwrap();
+        assert!(settings_file.contains(EVENT_ID), "the selection is saved");
+        assert!(!settings_file.contains(&secret), "settings JSON leaks it");
+        let lines = logs.recent(1000);
+        assert!(
+            lines.iter().any(|l| l.contains("enrolled with the portal")),
+            "logs were captured: {lines:?}"
+        );
+        for line in &lines {
+            assert!(!line.contains(&secret), "log line leaks it: {line}");
+        }
+        let stored = std::fs::read_to_string(rig.dir.path().join(CREDENTIAL_FILE)).unwrap();
+        assert!(stored.contains(&secret), "the credential file holds it");
+        // And it was sent as the bearer.
+        let sent = portal.requests();
+        assert_eq!(
+            sent[1].header("authorization"),
+            Some(format!("Bearer {secret}").as_str())
+        );
+    }
+
+    #[tokio::test]
+    async fn enrolment_and_selection_are_saved_and_unenrolling_clears_the_event() {
+        let rig = rig();
+        let portal = mock_portal().await;
+        rig.state
+            .portal_enrol(&portal.base, "CODE", "Booth 1")
+            .await
+            .unwrap();
+        assert_eq!(rig.state.settings().portal_url, portal.base);
+        let status = rig.state.portal_select_event(EVENT_ID).await.unwrap();
+        let event = status.selected_event.expect("selected");
+        assert_eq!(event.name, "Smith wedding");
+        assert_eq!(event.local_date, "2026-10-22");
+        assert_eq!(rig.state.settings().selected_event, Some(event.clone()));
+
+        // It survives a restart.
+        let (reloaded, _task) = AppState::new(
+            rig.dir.path().join("settings.json"),
+            test_portal(&rig.dir),
+            Vec::new(),
+            LogRingBuffer::new(10),
+            Timings::default(),
+        );
+        let status = reloaded.portal_status();
+        assert!(status.enrolled);
+        assert_eq!(status.selected_event, Some(event));
+
+        let cleared = rig.state.portal_clear_event().unwrap();
+        assert_eq!(cleared.selected_event, None);
+        rig.state.portal_select_event(EVENT_ID).await.unwrap();
+        let status = rig.state.portal_unenrol().await.unwrap();
+        assert!(!status.enrolled);
+        assert_eq!(status.selected_event, None, "no event without an enrolment");
+        assert_eq!(
+            status.portal_url, portal.base,
+            "kept for the next enrolment"
+        );
+        assert!(!rig.dir.path().join(CREDENTIAL_FILE).exists());
+    }
+
+    #[tokio::test]
+    async fn events_reach_the_ui_in_its_own_field_names() {
+        let rig = rig();
+        let portal = mock_portal().await;
+        rig.state
+            .portal_enrol(&portal.base, "CODE", "Booth 1")
+            .await
+            .unwrap();
+        let events = rig.state.portal_events().await.unwrap();
+        assert_eq!(
+            serde_json::to_value(&events[0]).unwrap(),
+            serde_json::json!({
+                "id": EVENT_ID,
+                "name": "Smith wedding",
+                "venue": "Morningside Hall",
+                "timezone": "Pacific/Auckland",
+                "local_date": "2026-10-22",
+            })
+        );
+    }
+
+    #[tokio::test]
+    async fn resetting_settings_keeps_the_portal_and_the_event() {
+        let rig = rig();
+        let portal = mock_portal().await;
+        rig.state
+            .portal_enrol(&portal.base, "CODE", "Booth 1")
+            .await
+            .unwrap();
+        rig.state.portal_select_event(EVENT_ID).await.unwrap();
+        rig.state.inject(Fault::ResetSettings).await.unwrap();
+        let settings = rig.state.settings();
+        assert_eq!(settings.portal_url, portal.base);
+        assert_eq!(
+            settings.selected_event.map(|e| e.id),
+            Some(EVENT_ID.to_owned())
+        );
+    }
+
+    #[tokio::test]
+    async fn a_damaged_enrolment_is_reported_not_hidden() {
+        let rig = rig();
+        std::fs::write(rig.dir.path().join(CREDENTIAL_FILE), b"{ damaged").unwrap();
+        let status = rig.state.portal_status();
+        assert!(!status.enrolled);
+        assert!(
+            status
+                .problem
+                .as_deref()
+                .is_some_and(|p| p.contains("damaged")),
+            "{status:?}"
+        );
+        // Unenrolling clears it.
+        let status = rig.state.portal_unenrol().await.unwrap();
+        assert_eq!(status.problem, None);
     }
 
     #[tokio::test(start_paused = true)]
@@ -759,6 +1076,7 @@ mod tests {
 
         let (reloaded, _task) = AppState::new(
             rig.dir.path().join("settings.json"),
+            test_portal(&rig.dir),
             Vec::new(),
             LogRingBuffer::new(10),
             Timings::default(),

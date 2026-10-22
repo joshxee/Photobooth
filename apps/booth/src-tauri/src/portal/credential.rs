@@ -51,6 +51,7 @@ impl CredentialStore {
         Self { path: path.into() }
     }
 
+    #[cfg(test)]
     pub fn path(&self) -> &Path {
         &self.path
     }
