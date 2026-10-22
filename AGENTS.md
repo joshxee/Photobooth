@@ -58,6 +58,9 @@ cd apps/booth && bun install --frozen-lockfile && bun run typecheck && bun test 
 - **Portal admin locally:** `fnm exec --using=22.11.0 -- node node_modules/wrangler/bin/wrangler.js dev --var DEV_AUTH:1`
   skips Access on `*.localhost` hosts only (actor `dev@admin.localhost`). Admin mutations also need
   `-H "Origin: http://admin.localhost:8787" -H "Content-Type: application/json"`.
+- **Portal `wrangler dev` setup:** once, `cp .dev.vars.example .dev.vars` (the local-only `UPLOAD_KEY`) and
+  `bun run build.ts` (`dist/` must exist). Upload smoke test against `wrangler dev --var DEV_AUTH:1`:
+  `bun run scripts/smoke.ts --base http://localhost:8787` (enrol → intent → PUT thumb → PUT hd → READY).
 - **Portal local data:** from `apps/portal`, `fnm exec --using=22.11.0 -- bun run migrate:local` (D1 migrations, local
   only), then `fnm exec --using=22.11.0 -- bun run seed`. The seed (`scripts/seed.ts`) **replaces** the local D1 and R2
   contents with two events (OPEN/LIVE and CLOSED/LIVE), one enrolled device and READY photos with placeholder JPEGs,

@@ -13,7 +13,10 @@
   // Disabled so the admin Access app can't be bypassed through an alternate hostname (§4).
   "workers_dev": false,
   "preview_urls": false,
-  "observability": { "enabled": true },
+  // redact_query_string: Workers Logs would otherwise record each request's full URL, and upload
+  // URLs carry their signature in the query (DESIGN §13: logs never include query strings).
+  // Inherited by staging and production.
+  "observability": { "enabled": true, "redact_query_string": true },
 
   // run_worker_first: every response, including static assets, goes through the Worker so it
   // gets the security headers and the host check (wiki/Portal.md).
@@ -34,13 +37,17 @@
     { "binding": "DB", "database_name": "portal-local", "database_id": "00000000-0000-0000-0000-000000000000" }
   ],
   "r2_buckets": [{ "binding": "MEDIA", "bucket_name": "portal-media-local" }],
-  // Rate limits (DESIGN §13). ENROL_LIMITER: 10 enrolment attempts a minute per IP (session 05; the
-  // reasoning is in wiki/Portal.md). The other two are placeholders, tuned by the sessions that use them.
+  // Rate limits (DESIGN §13). ENROL_LIMITER: 10 enrolment attempts a minute per IP (session 05).
+  // INTENT_LIMITER: 120 upload intents a minute per device (session 06). The reasoning for both is in
+  // wiki/Portal.md. SESSION_LIMITER is a placeholder, tuned by session 11.
   "ratelimits": [
     { "name": "ENROL_LIMITER", "namespace_id": "1001", "simple": { "limit": 10, "period": 60 } },
     { "name": "SESSION_LIMITER", "namespace_id": "1002", "simple": { "limit": 30, "period": 60 } },
-    { "name": "INTENT_LIMITER", "namespace_id": "1003", "simple": { "limit": 60, "period": 60 } }
+    { "name": "INTENT_LIMITER", "namespace_id": "1003", "simple": { "limit": 120, "period": 60 } }
   ],
+  // Secrets are set with `wrangler secret put` (staging/production) or `.dev.vars` (local, copied from
+  // .dev.vars.example), never here. UPLOAD_KEY signs the upload URLs (lib/uploadUrl.ts).
+  "secrets": { "required": ["UPLOAD_KEY"] },
   "vars": {
     "GALLERY_HOST": "photos.localhost:8787",
     "ADMIN_HOST": "admin.localhost:8787",
@@ -69,8 +76,9 @@
       "ratelimits": [
         { "name": "ENROL_LIMITER", "namespace_id": "2001", "simple": { "limit": 10, "period": 60 } },
         { "name": "SESSION_LIMITER", "namespace_id": "2002", "simple": { "limit": 30, "period": 60 } },
-        { "name": "INTENT_LIMITER", "namespace_id": "2003", "simple": { "limit": 60, "period": 60 } }
+        { "name": "INTENT_LIMITER", "namespace_id": "2003", "simple": { "limit": 120, "period": 60 } }
       ],
+      "secrets": { "required": ["UPLOAD_KEY"] },
       "vars": {
         "GALLERY_HOST": "photos-staging.example.invalid",
         "ADMIN_HOST": "admin-staging.example.invalid",
@@ -97,8 +105,9 @@
       "ratelimits": [
         { "name": "ENROL_LIMITER", "namespace_id": "3001", "simple": { "limit": 10, "period": 60 } },
         { "name": "SESSION_LIMITER", "namespace_id": "3002", "simple": { "limit": 30, "period": 60 } },
-        { "name": "INTENT_LIMITER", "namespace_id": "3003", "simple": { "limit": 60, "period": 60 } }
+        { "name": "INTENT_LIMITER", "namespace_id": "3003", "simple": { "limit": 120, "period": 60 } }
       ],
+      "secrets": { "required": ["UPLOAD_KEY"] },
       "vars": {
         "GALLERY_HOST": "photos.example.invalid",
         "ADMIN_HOST": "admin.example.invalid",
