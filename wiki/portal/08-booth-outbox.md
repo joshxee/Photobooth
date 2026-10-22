@@ -95,7 +95,7 @@ Tests must cover:
 - an event switch keeping old items' `event_id`.
 
 Device (automated, after 09 wires it in, or now with a debug-only command if trivial):
-document the adb steps (`run-as <pkg> ls files/outbox`, `am force-stop`, relaunch). The real
+document the adb steps (`run-as <pkg> ls outbox` (the app data root, not `files/`), `am force-stop`, relaunch). The real
 run happens in 10.
 
 ## Done when
