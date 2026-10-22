@@ -1,0 +1,113 @@
+import { env, exports } from "cloudflare:workers";
+import { createExecutionContext } from "cloudflare:test";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { createApp } from "./app";
+import { createHostApp } from "./lib/hostApp";
+import worker from "./index";
+
+const GALLERY = "http://photos.localhost:8787";
+const ADMIN = "http://admin.localhost:8787";
+const UNKNOWN = "http://evil.example.com";
+
+const HEADERS: Record<string, string> = {
+  "content-security-policy": "default-src 'self'; img-src 'self' blob: data:; frame-ancestors 'none'",
+  "strict-transport-security": "max-age=31536000; includeSubDomains",
+  "x-content-type-options": "nosniff",
+  "referrer-policy": "no-referrer",
+};
+
+function expectSecurityHeaders(res: Response) {
+  for (const [name, value] of Object.entries(HEADERS)) expect(res.headers.get(name)).toBe(value);
+  expect(res.headers.get("x-request-id")).toMatch(/^[0-9a-f-]{36}$/);
+}
+
+const get = (url: string, init?: RequestInit) => exports.default.fetch(url, init);
+
+afterEach(() => vi.restoreAllMocks());
+
+describe("host routing", () => {
+  it("serves /healthz on the gallery host", async () => {
+    const res = await get(`${GALLERY}/healthz`);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ ok: true, version: expect.any(String) });
+  });
+
+  it("serves /healthz on the admin host", async () => {
+    const res = await get(`${ADMIN}/healthz`);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ ok: true, version: expect.any(String) });
+  });
+
+  it("returns 404 for an unknown host, even for /healthz", async () => {
+    const res = await get(`${UNKNOWN}/healthz`);
+    expect(res.status).toBe(404);
+    expect(await res.json()).toMatchObject({ code: "not_found" });
+  });
+
+  it("matches the host case-insensitively", async () => {
+    expect((await get("http://PHOTOS.LOCALHOST:8787/healthz")).status).toBe(200);
+  });
+
+  it("does not mix up the two hosts' routes", async () => {
+    expect((await get(`${ADMIN}/e/abc`)).status).toBe(404);
+    expect((await get(`${GALLERY}/`)).status).toBe(404);
+  });
+
+  it("returns 404 in the error shape for unknown paths on a known host", async () => {
+    const res = await get(`${GALLERY}/nope`);
+    expect(res.status).toBe(404);
+    expect(await res.json()).toEqual({
+      code: "not_found",
+      message: expect.any(String),
+      correlationId: res.headers.get("x-request-id"),
+    });
+  });
+});
+
+describe("security headers", () => {
+  it.each([
+    ["gallery healthz", `${GALLERY}/healthz`],
+    ["admin healthz", `${ADMIN}/healthz`],
+    ["unknown host 404", `${UNKNOWN}/anything`],
+    ["gallery path 404", `${GALLERY}/nope`],
+    ["admin path 404", `${ADMIN}/nope`],
+  ])("are present on %s", async (_name, url) => {
+    expectSecurityHeaders(await get(url));
+  });
+
+  it("are present on a 500 from a route", async () => {
+    const boom = createHostApp("gallery");
+    boom.get("/boom", () => {
+      throw new Error("kaboom");
+    });
+    vi.spyOn(console, "log").mockImplementation(() => {});
+    const app = createApp({ gallery: boom, admin: createHostApp("admin") });
+    const res = await app.fetch(new Request(`${GALLERY}/boom`), env, createExecutionContext());
+    expect(res.status).toBe(500);
+    expectSecurityHeaders(res);
+    expect(await res.json()).toMatchObject({ code: "internal_error" });
+  });
+});
+
+describe("logging", () => {
+  it("logs the request without query strings, cookies or auth headers", async () => {
+    const spy = vi.spyOn(console, "log").mockImplementation(() => {});
+    await get(`${GALLERY}/healthz?token=SECRET-QUERY`, {
+      headers: { cookie: "portal_session=SECRET-COOKIE", authorization: "Bearer SECRET-BEARER" },
+    });
+    const output = spy.mock.calls.map((args) => args.join(" ")).join("\n");
+    expect(output).toContain("/healthz");
+    for (const secret of ["SECRET-QUERY", "SECRET-COOKIE", "SECRET-BEARER"]) {
+      expect(output).not.toContain(secret);
+    }
+  });
+});
+
+describe("scheduled", () => {
+  it("is a no-op that logs", async () => {
+    const spy = vi.spyOn(console, "log").mockImplementation(() => {});
+    await worker.scheduled({ cron: "0 14 * * *", scheduledTime: Date.now(), noRetry() {} });
+    expect(spy).toHaveBeenCalledOnce();
+    expect(String(spy.mock.calls[0]?.[0])).toContain("scheduled");
+  });
+});
