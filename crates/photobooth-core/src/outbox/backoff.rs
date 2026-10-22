@@ -1,7 +1,7 @@
 //! Retry timing (DESIGN §9.3): jittered exponential backoff from 1 s to a 5 min cap, never
 //! sooner than the server's `Retry-After`.
 
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Mutex;
 use std::time::Duration;
 
 /// The first retry waits up to this long.
@@ -32,7 +32,7 @@ impl Jitter for FixedJitter {
 /// strength, and this avoids a `rand` dependency.
 #[derive(Debug)]
 pub struct RandomJitter {
-    state: AtomicU64,
+    state: Mutex<u64>,
 }
 
 impl RandomJitter {
@@ -43,7 +43,7 @@ impl RandomJitter {
 
     pub fn with_seed(seed: u64) -> Self {
         Self {
-            state: AtomicU64::new(seed.max(1)),
+            state: Mutex::new(seed.max(1)),
         }
     }
 }
@@ -62,11 +62,14 @@ impl Jitter for RandomJitter {
             x ^= x >> 27;
             x
         };
-        let prev = self
-            .state
-            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |x| Some(step(x)))
-            .unwrap_or(1);
-        let out = step(prev).wrapping_mul(0x2545_F491_4F6C_DD1D);
+        // A plain lock rather than an atomic update loop: the atomic's API differs between
+        // our MSRV and current stable, and jitter is drawn once per failed upload.
+        let next = {
+            let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
+            *state = step(*state);
+            *state
+        };
+        let out = next.wrapping_mul(0x2545_F491_4F6C_DD1D);
         // The top 53 bits as a fraction in [0, 1).
         (out >> 11) as f64 / (1u64 << 53) as f64
     }
