@@ -165,3 +165,28 @@ export async function listGalleryPage(
   const nextCursor = results.length > args.limit && last ? encodeCursor({ publishedAt: last.published_at, id: last.id }) : null;
   return { photos, nextCursor, rowsRead: meta.rows_read };
 }
+
+export interface PhotoCounts {
+  pending: number;
+  ready: number;
+  rejected: number;
+  /** Photos an admin has hidden, whatever their state (a subset of the other three). */
+  hidden: number;
+}
+
+/**
+ * Photo counts per event, for the admin views. Events with no photos are absent from the map.
+ * Grouped over `photos_gallery` (event_id, state, hidden), which covers the query, so it reads
+ * index entries only: one per photo of the events counted.
+ */
+export async function countPhotos(db: D1Database, eventId?: string): Promise<Map<string, PhotoCounts>> {
+  const select =
+    "SELECT event_id, SUM(state = 'PENDING') AS pending, SUM(state = 'READY') AS ready, " +
+    "SUM(state = 'REJECTED') AS rejected, SUM(hidden) AS hidden FROM photos";
+  const statement =
+    eventId === undefined
+      ? db.prepare(`${select} GROUP BY event_id`)
+      : db.prepare(`${select} WHERE event_id = ? GROUP BY event_id`).bind(eventId);
+  const { results } = await statement.all<PhotoCounts & { event_id: string }>();
+  return new Map(results.map(({ event_id, ...counts }) => [event_id, counts]));
+}

@@ -4,7 +4,7 @@ import { decodeCursor } from "../domain/cursor";
 import { applyEventAction } from "../domain/eventState";
 import { newId } from "../domain/ids";
 import { deviceRow, eventRow, photoRow, resetDb, T0 } from "../test/factories";
-import { insertAudit, listAudit } from "./audit";
+import { insertAudit, insertAuditIfEventAt, listAudit } from "./audit";
 import {
   getDevice,
   getDeviceByTokenHash,
@@ -16,6 +16,7 @@ import {
 } from "./devices";
 import { getEvent, getEventByPublicId, insertEvent, listEvents, listOpenEvents, updateEvent } from "./events";
 import {
+  countPhotos,
   deletePhoto,
   getPhoto,
   insertPhotoIfUnderLimit,
@@ -402,5 +403,69 @@ describe("audit", () => {
     expect(await listAudit(db, { limit: 10 })).toEqual([second, first]);
     expect(await listAudit(db, { eventId, limit: 10 })).toEqual([first]);
     expect(await listAudit(db, { limit: 1 })).toEqual([second]);
+  });
+});
+
+describe("audit with an event write", () => {
+  const entry = (eventId: string) => ({
+    id: newId(), at: NOW.toISOString(), actor: "a@example.com", action: "event.update", event_id: eventId, target_id: null, detail: { fields: ["name"] },
+  });
+
+  it("writes the row and the change together while the event is at the read version", async () => {
+    const { event } = await setup();
+    const next = { ...event, name: "Renamed", updated_at: NOW.toISOString() };
+    const [audit, update] = await db.batch([insertAuditIfEventAt(db, entry(event.id), event.id, event.updated_at), updateEvent(db, next, event.updated_at)]);
+    expect(audit?.meta.changes).toBe(1);
+    expect(update?.meta.changes).toBe(1);
+    expect(await listAudit(db, { eventId: event.id, limit: 10 })).toHaveLength(1);
+  });
+
+  it("writes neither when another write got there first (no audit row for a change that didn't happen)", async () => {
+    const { event } = await setup();
+    await updateEvent(db, { ...event, name: "Theirs", updated_at: NOW.toISOString() }, event.updated_at).run();
+    const mine = { ...event, name: "Mine", updated_at: new Date(NOW.getTime() + 1).toISOString() };
+    const [audit, update] = await db.batch([insertAuditIfEventAt(db, entry(event.id), event.id, event.updated_at), updateEvent(db, mine, event.updated_at)]);
+    expect(audit?.meta.changes).toBe(0);
+    expect(update?.meta.changes).toBe(0);
+    expect(await listAudit(db, { eventId: event.id, limit: 10 })).toEqual([]);
+    expect((await getEvent(db, event.id))?.name).toBe("Theirs");
+  });
+});
+
+async function makeReady(eventId: string, deviceId: string, count: number, sessionId: string): Promise<string[]> {
+  const ids: string[] = [];
+  for (let i = 0; i < count; i++) {
+    const photo = photoRow({ event_id: eventId, device_id: deviceId, session_id: sessionId, shot: i });
+    await insertPhotoIfUnderLimit(db, photo);
+    await db.batch([markVariantStored(db, photo.id, "thumb"), markVariantStored(db, photo.id, "hd"), publishPhotoIfComplete(db, photo.id, NOW)]);
+    ids.push(photo.id);
+  }
+  return ids;
+}
+
+describe("countPhotos", () => {
+  it("counts by state and hidden, per event, for one event or all", async () => {
+    const { event, device } = await setup();
+    const other = eventRow();
+    await insertEvent(db, other).run();
+    const empty = eventRow();
+    await insertEvent(db, empty).run();
+    await makeReady(event.id, device.id, 3, "s");
+    const pending = photoRow({ event_id: event.id, device_id: device.id });
+    const rejected = photoRow({ event_id: event.id, device_id: device.id });
+    await insertPhotoIfUnderLimit(db, pending);
+    await insertPhotoIfUnderLimit(db, rejected);
+    await rejectPhoto(db, rejected.id, "bad").run();
+    const [hiddenOne] = await makeReady(event.id, device.id, 1, "h");
+    await setPhotoHidden(db, event.id, hiddenOne!, true).run();
+    await makeReady(other.id, device.id, 2, "o");
+
+    const all = await countPhotos(db);
+    expect(all.get(event.id)).toEqual({ pending: 1, ready: 4, rejected: 1, hidden: 1 });
+    expect(all.get(other.id)).toEqual({ pending: 0, ready: 2, rejected: 0, hidden: 0 });
+    expect(all.get(empty.id)).toBeUndefined();
+    const one = await countPhotos(db, event.id);
+    expect([...one.keys()]).toEqual([event.id]);
+    expect(one.get(event.id)).toEqual({ pending: 1, ready: 4, rejected: 1, hidden: 1 });
   });
 });
