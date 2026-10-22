@@ -300,9 +300,11 @@ status per code (`apps/portal/src/shared/schemas.ts`, listed in `wiki/Portal.md`
 | `POST /v1/device/photos` | Upload intent (section 9). Idempotent on `clientPhotoId`. |
 | `PUT /v1/device/uploads/{photoId}/{variant}?exp&sig` | Upload and check one variant (section 9). Authorised by the signed URL. |
 
-Every device call sends an `X-Outbox-Depth` header, and the server records `last_seen_at`,
-`last_backlog` and `app_version`. That gives admins live visibility into each booth at no extra
-cost.
+Every authenticated device call sends `X-Outbox-Depth` and `X-App-Version` headers, and the
+server records `last_seen_at`, `last_backlog` and `app_version`, at most once a minute per device to
+save D1 writes. That gives admins live visibility into each booth at no extra cost. (Session 05
+named the app-version header, `DEVICE_HEADERS` in `src/shared/schemas.ts`. The event detail serves
+any event that isn't deleted, and reports an OPEN event past `uploads_until` as CLOSED.)
 
 **Guest** (`photos.<domain>`; cookie scoped to `Path=/e/{publicId}`):
 
@@ -520,7 +522,9 @@ day 1 to preserve this.
     signage must be reprinted after a rotation, and the rotate confirmation says so.
 - **Photos**: grid by state (pending, ready, rejected), hide and unhide, delete permanently (for
   removal requests).
-- **Devices**: create (shows the 10-minute code once), revoke, last seen, backlog, app version.
+- **Devices**: create (shows the 10-minute code once), re-issue the code (also re-enrols an
+  enrolled tablet), revoke, last seen, backlog, app version. On enrolment the device takes the name
+  the booth sends, replacing the admin's placeholder (session 05).
   This is the event-day health view.
 - **Audit**: event changes, publish and suspend, rotation, device create and revoke, hide and
   delete, restore.

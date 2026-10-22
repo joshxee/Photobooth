@@ -34,6 +34,37 @@ export async function listAudit(db: D1Database, args: { eventId?: string; limit:
 }
 
 /**
+ * The audit row for a device write that only applies to an existing, unrevoked device (re-issue a
+ * code, revoke). Put it **before** the write in the same `db.batch`, so a write that matches no
+ * row (unknown or already revoked) leaves no audit row behind.
+ */
+export function insertAuditIfDeviceActive(db: D1Database, a: AuditEntry, deviceId: string): D1PreparedStatement {
+  return db
+    .prepare(
+      `INSERT INTO audit (id, at, actor, action, event_id, target_id, detail)
+       SELECT ?, ?, ?, ?, ?, ?, ? WHERE EXISTS (SELECT 1 FROM devices WHERE id = ? AND revoked_at IS NULL)`,
+    )
+    .bind(a.id, a.at, a.actor, a.action, a.event_id, a.target_id, a.detail === null ? null : JSON.stringify(a.detail), deviceId);
+}
+
+/**
+ * The audit row for an enrolment, written by the device itself (actor `device:<id>`). Put it
+ * **after** `redeemEnrolCode` in the same `db.batch`: it finds the device by its new credential
+ * hash, so a refused code writes nothing. `detail` must not hold the code or the credential.
+ */
+export function insertEnrolAudit(
+  db: D1Database,
+  a: { id: string; at: string; tokenHash: string; detail: Record<string, unknown> },
+): D1PreparedStatement {
+  return db
+    .prepare(
+      `INSERT INTO audit (id, at, actor, action, event_id, target_id, detail)
+       SELECT ?, ?, 'device:' || id, 'device.enrol', NULL, id, ? FROM devices WHERE token_hash = ?`,
+    )
+    .bind(a.id, a.at, JSON.stringify(a.detail), a.tokenHash);
+}
+
+/**
  * The audit row for an event write guarded by `updateEvent(db, next, readAt)`. Put it **before**
  * that update in the same `db.batch`: both see the event at `readAt`, so either both apply or
  * neither does, and a write that lost the optimistic check leaves no audit row behind.

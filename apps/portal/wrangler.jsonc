@@ -34,7 +34,8 @@
     { "binding": "DB", "database_name": "portal-local", "database_id": "00000000-0000-0000-0000-000000000000" }
   ],
   "r2_buckets": [{ "binding": "MEDIA", "bucket_name": "portal-media-local" }],
-  // Rate limits (DESIGN §13). Placeholders: the thresholds are tuned in the sessions that use them.
+  // Rate limits (DESIGN §13). ENROL_LIMITER: 10 enrolment attempts a minute per IP (session 05; the
+  // reasoning is in wiki/Portal.md). The other two are placeholders, tuned by the sessions that use them.
   "ratelimits": [
     { "name": "ENROL_LIMITER", "namespace_id": "1001", "simple": { "limit": 10, "period": 60 } },
     { "name": "SESSION_LIMITER", "namespace_id": "1002", "simple": { "limit": 30, "period": 60 } },

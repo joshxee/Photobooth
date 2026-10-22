@@ -43,15 +43,18 @@ export async function listEvents(db: D1Database): Promise<EventRow[]> {
   return results;
 }
 
+/** The device events response holds at most this many (DeviceEventsResponse). */
+export const OPEN_EVENTS_MAX = 100;
+
 /** Booth list: events that accept uploads now (domain `acceptsUploads`), soonest start first. */
 export async function listOpenEvents(db: D1Database, now: Date): Promise<EventRow[]> {
   const { results } = await db
     .prepare(
       `SELECT ${COLUMNS} FROM events
        WHERE upload_status = 'OPEN' AND deleted_at IS NULL AND uploads_until > ?
-       ORDER BY starts_at, id`,
+       ORDER BY starts_at, id LIMIT ?`,
     )
-    .bind(now.toISOString())
+    .bind(now.toISOString(), OPEN_EVENTS_MAX)
     .all<EventRow>();
   return results;
 }

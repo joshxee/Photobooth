@@ -4,17 +4,19 @@ import { decodeCursor } from "../domain/cursor";
 import { applyEventAction } from "../domain/eventState";
 import { newId } from "../domain/ids";
 import { deviceRow, eventRow, photoRow, resetDb, T0 } from "../test/factories";
-import { insertAudit, insertAuditIfEventAt, listAudit } from "./audit";
+import { insertAudit, insertAuditIfDeviceActive, insertAuditIfEventAt, insertEnrolAudit, listAudit } from "./audit";
 import {
+  type DeviceRow,
   getDevice,
   getDeviceByTokenHash,
   insertDevice,
   listDevices,
+  recordHeartbeat,
   redeemEnrolCode,
   revokeDevice,
   setEnrolCode,
 } from "./devices";
-import { getEvent, getEventByPublicId, insertEvent, listEvents, listOpenEvents, updateEvent } from "./events";
+import { getEvent, getEventByPublicId, insertEvent, listEvents, listOpenEvents, OPEN_EVENTS_MAX, updateEvent } from "./events";
 import {
   countPhotos,
   deletePhoto,
@@ -31,6 +33,10 @@ const db = env.DB;
 const NOW = new Date("2026-10-22T10:00:00.000Z");
 
 beforeEach(resetDb);
+
+function redeem(args: { codeHash: string; tokenHash: string; name?: string; appVersion: string; now: Date }) {
+  return redeemEnrolCode(db, { name: "Booth 1", ...args }).first<DeviceRow>();
+}
 
 async function setup(eventOverrides = {}) {
   const event = eventRow(eventOverrides);
@@ -68,6 +74,16 @@ describe("events", () => {
     expect((await listOpenEvents(db, NOW)).map((e) => e.id)).toEqual([open.id]);
   });
 
+  it("lists at most 100 open events (the device response's cap), soonest start first", async () => {
+    const rows = Array.from({ length: 101 }, (_, i) =>
+      eventRow({ upload_status: "OPEN", starts_at: new Date(Date.parse("2026-10-01T00:00:00.000Z") + i * 60_000).toISOString() }),
+    );
+    await db.batch(rows.map((r) => insertEvent(db, r)));
+    const listed = await listOpenEvents(db, NOW);
+    expect(listed).toHaveLength(OPEN_EVENTS_MAX);
+    expect(listed.map((e) => e.id)).toEqual(rows.slice(0, 100).map((r) => r.id));
+  });
+
   it("saves a transition, guarded by the updated_at it was read at", async () => {
     const event = eventRow({ upload_status: "DRAFT" });
     await insertEvent(db, event).run();
@@ -101,23 +117,25 @@ describe("devices", () => {
     expect((await listDevices(db)).map((d) => d.id)).toEqual([first.id, second.id]);
   });
 
-  it("redeems an unexpired enrolment code exactly once", async () => {
+  it("redeems an unexpired enrolment code exactly once, naming the device and marking it seen", async () => {
     const device = deviceRow();
     await insertDevice(db, device).run();
     await setEnrolCode(db, device.id, "c".repeat(64), "2026-10-22T10:10:00.000Z").run();
 
-    const enrolled = await redeemEnrolCode(db, { codeHash: "c".repeat(64), tokenHash: "t".repeat(64), appVersion: "1.2.3", now: NOW });
+    const enrolled = await redeem({ codeHash: "c".repeat(64), tokenHash: "t".repeat(64), name: "Front door", appVersion: "1.2.3", now: NOW });
     expect(enrolled).toMatchObject({
       id: device.id,
+      name: "Front door",
       token_hash: "t".repeat(64),
       enrolled_at: NOW.toISOString(),
+      last_seen_at: NOW.toISOString(),
       app_version: "1.2.3",
       enrol_code_hash: null,
       enrol_expires_at: null,
     });
     expect(await getDeviceByTokenHash(db, "t".repeat(64))).toEqual(enrolled);
     // Single use.
-    expect(await redeemEnrolCode(db, { codeHash: "c".repeat(64), tokenHash: "u".repeat(64), appVersion: "1", now: NOW })).toBeNull();
+    expect(await redeem({ codeHash: "c".repeat(64), tokenHash: "u".repeat(64), appVersion: "1", now: NOW })).toBeNull();
   });
 
   it("refuses an expired code, a revoked device and an unknown code", async () => {
@@ -130,7 +148,7 @@ describe("devices", () => {
       setEnrolCode(db, revoked.id, "2".repeat(64), "2026-10-22T10:10:00.000Z"),
     ]);
     for (const codeHash of ["1".repeat(64), "2".repeat(64), "3".repeat(64)]) {
-      expect(await redeemEnrolCode(db, { codeHash, tokenHash: "t".repeat(64), appVersion: "1", now: NOW })).toBeNull();
+      expect(await redeem({ codeHash, tokenHash: "t".repeat(64), appVersion: "1", now: NOW })).toBeNull();
     }
   });
 
@@ -139,8 +157,8 @@ describe("devices", () => {
     await insertDevice(db, device).run();
     await setEnrolCode(db, device.id, "1".repeat(64), "2026-10-22T10:10:00.000Z").run();
     await setEnrolCode(db, device.id, "2".repeat(64), "2026-10-22T10:10:00.000Z").run();
-    expect(await redeemEnrolCode(db, { codeHash: "1".repeat(64), tokenHash: "t".repeat(64), appVersion: "1", now: NOW })).toBeNull();
-    expect(await redeemEnrolCode(db, { codeHash: "2".repeat(64), tokenHash: "t".repeat(64), appVersion: "1", now: NOW })).not.toBeNull();
+    expect(await redeem({ codeHash: "1".repeat(64), tokenHash: "t".repeat(64), appVersion: "1", now: NOW })).toBeNull();
+    expect(await redeem({ codeHash: "2".repeat(64), tokenHash: "t".repeat(64), appVersion: "1", now: NOW })).not.toBeNull();
   });
 
   it("revoke sets revoked_at and clears any pending code", async () => {
@@ -151,6 +169,53 @@ describe("devices", () => {
     expect(await getDevice(db, device.id)).toMatchObject({ revoked_at: NOW.toISOString(), enrol_code_hash: null });
     // Revoking twice keeps the first time.
     expect((await revokeDevice(db, device.id, new Date("2026-10-23T00:00:00.000Z")).run()).meta.changes).toBe(0);
+  });
+
+  it("re-enrolling replaces the credential: the old one stops working", async () => {
+    const device = deviceRow({ token_hash: "o".repeat(64), enrolled_at: T0 });
+    await insertDevice(db, device).run();
+    await setEnrolCode(db, device.id, "1".repeat(64), "2026-10-22T10:10:00.000Z").run();
+    expect(await redeem({ codeHash: "1".repeat(64), tokenHash: "n".repeat(64), appVersion: "2", now: NOW })).not.toBeNull();
+    expect(await getDeviceByTokenHash(db, "o".repeat(64))).toBeNull();
+    expect((await getDeviceByTokenHash(db, "n".repeat(64)))?.id).toBe(device.id);
+  });
+});
+
+describe("devices: the heartbeat", () => {
+  const SEEN = "2026-10-22T09:58:00.000Z";
+
+  async function enrolled(overrides: Partial<DeviceRow> = {}) {
+    const device = deviceRow({ token_hash: "t".repeat(64), enrolled_at: T0, last_seen_at: SEEN, last_backlog: 3, app_version: "1.0.0", ...overrides });
+    await insertDevice(db, device).run();
+    return device;
+  }
+
+  it("writes last seen, backlog and app version", async () => {
+    const device = await enrolled();
+    const { meta } = await recordHeartbeat(db, { id: device.id, now: NOW, backlog: 12, appVersion: "1.1.0" }).run();
+    expect(meta.changes).toBe(1);
+    expect(await getDevice(db, device.id)).toMatchObject({ last_seen_at: NOW.toISOString(), last_backlog: 12, app_version: "1.1.0" });
+  });
+
+  it("keeps the stored backlog and version when the request didn't send them", async () => {
+    const device = await enrolled();
+    await recordHeartbeat(db, { id: device.id, now: NOW, backlog: null, appVersion: null }).run();
+    expect(await getDevice(db, device.id)).toMatchObject({ last_seen_at: NOW.toISOString(), last_backlog: 3, app_version: "1.0.0" });
+  });
+
+  it("writes at most once a minute, even when two requests race past the route's check", async () => {
+    const device = await enrolled({ last_seen_at: "2026-10-22T09:59:00.001Z" });
+    expect((await recordHeartbeat(db, { id: device.id, now: NOW, backlog: 9, appVersion: null }).run()).meta.changes).toBe(0);
+    expect((await getDevice(db, device.id))?.last_backlog).toBe(3);
+    const later = new Date("2026-10-22T10:00:00.001Z");
+    expect((await recordHeartbeat(db, { id: device.id, now: later, backlog: 9, appVersion: null }).run()).meta.changes).toBe(1);
+  });
+
+  it("writes when the stored time is in the future, and never for a revoked device", async () => {
+    const future = await enrolled({ last_seen_at: "2026-10-22T11:00:00.000Z" });
+    expect((await recordHeartbeat(db, { id: future.id, now: NOW, backlog: 1, appVersion: null }).run()).meta.changes).toBe(1);
+    const revoked = await enrolled({ token_hash: "r".repeat(64), revoked_at: T0, last_seen_at: null });
+    expect((await recordHeartbeat(db, { id: revoked.id, now: NOW, backlog: 1, appVersion: null }).run()).meta.changes).toBe(0);
   });
 });
 
@@ -403,6 +468,62 @@ describe("audit", () => {
     expect(await listAudit(db, { limit: 10 })).toEqual([second, first]);
     expect(await listAudit(db, { eventId, limit: 10 })).toEqual([first]);
     expect(await listAudit(db, { limit: 1 })).toEqual([second]);
+  });
+});
+
+describe("audit with a device write", () => {
+  const entry = (deviceId: string) => ({
+    id: newId(NOW),
+    at: NOW.toISOString(),
+    actor: "admin@example.com",
+    action: "device.revoke",
+    event_id: null,
+    target_id: deviceId,
+    detail: null,
+  });
+
+  it("writes the row only while the device exists and isn't revoked", async () => {
+    const active = deviceRow();
+    const revoked = deviceRow({ revoked_at: T0 });
+    await db.batch([insertDevice(db, active), insertDevice(db, revoked)]);
+    const [audit, update] = await db.batch([insertAuditIfDeviceActive(db, entry(active.id), active.id), revokeDevice(db, active.id, NOW)]);
+    expect([audit?.meta.changes, update?.meta.changes]).toEqual([1, 1]);
+    const [again, noop] = await db.batch([insertAuditIfDeviceActive(db, entry(active.id), active.id), revokeDevice(db, active.id, NOW)]);
+    expect([again?.meta.changes, noop?.meta.changes]).toEqual([0, 0]);
+    expect((await insertAuditIfDeviceActive(db, entry(revoked.id), revoked.id).run()).meta.changes).toBe(0);
+    const missing = newId();
+    expect((await insertAuditIfDeviceActive(db, entry(missing), missing).run()).meta.changes).toBe(0);
+    expect((await listAudit(db, { limit: 10 })).map((a) => a.target_id)).toEqual([active.id]);
+  });
+
+  it("records an enrolment as the device itself, and nothing for a failed one", async () => {
+    const device = deviceRow();
+    await insertDevice(db, device).run();
+    await setEnrolCode(db, device.id, "c".repeat(64), "2026-10-22T10:10:00.000Z").run();
+    const args = { name: "Booth 1", appVersion: "1.2.3", now: NOW };
+    const enrol = (codeHash: string, tokenHash: string) =>
+      db.batch([
+        redeemEnrolCode(db, { ...args, codeHash, tokenHash }),
+        insertEnrolAudit(db, { id: newId(NOW), at: NOW.toISOString(), tokenHash, detail: { appVersion: "1.2.3" } }),
+      ]);
+
+    const [redeemed, audit] = await enrol("c".repeat(64), "t".repeat(64));
+    expect(redeemed?.results).toHaveLength(1);
+    expect(audit?.meta.changes).toBe(1);
+    const [failed, none] = await enrol("c".repeat(64), "u".repeat(64));
+    expect(failed?.results).toHaveLength(0);
+    expect(none?.meta.changes).toBe(0);
+    expect(await listAudit(db, { limit: 10 })).toEqual([
+      {
+        id: expect.any(String),
+        at: NOW.toISOString(),
+        actor: `device:${device.id}`,
+        action: "device.enrol",
+        event_id: null,
+        target_id: device.id,
+        detail: { appVersion: "1.2.3" },
+      },
+    ]);
   });
 });
 
