@@ -123,6 +123,8 @@ pub enum OutboxError {
     Corrupt(String),
     #[error("{0} has no record and can only be dismissed")]
     Quarantined(String),
+    #[error("{0}")]
+    WrongState(String),
 }
 
 /// On-disk record: the item plus a format number.
@@ -395,8 +397,10 @@ impl Outbox {
         persist(self.dir(), item)
     }
 
-    /// The operator's retry: back to the queue, due at once, with the backoff and the
-    /// hash-mismatch count reset.
+    /// The operator's retry of an item that needs attention: back to the queue, due at once,
+    /// with the backoff and the hash-mismatch count reset. A queued or uploading item is
+    /// refused, so a stale or repeated tap can neither reset a backoff nor start a second
+    /// upload of an item already in flight.
     pub fn retry(&self, id: &str) -> Result<(), OutboxError> {
         let mut entries = self.entries();
         if entries.quarantined.contains_key(id) {
@@ -406,6 +410,11 @@ impl Outbox {
             .items
             .get_mut(id)
             .ok_or_else(|| OutboxError::UnknownItem(id.to_owned()))?;
+        if !matches!(item.state, ItemState::NeedsAttention { .. }) {
+            return Err(OutboxError::WrongState(format!(
+                "{id} does not need attention; only those items can be retried"
+            )));
+        }
         item.state = ItemState::Queued;
         item.attempts = 0;
         item.hash_mismatches = 0;
@@ -414,9 +423,19 @@ impl Outbox {
     }
 
     /// The operator's dismiss (after confirming in the UI; the SD card still has the
-    /// original): deletes the local files of an item or a quarantined set.
+    /// original): deletes the local files of an item or a quarantined set. Refused while
+    /// the item is uploading, so its files can't vanish mid-PUT.
     pub fn dismiss(&self, id: &str) -> Result<(), OutboxError> {
         let mut entries = self.entries();
+        if entries
+            .items
+            .get(id)
+            .is_some_and(|i| i.state == ItemState::Uploading)
+        {
+            return Err(OutboxError::WrongState(format!(
+                "{id} is uploading; dismiss it after the attempt ends"
+            )));
+        }
         if let Some(quarantined) = entries.quarantined.get(id) {
             for name in &quarantined.files {
                 remove_existing(&self.dir().join(name))?;

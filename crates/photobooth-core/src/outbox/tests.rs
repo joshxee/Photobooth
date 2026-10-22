@@ -745,7 +745,7 @@ async fn a_202_processing_answer_is_retried() {
     let id = enqueue(&outbox, 1, 0).client_photo_id;
     let portal = ScriptedPortal::default().uploads(vec![
         Ok(UploadOutcome::Stored),
-        Ok(UploadOutcome::Processing),
+        Ok(UploadOutcome::Processing { retry_after: None }),
     ]);
     let report = outbox.drain_once(&portal, t(0)).await;
     assert_eq!(report.retried, 1);
@@ -955,4 +955,62 @@ async fn the_intent_carries_the_contract_fields() {
         .sha256
         .bytes()
         .all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase()));
+}
+
+#[test]
+fn the_operator_cannot_retry_or_dismiss_an_item_that_is_uploading() {
+    let dir = tempfile::tempdir().unwrap();
+    let outbox = open(dir.path());
+    let id = enqueue(&outbox, 1, 0).client_photo_id;
+    let claimed = outbox.claim_due(t(0)).unwrap();
+    assert_eq!(claimed.state, ItemState::Uploading);
+
+    assert!(matches!(outbox.retry(&id), Err(OutboxError::WrongState(_))));
+    assert!(matches!(
+        outbox.dismiss(&id),
+        Err(OutboxError::WrongState(_))
+    ));
+    assert_eq!(outbox.get(&id).unwrap().state, ItemState::Uploading);
+    assert_eq!(files(dir.path()).len(), 3, "nothing deleted mid-upload");
+    assert_eq!(outbox.claim_due(t(0)), None, "not claimable twice");
+}
+
+#[test]
+fn retry_only_applies_to_items_that_need_attention() {
+    let dir = tempfile::tempdir().unwrap();
+    let outbox = open(dir.path());
+    let id = enqueue(&outbox, 1, 0).client_photo_id;
+    let next = outbox.mark_retry(&id, "HTTP 503", None, t(0)).unwrap();
+    // A queued item keeps its backoff: a stale "retry" tap must not reset it.
+    assert!(matches!(outbox.retry(&id), Err(OutboxError::WrongState(_))));
+    let item = outbox.get(&id).unwrap();
+    assert_eq!((item.attempts, item.next_attempt_at), (1, next));
+}
+
+#[tokio::test]
+async fn a_transient_read_error_is_retried_not_stopped() {
+    // A variant that vanished is corruption (needs attention); other I/O errors are not.
+    // Simulate one by replacing the variant file with a directory (read fails, not NotFound).
+    let dir = tempfile::tempdir().unwrap();
+    let outbox = open(dir.path());
+    let id = enqueue(&outbox, 1, 0).client_photo_id;
+    let path = dir.path().join(Variant::Thumb.file_name(&id));
+    fs::remove_file(&path).unwrap();
+    fs::create_dir(&path).unwrap();
+    let portal = ScriptedPortal::default();
+    let report = outbox.drain_once(&portal, t(0)).await;
+    assert_eq!(report.retried, 1);
+    assert_eq!(outbox.get(&id).unwrap().state, ItemState::Queued);
+}
+
+#[tokio::test]
+async fn a_202_passes_on_its_retry_after() {
+    let dir = tempfile::tempdir().unwrap();
+    let outbox = open(dir.path());
+    let id = enqueue(&outbox, 1, 0).client_photo_id;
+    let portal = ScriptedPortal::default().uploads(vec![Ok(UploadOutcome::Processing {
+        retry_after: Some(Duration::from_secs(45)),
+    })]);
+    outbox.drain_once(&portal, t(0)).await;
+    assert_eq!(outbox.get(&id).unwrap().next_attempt_at, t(45));
 }

@@ -54,6 +54,11 @@ impl Outbox {
     /// capture first. Items that fail get their next attempt time from `now`, so one pass
     /// never tries an item twice. The upload loop (session 10) calls this, then sleeps until
     /// [`Outbox::next_attempt_at`] or the next enqueue.
+    ///
+    /// The two-upload limit is per call: run one drain at a time (a single upload loop).
+    /// File work (reading a variant, up to the contract's 3 MB HD cap; the record write and
+    /// `fsync`s in each `mark_*`) is blocking and runs inline, so drive this from a thread
+    /// that may block, not the UI's async workers.
     pub async fn drain_once(&self, client: &dyn PortalClient, now: SystemTime) -> DrainReport {
         let worker = || async {
             let mut report = DrainReport::default();
@@ -101,15 +106,21 @@ impl Outbox {
                 let body = match self.read_variant(id, upload.variant) {
                     Ok(body) => body,
                     Err(OutboxError::Corrupt(reason)) => return Step::NeedsAttention(reason),
-                    Err(err) => return Step::NeedsAttention(err.to_string()),
+                    // Anything else (a transient I/O error) is worth another try.
+                    Err(err) => {
+                        return Step::Retry {
+                            error: err.to_string(),
+                            retry_after: None,
+                        };
+                    }
                 };
                 match client.upload(upload, body).await {
                     Ok(UploadOutcome::Ready) => return Step::Ready,
                     Ok(UploadOutcome::Stored) => {}
-                    Ok(UploadOutcome::Processing) => {
+                    Ok(UploadOutcome::Processing { retry_after }) => {
                         return Step::Retry {
                             error: "server is processing the upload (202)".to_owned(),
-                            retry_after: None,
+                            retry_after,
                         };
                     }
                     Err(error) => match Step::from_error(&error) {

@@ -139,8 +139,19 @@ on disk and drains at the next start; the SD card has every original regardless.
 - Nothing calls `enqueue` in the app yet: the encoder is 08b, and the hook implementation and
   upload loop are session 10. Until then the outbox exists only as tested library code plus a
   debug-build probe that opens it at startup.
-- File I/O is blocking (small files). Session 10 should call `enqueue` from a blocking task;
-  `drain_once` reads a variant (≤ about 0.6 MB) inline between network calls.
+- File I/O is blocking. `drain_once` reads each variant (typically 0.25–0.62 MB, up to the
+  contract's 3 MB HD cap) and writes and `fsync`s records inline, holding the outbox lock
+  during each write; an `fsync` on f2fs can take tens of milliseconds. Session 10 must run
+  `enqueue` in `spawn_blocking` and the drain loop on its own thread or a blocking-tolerant
+  runtime, not on the async workers that serve UI calls. Run one drain at a time: the
+  two-upload limit is per `drain_once` call.
+- The operator's **retry** applies only to needs-attention items, and **dismiss** is refused
+  while an item is uploading, so a stale or double tap can't start a second upload or delete
+  files mid-PUT.
+- A crash during the READY delete leaves a record whose variants are gone; it needs the
+  operator's retry (the server then answers READY). Retrying it automatically was considered
+  and rejected: a record missing its variants is also what storage damage looks like, and the
+  rule here is that nothing changes state without either the server or the operator.
 - The directory `fsync` and the crash recovery are tested on Windows and Linux (CI) by
   simulating what a kill leaves behind. A real power cut on the tablet's f2fs storage is
   **unverified**.

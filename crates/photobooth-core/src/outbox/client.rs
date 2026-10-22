@@ -59,7 +59,8 @@ pub enum UploadOutcome {
     Ready,
     /// 202: accepted for later processing. The MVP never sends it; it is retried like a
     /// transient error so an asynchronous server path needs no booth release.
-    Processing,
+    /// It carries the response's `Retry-After`, honoured like an error's (DESIGN §9.3).
+    Processing { retry_after: Option<Duration> },
 }
 
 /// The contract's error codes: a closed set, one HTTP status each
