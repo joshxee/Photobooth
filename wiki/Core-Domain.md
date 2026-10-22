@@ -56,6 +56,18 @@ shots to `SessionContext::completion_hook` as `Bytes` clones with their metadata
 keys, because "take another" clears the store while the hook may still be encoding. The
 session never calls it for a cancelled or failed session, or for `CameraId::TEST`.
 
+**The variant encoder's guarantees are the portal's rules.** `variants::encode_variants` turns
+a camera JPEG into the thumb (fit 480 px, q75) and HD (fit 2560 px, q85) the outbox stores
+(DESIGN D14). What callers can rely on: the EXIF orientation is applied to the pixels (all 8
+values; missing or invalid means 1) and `EncodedShot.width`/`height` are the upright HD size;
+nothing from the input's headers is copied (no EXIF, GPS, serial numbers, XMP, IPTC, ICC, MPF
+or comments), so each output is SOI, APP0 JFIF, SOF0, DQT, DHT, one SOS and EOI; images are
+never upscaled. Every output goes through `variants::check_segments`, the Worker's header
+rules plus a walk of the scan, and a failure is a `VariantError`, so a variant the portal
+would reject never reaches the outbox. It is plain blocking CPU work (about half a second per
+24 MP shot on the tablet), so callers run it off the async workers. The crate choice and the
+numbers are in [Booth-Upload.md](./Booth-Upload.md).
+
 **Settings validate on save *and* on load.** `patch()` merges a partial update on a clone and
 only commits it if the result validates, so a rejected patch never half-applies. Saves are
 write-temp → `fsync` → rename. A corrupt or out-of-range file makes `load()` fail but

@@ -84,7 +84,7 @@ updates live. Admins manage events, devices and moderation behind Cloudflare Acc
 | D12 | **Recovery = D1 Time Travel + SD card + 7-day soft delete of events** | Fewest moving parts | Need for independent backup |
 | D13 | **Contract = zod (TypeScript) + serde (Rust), pinned by shared JSON fixtures** | Private API; no OpenAPI tooling | A third-party client appears |
 | D15 | **Uploads stop 90 days after the event ends; the photos and the gallery stay** until an admin deletes the event (7-day undo, then purged). No automatic photo expiry in the MVP. **Decided by the user on 2026-10-22** (session 03), replacing the 90-day deletion of published variants. | Events run once, and early on we'd rather be generous about when guests can retrieve photos. The 90-day mark only guards against a stale booth uploading into an old event. Storage grows about 0.9 GB a month, still free up to 10 GB and then USD 0.015 per GB-month (§16) | Storage cost matters, a privacy review asks for a fixed retention, or galleries need a lifetime |
-| D14 | **The booth makes the variants** (thumb 480 px q75, HD 2560 px q85, orientation applied, no metadata) in Rust; the Worker never decodes (spike Q10, option B). **Confirmed by the user on 2026-10-22.** | The Images binding keeps GPS and serial numbers whatever `metadata` is set to (Q6). It also needs Workers Paid for CPU (355–470 ms per photo against the Free 10 ms, Q11) and caps inputs at 20,000,000 bytes (Q3). Uploading 0.25–0.62 MB instead of 11–17 MB per shot is 28–44× less traffic on venue networks. Trade-off: guests' browsers decode the booth's JPEG rather than a Cloudflare re-encode. Uploads come only from enrolled, revocable devices, and the header walk limits what is stored (RESULTS.md, Q10) | Uploads from devices we don't own, or on-tablet encoding is too slow (unverified, estimated 0.6–1.6 s per shot) |
+| D14 | **The booth makes the variants** (thumb 480 px q75, HD 2560 px q85, orientation applied, no metadata) in Rust; the Worker never decodes (spike Q10, option B). **Confirmed by the user on 2026-10-22.** | The Images binding keeps GPS and serial numbers whatever `metadata` is set to (Q6). It also needs Workers Paid for CPU (355–470 ms per photo against the Free 10 ms, Q11) and caps inputs at 20,000,000 bytes (Q3). Uploading 0.25–0.62 MB instead of 11–17 MB per shot is 28–44× less traffic on venue networks. Trade-off: guests' browsers decode the booth's JPEG rather than a Cloudflare re-encode. Uploads come only from enrolled, revocable devices, and the header walk limits what is stored (RESULTS.md, Q10) | Uploads from devices we don't own, or on-tablet encoding is too slow (measured in session 08b: p50 0.42 s, p95 0.54 s per Sony shot on the tablet, against a 3 s gate) |
 
 ## 4. Architecture
 
@@ -458,8 +458,9 @@ day 1 to preserve this.
      record with event ID, session ID, shot, capture time, HD width and height, each variant's
      sha256 and bytes, state, attempt count and last error. The original never touches the disk;
      the SD card keeps it.
-   - Encoding runs off the capture path. Estimated 0.6–1.6 s per shot on the tablet (spike Q10,
-     unverified); the session that builds it measures it on the device.
+   - Encoding runs off the capture path. Measured on the tablet in session 08b: p50 0.42 s,
+     p95 0.54 s per shot (spike Q10 estimated 0.6–1.6 s); the Sony JPEG is about 11.5 MB
+     (spike Q8). See wiki/Booth-Upload.md.
    - Writes go to a temp file, then `fsync`, then rename, the same pattern as settings.
    - The outbox is scanned on startup and drained with 2 concurrent uploads while the app is
      running. Background-service uploading is out of scope; it is a kiosk app.

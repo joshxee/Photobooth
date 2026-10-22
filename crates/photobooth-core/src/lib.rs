@@ -9,6 +9,7 @@
 //! - [`photo_store`]: where captured photos live for the UI (in memory).
 //! - [`mock`]: the in-memory camera behind "test mode".
 //! - [`outbox`]: the portal upload queue, the one place shots touch disk (as variants).
+//! - [`variants`]: the encoder that makes those variants (thumb, HD) from a camera JPEG.
 
 pub mod camera;
 pub mod gesture;
@@ -18,6 +19,7 @@ pub mod photo_store;
 pub mod session;
 pub mod settings;
 pub mod trigger;
+pub mod variants;
 
 pub use camera::{
     Camera, CameraError, CameraId, CameraStatus, CapturedPhoto, FrameStream, JpegFrame,

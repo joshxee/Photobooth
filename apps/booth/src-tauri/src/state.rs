@@ -2,16 +2,16 @@
 //! unit tested directly. The commands in `commands.rs` are thin wrappers around these methods.
 
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex, MutexGuard};
+use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
 
 use async_trait::async_trait;
 use bytes::Bytes;
 use futures_util::{FutureExt, StreamExt};
 use photobooth_core::{
     run_sampler, Camera, CameraId, CameraStatus, DetectorError, DevPanelTrigger, FrameStream,
-    GestureTrigger, GestureUpdate, MockCamera, MockCameraHandle, PalmDetector, PhotoStore, Region,
-    Session, SessionContext, SessionHandle, SessionState, SessionTask, Settings, SettingsPatch,
-    SettingsStore, StartTrigger, StartTriggerKind, TapTrigger, Timings,
+    GestureTrigger, GestureUpdate, MockCamera, MockCameraHandle, OnSessionComplete, PalmDetector,
+    PhotoStore, Region, Session, SessionContext, SessionHandle, SessionState, SessionTask,
+    Settings, SettingsPatch, SettingsStore, StartTrigger, StartTriggerKind, TapTrigger, Timings,
 };
 #[cfg(any(not(target_os = "android"), test))]
 use photobooth_core::{CameraError, CapturedPhoto};
@@ -129,6 +129,8 @@ struct Shared {
     settings: Mutex<Settings>,
     active: Mutex<CameraId>,
     slots: Vec<CameraSlot>,
+    /// Where completed sessions go; unset means nowhere (release builds until session 10).
+    completion_hook: OnceLock<Arc<dyn OnSessionComplete>>,
 }
 
 fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
@@ -153,6 +155,10 @@ impl SessionContext for Shared {
 
     fn camera(&self) -> Option<Arc<dyn Camera>> {
         self.active_slot().map(|slot| slot.provider.camera())
+    }
+
+    fn completion_hook(&self) -> Option<Arc<dyn OnSessionComplete>> {
+        self.completion_hook.get().cloned()
     }
 }
 
@@ -205,6 +211,7 @@ impl AppState {
             active: Mutex::new(settings.selected_camera.clone()),
             settings: Mutex::new(settings),
             slots,
+            completion_hook: OnceLock::new(),
         });
         let photos = PhotoStore::new();
         let tap = TapTrigger::new();
@@ -240,6 +247,16 @@ impl AppState {
             },
             task,
         )
+    }
+
+    /// Sends every completed session (not test mode) to `hook` from now on. Only the first
+    /// call counts. Debug builds use it for the variant probe; session 10 sets the outbox hook
+    /// in every build and drops the `cfg`.
+    #[cfg(debug_assertions)]
+    pub fn set_completion_hook(&self, hook: Arc<dyn OnSessionComplete>) {
+        if self.shared.completion_hook.set(hook).is_err() {
+            tracing::warn!("a completion hook is already set; keeping the first");
+        }
     }
 
     pub fn photos(&self) -> &PhotoStore {
@@ -672,6 +689,26 @@ mod tests {
 
     fn patch(json: &str) -> SettingsPatch {
         serde_json::from_str(json).unwrap()
+    }
+
+    #[cfg(debug_assertions)]
+    struct NoopHook;
+
+    #[cfg(debug_assertions)]
+    impl OnSessionComplete for NoopHook {
+        fn on_session_complete(&self, _: photobooth_core::CompletedSession) {}
+    }
+
+    #[cfg(debug_assertions)]
+    #[tokio::test(start_paused = true)]
+    async fn the_completion_hook_reaches_the_session_context_once_set() {
+        let rig = rig();
+        assert!(rig.state.shared.completion_hook().is_none());
+        let hook: Arc<dyn OnSessionComplete> = Arc::new(NoopHook);
+        rig.state.set_completion_hook(hook.clone());
+        rig.state.set_completion_hook(Arc::new(NoopHook));
+        let got = rig.state.shared.completion_hook().expect("hook set");
+        assert!(Arc::ptr_eq(&got, &hook), "the first hook is kept");
     }
 
     #[tokio::test(start_paused = true)]
