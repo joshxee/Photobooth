@@ -45,7 +45,7 @@ function stripQuery(path: string): string {
   return cut === -1 ? path : path.slice(0, cut);
 }
 
-export type LogSink = (line: string) => void;
+export type LogSink = (line: string, level: LogLevel) => void;
 
 export interface Logger {
   info(fields: LogFields): void;
@@ -53,7 +53,13 @@ export interface Logger {
   error(fields: LogFields): void;
 }
 
-const consoleSink: LogSink = (line) => console.log(line);
+// info goes to console.log, but warn and error use their own methods so Workers Observability
+// records the right severity for dashboard filtering.
+const consoleSink: LogSink = (line, level) => {
+  if (level === "error") console.error(line);
+  else if (level === "warn") console.warn(line);
+  else console.log(line);
+};
 
 export function createLogger(sink: LogSink = consoleSink): Logger {
   const write = (level: LogLevel, fields: LogFields) => {
@@ -62,7 +68,7 @@ export function createLogger(sink: LogSink = consoleSink): Logger {
       if (!ALLOWED.has(key) || value === undefined) continue;
       entry[key] = key === "path" && typeof value === "string" ? stripQuery(value) : value;
     }
-    sink(JSON.stringify(entry));
+    sink(JSON.stringify(entry), level);
   };
   return {
     info: (fields) => write("info", fields),

@@ -66,7 +66,7 @@ later portal session only adds behaviour.
 ```bash
 cd apps/portal
 bun install && bun run typecheck && bun run test && bun run build
-bunx wrangler dev   # then: curl -H "Host: photos.localhost" localhost:8787/healthz ; same for admin ; unknown host → 404
+bunx wrangler dev   # then: curl -H "Host: photos.localhost:8787" localhost:8787/healthz ; same for admin ; unknown host → 404
 ```
 
 ## Done when
