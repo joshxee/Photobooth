@@ -332,10 +332,13 @@ hosts (`PHOTOBOOTH_PORTAL_URL` at build time overrides both).
 
 ## Not done yet, and unverified
 
-- The upload intent and PUT (`PortalClient::intent`/`upload`) are tested against the 03
-  fixtures and the mock server only: session 06 builds those routes in parallel, so they were
-  **not** run against `wrangler dev`. Enrolment, the event list and event detail were (see the
-  device check below).
+- The upload path (intent, both PUTs, READY) ran from the PC's desktop build against
+  `wrangler dev` (`http://photos.localhost`), through 08's `drain_once`. From the tablet it is
+  **unverified**, and against a dev PC it can't work as things stand: the Worker signs
+  `https://` upload URLs for any host but `*.localhost`, and the tablet can't resolve
+  `photos.localhost` to the PC. Session 10 runs it against staging. Real TLS (webpki-roots
+  against Cloudflare's certificate) is **unverified** until then. Enrolment, the event list and
+  event detail ran on the tablet against `wrangler dev` on the PC (PROGRESS.md, 09).
 - Nothing calls `enqueue` in the app yet: the hook implementation and upload loop are session
   10. Until then the outbox and the encoder exist as tested library code plus two debug-build
   probes (the outbox opened at startup, the encoder timed on completed sessions).
