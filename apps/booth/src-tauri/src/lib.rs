@@ -11,16 +11,14 @@ mod logs;
 mod portal;
 mod protocol;
 mod state;
-#[cfg(debug_assertions)]
-mod variant_probe;
-
-#[cfg(target_os = "android")]
-use std::sync::Arc;
+mod upload;
 
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 
+use photobooth_core::outbox::{Outbox, OutboxOptions, RandomJitter};
 use photobooth_core::{CameraId, Timings};
-use tauri::{AppHandle, Emitter, Manager};
+use tauri::{AppHandle, Emitter, Manager, RunEvent};
 use tokio::sync::broadcast::error::RecvError;
 use tracing::Level;
 use tracing_subscriber::filter::filter_fn;
@@ -35,13 +33,17 @@ use crate::state::AlwaysAvailable;
 #[cfg(not(target_os = "android"))]
 use crate::state::Unavailable;
 use crate::state::{AppState, CameraSlot};
+use crate::upload::disk::PlatformDiskSpace;
+use crate::upload::hook::variant_encoder;
+use crate::upload::Uploads;
 
 const SETTINGS_FILE: &str = "settings.json";
 /// The device credential, apart from the settings (DESIGN §10; `portal/credential.rs`).
 const PORTAL_CREDENTIAL_FILE: &str = "portal-credential.json";
 /// The portal upload outbox, under the app data directory (DESIGN §10).
-#[cfg(debug_assertions)]
 const OUTBOX_DIR: &str = "outbox";
+/// Re-sends the upload status at least this often, so the free-space figure stays fresh.
+const OUTBOX_STATUS_REFRESH: std::time::Duration = std::time::Duration::from_secs(60);
 const LOG_LINES: usize = 500;
 
 /// Where console logs go: stderr on desktop, logcat on Android (stderr is not captured there).
@@ -193,12 +195,48 @@ fn spawn_event_forwarders(app: &AppHandle, state: &AppState) {
     }
 }
 
+/// Opens the outbox (recovering whatever a kill left), or explains why there is none: then
+/// nothing is queued and the booth works as before, the SD card keeping every photo.
+fn open_uploads(data_dir: &std::path::Path) -> Option<Arc<Uploads>> {
+    let options = OutboxOptions {
+        jitter: Arc::new(RandomJitter::new()),
+        disk: Arc::new(PlatformDiskSpace),
+    };
+    match Outbox::open_with(data_dir.join(OUTBOX_DIR), options) {
+        Ok(outbox) => Some(Arc::new(Uploads::new(outbox))),
+        Err(err) => {
+            tracing::error!(%err, "the upload outbox can't be opened; nothing will be queued");
+            None
+        }
+    }
+}
+
+/// Forwards upload status changes to the WebView as `portal://outbox`.
+fn spawn_outbox_forwarder(app: &AppHandle, uploads: Arc<Uploads>) {
+    let handle = app.clone();
+    tauri::async_runtime::spawn(async move {
+        let mut feed = uploads.status_feed();
+        let mut last = None;
+        loop {
+            let status = uploads.status();
+            if last.as_ref() != Some(&status) {
+                let _ = handle.emit("portal://outbox", &status);
+                last = Some(status);
+            }
+            tokio::select! {
+                alive = feed.changed() => if !alive { break },
+                () = tokio::time::sleep(OUTBOX_STATUS_REFRESH) => {}
+            }
+        }
+    });
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let logs = LogRingBuffer::new(LOG_LINES);
     init_tracing(logs.clone());
 
-    tauri::Builder::default()
+    let app = tauri::Builder::default()
         .plugin(tauri_plugin_photobooth_camera::init())
         // Photos are served from memory only; nothing is ever read from disk.
         .register_uri_scheme_protocol("booth", |ctx, request| {
@@ -214,26 +252,16 @@ pub fn run() {
                 PTP_TRACE.store(true, Ordering::Relaxed);
                 tracing::info!("PTP protocol tracing is on ({PTP_TRACE_FLAG} flag present)");
             }
-            // Debug builds open the portal outbox at startup so its app-private directory and
-            // its recovery on open can be checked on the tablet (wiki/Booth-Upload.md, "Device
-            // check"). Nothing is queued or uploaded; session 10 wires the outbox in for real.
-            #[cfg(debug_assertions)]
-            match photobooth_core::outbox::Outbox::open(data_dir.join(OUTBOX_DIR)) {
-                Ok(outbox) => {
-                    let stats = outbox.stats();
-                    tracing::info!(
-                        dir = %outbox.dir().display(),
-                        queued = stats.queued,
-                        needs_attention = stats.needs_attention,
-                        "debug outbox probe"
-                    );
-                }
-                Err(err) => tracing::warn!(%err, "debug outbox probe failed"),
-            }
+            let uploads = open_uploads(&data_dir);
+            let depth = uploads.clone().map_or_else(
+                || -> crate::portal::client::OutboxDepth { Arc::new(|| 0) },
+                |u| Arc::new(move || u.outbox().len()),
+            );
             let portal = PortalService::new(
                 CredentialStore::new(data_dir.join(PORTAL_CREDENTIAL_FILE)),
                 PortalConfig::for_this_build(),
-            );
+            )
+            .with_outbox_depth(depth);
             let (state, session_task) = AppState::new(
                 data_dir.join(SETTINGS_FILE),
                 portal,
@@ -241,10 +269,14 @@ pub fn run() {
                 logs,
                 Timings::default(),
             );
-            // Debug builds time the variant encoder on every completed session (session 08b's
-            // device check, wiki/Booth-Upload.md). Release builds have no probe.
-            #[cfg(debug_assertions)]
-            state.set_completion_hook(variant_probe::VariantProbe::spawn());
+            if let Some(uploads) = &uploads {
+                state.attach_uploads(uploads.clone(), variant_encoder());
+                if let Err(err) = upload::pump::spawn_loop(uploads.clone(), state.upload_source()) {
+                    tracing::error!(%err, "the upload loop did not start; shots stay queued");
+                }
+                spawn_outbox_forwarder(app.handle(), uploads.clone());
+                app.manage(uploads.clone());
+            }
             tauri::async_runtime::spawn(session_task);
             spawn_event_forwarders(app.handle(), &state);
             // The tablet's recognizer; desktop has none, so only the developer panel's palm counts.
@@ -282,9 +314,21 @@ pub fn run() {
             commands::portal_events,
             commands::portal_select_event,
             commands::portal_clear_event,
+            commands::outbox_status,
+            commands::outbox_items,
+            commands::outbox_retry,
+            commands::outbox_dismiss,
             commands::test_inject,
             commands::logs_recent,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running the Photobooth app");
+        .build(tauri::generate_context!())
+        .expect("error while building the Photobooth app");
+    app.run(|handle, event| {
+        if let RunEvent::Exit = event {
+            // Stops the upload loop; anything in flight stays queued on disk.
+            if let Some(uploads) = handle.try_state::<Arc<Uploads>>() {
+                uploads.shutdown();
+            }
+        }
+    });
 }

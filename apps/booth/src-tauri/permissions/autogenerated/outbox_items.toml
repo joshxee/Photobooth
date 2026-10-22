@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-outbox-items"
+description = "Enables the outbox_items command without any pre-configured scope."
+commands.allow = ["outbox_items"]
+
+[[permission]]
+identifier = "deny-outbox-items"
+description = "Denies the outbox_items command without any pre-configured scope."
+commands.deny = ["outbox_items"]

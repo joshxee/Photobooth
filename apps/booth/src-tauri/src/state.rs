@@ -2,7 +2,7 @@
 //! unit tested directly. The commands in `commands.rs` are thin wrappers around these methods.
 
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
+use std::sync::{Arc, Mutex, MutexGuard, OnceLock, Weak};
 
 use async_trait::async_trait;
 use bytes::Bytes;
@@ -18,10 +18,16 @@ use photobooth_core::{CameraError, CapturedPhoto};
 use tokio::sync::{broadcast, watch};
 use tokio::task::JoinHandle;
 
-use crate::dto::{CameraInfo, CommandError, Fault, PortalEvent, PortalStatus, PreviewKind};
+use crate::dto::{
+    CameraInfo, CommandError, Fault, OutboxEntry, OutboxStatus, PortalEvent, PortalStatus,
+    PreviewKind,
+};
 use crate::logs::LogRingBuffer;
 use crate::portal::client::PortalOrigin;
 use crate::portal::PortalService;
+use crate::upload::hook::{Destination, EncodeAndQueue, Encoder};
+use crate::upload::pump::{ClientSource, PortalSource};
+use crate::upload::Uploads;
 
 /// Decides whether a camera can be used right now and hands out its `Camera`.
 #[async_trait]
@@ -131,7 +137,7 @@ struct Shared {
     settings: Mutex<Settings>,
     active: Mutex<CameraId>,
     slots: Vec<CameraSlot>,
-    /// Where completed sessions go; unset means nowhere (release builds until session 10).
+    /// Where completed sessions go: the portal outbox, once attached. Unset, nowhere.
     completion_hook: OnceLock<Arc<dyn OnSessionComplete>>,
 }
 
@@ -184,7 +190,9 @@ pub struct AppState {
     mock: MockCameraHandle,
     live: tokio::sync::Mutex<Option<JoinHandle<()>>>,
     logs: LogRingBuffer,
-    portal: PortalService,
+    portal: Arc<PortalService>,
+    /// The portal upload, once attached ([`AppState::attach_uploads`]).
+    uploads: OnceLock<Arc<Uploads>>,
     /// Portal changes run one at a time, each with its settings write, so a double tap can't
     /// enrol twice and an unenrol can't interleave with a selection.
     portal_ops: tokio::sync::Mutex<()>,
@@ -251,7 +259,8 @@ impl AppState {
                 mock,
                 live: tokio::sync::Mutex::new(None),
                 logs,
-                portal,
+                portal: Arc::new(portal),
+                uploads: OnceLock::new(),
                 portal_ops: tokio::sync::Mutex::new(()),
             },
             task,
@@ -259,12 +268,37 @@ impl AppState {
     }
 
     /// Sends every completed session (not test mode) to `hook` from now on. Only the first
-    /// call counts. Debug builds use it for the variant probe; session 10 sets the outbox hook
-    /// in every build and drops the `cfg`.
-    #[cfg(debug_assertions)]
+    /// call counts.
     pub fn set_completion_hook(&self, hook: Arc<dyn OnSessionComplete>) {
         if self.shared.completion_hook.set(hook).is_err() {
             tracing::warn!("a completion hook is already set; keeping the first");
+        }
+    }
+
+    /// Wires the portal upload in: completed sessions are encoded with `encoder` and queued
+    /// to `uploads` while the booth is enrolled and an event is selected, and enrolment
+    /// changes reach the upload loop. Only the first call counts. Start the loop itself with
+    /// [`AppState::upload_source`].
+    pub fn attach_uploads(&self, uploads: Arc<Uploads>, encoder: Encoder) {
+        if self.uploads.set(uploads.clone()).is_err() {
+            tracing::warn!("uploads are already attached; keeping the first");
+            return;
+        }
+        let destination = Arc::new(AppDestination {
+            shared: Arc::downgrade(&self.shared),
+            portal: self.portal.clone(),
+        });
+        self.set_completion_hook(EncodeAndQueue::spawn(uploads, destination, encoder));
+    }
+
+    /// Where the upload loop gets its client: the stored credential, read before each pass.
+    pub fn upload_source(&self) -> Arc<dyn ClientSource> {
+        Arc::new(PortalSource::new(self.portal.clone()))
+    }
+
+    fn enrolment_changed(&self) {
+        if let Some(uploads) = self.uploads.get() {
+            uploads.enrolment_changed();
         }
     }
 
@@ -382,13 +416,16 @@ impl AppState {
             let _ = self.portal.unenrol().await;
             return Err(err);
         }
+        self.enrolment_changed();
         Ok(self.portal_status())
     }
 
     /// Deletes the credential and the event selection. The UI confirms first.
     pub async fn portal_unenrol(&self) -> Result<PortalStatus, CommandError> {
         let _op = self.portal_ops.lock().await;
-        self.portal.unenrol().await?;
+        let unenrolled = self.portal.unenrol().await;
+        self.enrolment_changed();
+        unenrolled?;
         self.change_settings(|s| s.selected_event = None)?;
         Ok(self.portal_status())
     }
@@ -418,6 +455,30 @@ impl AppState {
         self.change_settings(|s| s.selected_event = None)?;
         tracing::info!("portal event cleared");
         Ok(self.portal_status())
+    }
+
+    // ----- upload queue -----------------------------------------------------------------
+
+    /// Counts and flags for the operator's badge. Local only.
+    pub fn outbox_status(&self) -> OutboxStatus {
+        self.uploads
+            .get()
+            .map_or_else(OutboxStatus::default, |u| u.status())
+    }
+
+    /// The needs-attention list, with reasons. No image bytes.
+    pub fn outbox_items(&self) -> Vec<OutboxEntry> {
+        self.uploads.get().map_or_else(Vec::new, |u| u.entries())
+    }
+
+    /// The upload queue, for `outbox_retry` and `outbox_dismiss` (blocking file I/O, so the
+    /// commands run them on a blocking thread). The UI confirms a dismiss first; the SD card
+    /// still has the original.
+    pub fn uploads(&self) -> Result<Arc<Uploads>, CommandError> {
+        self.uploads
+            .get()
+            .cloned()
+            .ok_or_else(|| CommandError::new("The upload queue isn't available on this booth."))
     }
 
     // ----- cameras ----------------------------------------------------------------------
@@ -602,6 +663,25 @@ impl AppState {
     }
 }
 
+/// The app's answer to "where do completed sessions go": the selected event, while
+/// enrolled. Holds the settings weakly: the hook lives inside them.
+struct AppDestination {
+    shared: Weak<Shared>,
+    portal: Arc<PortalService>,
+}
+
+impl Destination for AppDestination {
+    fn selected_event(&self) -> Option<String> {
+        let shared = self.shared.upgrade()?;
+        let event = lock(&shared.settings).selected_event.as_ref()?.id.clone();
+        Some(event)
+    }
+
+    fn enrolled(&self) -> bool {
+        matches!(self.portal.enrolment(), Ok(Some(_)))
+    }
+}
+
 /// A palm that the developer panel puts in the box: fills the middle of whatever region it is
 /// asked to look in. Lets the whole gesture path be exercised without a hand or a recognizer.
 ///
@@ -744,6 +824,8 @@ mod tests {
     use crate::portal::types::tests::fixture;
     use crate::portal::types::DeviceCredential;
     use crate::portal::{CredentialStore, PortalConfig};
+    use crate::upload::hook::variant_encoder;
+    use std::sync::atomic::{AtomicBool, Ordering};
 
     const CREDENTIAL_FILE: &str = "portal-credential.json";
 
@@ -817,15 +899,12 @@ mod tests {
         serde_json::from_str(json).unwrap()
     }
 
-    #[cfg(debug_assertions)]
     struct NoopHook;
 
-    #[cfg(debug_assertions)]
     impl OnSessionComplete for NoopHook {
         fn on_session_complete(&self, _: photobooth_core::CompletedSession) {}
     }
 
-    #[cfg(debug_assertions)]
     #[tokio::test(start_paused = true)]
     async fn the_completion_hook_reaches_the_session_context_once_set() {
         let rig = rig();
@@ -1480,6 +1559,326 @@ mod tests {
         .await;
         rig.state.session_take_another().await.unwrap();
         until(&mut events, |s| matches!(s, SessionState::Arming)).await;
+    }
+
+    // ----- uploads (session 10) -------------------------------------------------------
+    // Real time: the real HTTP client talks to the local mock portal, and the real encoder
+    // runs on its own thread.
+
+    /// The test camera under the Sony's ID: its sessions count as real ones (the session
+    /// never hands test-camera sessions over).
+    struct AsSony(MockCamera);
+
+    #[async_trait]
+    impl Camera for AsSony {
+        fn id(&self) -> CameraId {
+            CameraId::SONY_USB
+        }
+        async fn connect(&self) -> Result<(), CameraError> {
+            self.0.connect().await
+        }
+        async fn disconnect(&self) -> Result<(), CameraError> {
+            self.0.disconnect().await
+        }
+        fn status(&self) -> watch::Receiver<CameraStatus> {
+            self.0.status()
+        }
+        async fn start_live_view(&self) -> Result<FrameStream, CameraError> {
+            self.0.start_live_view().await
+        }
+        async fn stop_live_view(&self) -> Result<(), CameraError> {
+            self.0.stop_live_view().await
+        }
+        async fn capture(&self) -> Result<CapturedPhoto, CameraError> {
+            self.0.capture().await
+        }
+    }
+
+    struct UploadRig {
+        state: Arc<AppState>,
+        uploads: Arc<Uploads>,
+        dir: tempfile::TempDir,
+        loop_task: tokio::task::JoinHandle<()>,
+    }
+
+    impl Drop for UploadRig {
+        fn drop(&mut self) {
+            self.uploads.shutdown();
+            self.loop_task.abort();
+        }
+    }
+
+    /// Built like `lib.rs` builds the app: the outbox first, the portal service with its
+    /// depth, the state, then the hook and the loop.
+    fn upload_rig() -> UploadRig {
+        let dir = tempfile::tempdir().unwrap();
+        let outbox = crate::upload::tests::open_outbox(&dir.path().join("outbox"));
+        let uploads = Arc::new(Uploads::new(outbox));
+        let depth_of = uploads.clone();
+        let portal = test_portal(&dir).with_outbox_depth(Arc::new(move || depth_of.outbox().len()));
+        let fast = photobooth_core::TestModeSettings {
+            capture_delay_ms: 10,
+            ..photobooth_core::TestModeSettings::default()
+        };
+        let slots = vec![CameraSlot {
+            id: CameraId::SONY_USB,
+            name: "Sony A7 III (USB)",
+            preview: PreviewKind::Channel,
+            provider: Box::new(AlwaysAvailable(Arc::new(AsSony(MockCamera::new(fast))))),
+        }];
+        let (state, task) = AppState::new(
+            dir.path().join("settings.json"),
+            portal,
+            slots,
+            LogRingBuffer::new(100),
+            Timings {
+                tick: Duration::from_millis(20),
+                flash: Duration::from_millis(20),
+            },
+        );
+        tokio::spawn(task);
+        state.attach_uploads(uploads.clone(), variant_encoder());
+        let loop_task = tokio::spawn(crate::upload::pump::run(
+            uploads.clone(),
+            state.upload_source(),
+            Arc::new(std::time::SystemTime::now),
+        ));
+        UploadRig {
+            state: Arc::new(state),
+            uploads,
+            dir,
+            loop_task,
+        }
+    }
+
+    /// A portal that takes uploads: intents answer PENDING with PUT URLs on itself, a
+    /// thumb PUT answers STORED and an HD PUT READY. While `refuse` is set, every upload
+    /// call is a 401 (a revoked device).
+    async fn upload_portal(refuse: Arc<AtomicBool>) -> MockPortal {
+        MockPortal::start(move |r| {
+            let host = r.header("host").unwrap_or_default().to_owned();
+            let refused = refuse.load(Ordering::SeqCst)
+                && (r.target == "/v1/device/photos" || r.method == "PUT");
+            if refused {
+                return Canned::fixture("error.body.unauthorized.json");
+            }
+            match (r.method.as_str(), r.target.as_str()) {
+                ("POST", "/v1/device/enrol") => Canned::fixture("device.enrol-response.valid.json"),
+                ("GET", "/v1/device/events") => {
+                    Canned::fixture("device.events-response.valid.json")
+                }
+                ("GET", _) => Canned::fixture("device.event-detail.live.json"),
+                ("POST", "/v1/device/photos") => {
+                    let id = r.json()["clientPhotoId"].as_str().unwrap().to_owned();
+                    let target = |variant: &str| {
+                        serde_json::json!({
+                            "method": "PUT",
+                            "url": format!("http://{host}/v1/device/uploads/{id}/{variant}"),
+                            "headers": {"Content-Type": "image/jpeg"},
+                            "expiresAt": "2026-10-22T09:45:00.000Z",
+                        })
+                    };
+                    let body = serde_json::json!({
+                        "state": "PENDING",
+                        "photoId": id,
+                        "uploads": {"thumb": target("thumb"), "hd": target("hd")},
+                    });
+                    Canned::json(200, &body.to_string())
+                }
+                ("PUT", t) if t.ends_with("/thumb") => {
+                    Canned::fixture("device.upload-response.stored.json")
+                }
+                ("PUT", _) => Canned::fixture("device.upload-response.ready.json"),
+                _ => Canned::json(404, "{}"),
+            }
+        })
+        .await
+    }
+
+    async fn enrol_and_select(rig: &UploadRig, portal: &MockPortal) {
+        rig.state
+            .portal_enrol(&portal.base, "CODE", "Booth 1")
+            .await
+            .unwrap();
+        rig.state.portal_select_event(EVENT_ID).await.unwrap();
+        rig.state.select_camera(CameraId::SONY_USB).await.unwrap();
+        rig.state
+            .update_settings(patch(
+                r#"{"number_of_photos":3,"countdown_seconds":1,"strip_display_seconds":5}"#,
+            ))
+            .unwrap();
+    }
+
+    /// Waits (real time, up to 30 s) until `cond` holds.
+    async fn eventually(what: &str, cond: impl Fn() -> bool) {
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(30);
+        while !cond() {
+            assert!(tokio::time::Instant::now() < deadline, "timed out: {what}");
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    }
+
+    fn intents(portal: &MockPortal) -> Vec<serde_json::Value> {
+        portal
+            .requests()
+            .into_iter()
+            .filter(|r| r.target == "/v1/device/photos")
+            .map(|r| r.json())
+            .collect()
+    }
+
+    async fn strip_review(events: &mut broadcast::Receiver<SessionState>) -> String {
+        match until(events, |s| matches!(s, SessionState::StripReview { .. })).await {
+            SessionState::StripReview { session_id, .. } => session_id,
+            _ => unreachable!(),
+        }
+    }
+
+    /// Capture → encode → queue → intent → both PUTs → READY → deleted, for two sessions,
+    /// the second started by "take another" the moment the first reached the review screen.
+    #[tokio::test]
+    async fn completed_sessions_reach_the_portal_and_leave_nothing_behind() {
+        let rig = upload_rig();
+        let portal = upload_portal(Arc::new(AtomicBool::new(false))).await;
+        enrol_and_select(&rig, &portal).await;
+
+        let mut events = rig.state.subscribe_session();
+        rig.state.session_start();
+        let first = strip_review(&mut events).await;
+        rig.state.session_take_another().await.unwrap();
+        let second = strip_review(&mut events).await;
+        assert_ne!(first, second);
+
+        eventually("six READY photos", || {
+            portal
+                .requests()
+                .iter()
+                .filter(|r| r.method == "PUT" && r.target.ends_with("/hd"))
+                .count()
+                == 6
+        })
+        .await;
+        eventually("an empty outbox", || rig.uploads.outbox().is_empty()).await;
+        assert_eq!(
+            std::fs::read_dir(rig.dir.path().join("outbox"))
+                .unwrap()
+                .count(),
+            0,
+            "every file deleted on READY"
+        );
+
+        let sent = intents(&portal);
+        assert_eq!(sent.len(), 6, "one intent per shot, no repeats");
+        let mut ids: Vec<&str> = sent
+            .iter()
+            .map(|b| b["clientPhotoId"].as_str().unwrap())
+            .collect();
+        ids.sort_unstable();
+        ids.dedup();
+        assert_eq!(ids.len(), 6, "no duplicate photo IDs");
+        for session in [&first, &second] {
+            let mut shots: Vec<u64> = sent
+                .iter()
+                .filter(|b| b["sessionId"] == session.as_str())
+                .map(|b| b["shot"].as_u64().unwrap())
+                .collect();
+            shots.sort_unstable();
+            assert_eq!(shots, [1, 2, 3], "session {session}");
+        }
+        assert!(sent.iter().all(|b| b["eventId"] == EVENT_ID));
+
+        // The bearer and the backlog go with the intent only, never with a PUT.
+        let secret = fixture_credential();
+        for r in portal.requests() {
+            if r.target == "/v1/device/photos" {
+                assert_eq!(
+                    r.header("authorization"),
+                    Some(format!("Bearer {secret}").as_str())
+                );
+                let depth: usize = r.header("x-outbox-depth").unwrap().parse().unwrap();
+                assert!((1..=6).contains(&depth), "depth {depth}");
+            }
+            if r.method == "PUT" {
+                assert_eq!(r.header("authorization"), None);
+                assert_eq!(r.header("content-type"), Some("image/jpeg"));
+            }
+        }
+        let status = rig.state.outbox_status();
+        assert_eq!(
+            (status.queued, status.uploading, status.needs_attention),
+            (0, 0, 0)
+        );
+        assert!(status.available && !status.offline && !status.revoked);
+    }
+
+    #[tokio::test]
+    async fn cancelled_and_test_mode_sessions_never_reach_the_portal() {
+        let rig = upload_rig();
+        let portal = upload_portal(Arc::new(AtomicBool::new(false))).await;
+        enrol_and_select(&rig, &portal).await;
+        let mut events = rig.state.subscribe_session();
+
+        // A guest cancels during the countdown of the second shot.
+        rig.state.session_start();
+        until(&mut events, |s| {
+            matches!(s, SessionState::Countdown { shot: 2, .. })
+        })
+        .await;
+        rig.state.session_cancel().await.unwrap();
+        until(&mut events, |s| matches!(s, SessionState::Attract)).await;
+
+        // A whole test-mode session.
+        rig.state.select_camera(CameraId::TEST).await.unwrap();
+        rig.state.session_start();
+        strip_review(&mut events).await;
+
+        tokio::time::sleep(Duration::from_millis(500)).await;
+        assert!(intents(&portal).is_empty());
+        assert!(rig.uploads.outbox().is_empty());
+        assert!(rig.state.outbox_items().is_empty());
+    }
+
+    /// A revoked device: uploads pause with a clear flag, the shots stay queued, and enrolling
+    /// again (unenrol, enrol) resumes them.
+    #[tokio::test]
+    async fn a_revoked_booth_keeps_its_queue_until_it_is_enrolled_again() {
+        let rig = upload_rig();
+        let refuse = Arc::new(AtomicBool::new(true));
+        let portal = upload_portal(refuse.clone()).await;
+        enrol_and_select(&rig, &portal).await;
+
+        let mut events = rig.state.subscribe_session();
+        rig.state.session_start();
+        strip_review(&mut events).await;
+        eventually("revoked", || rig.state.outbox_status().revoked).await;
+        eventually("all three queued", || rig.uploads.outbox().len() == 3).await;
+        let status = rig.state.outbox_status();
+        assert_eq!(status.needs_attention, 0, "{status:?}");
+
+        refuse.store(false, Ordering::SeqCst);
+        rig.state.portal_unenrol().await.unwrap();
+        rig.state
+            .portal_enrol(&portal.base, "CODE2", "Booth 1")
+            .await
+            .unwrap();
+        eventually("resumed", || rig.uploads.outbox().is_empty()).await;
+        assert!(!rig.state.outbox_status().revoked);
+    }
+
+    #[test]
+    fn without_an_outbox_the_status_says_so_and_commands_refuse() {
+        let dir = tempfile::tempdir().unwrap();
+        let (state, _task) = AppState::new(
+            dir.path().join("settings.json"),
+            test_portal(&dir),
+            Vec::new(),
+            LogRingBuffer::new(10),
+            Timings::default(),
+        );
+        assert_eq!(state.outbox_status(), OutboxStatus::default());
+        assert!(!state.outbox_status().available);
+        assert!(state.outbox_items().is_empty());
+        assert!(state.uploads().is_err());
     }
 
     #[tokio::test(start_paused = true)]
