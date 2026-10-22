@@ -10,6 +10,13 @@ rust-version = "1.87"
 [workspace.lints.rust]
 unsafe_op_in_unsafe_fn = "deny"
 
-# Mock-camera JPEG synthesis runs on the tablet in debug builds too; keep the encoder fast.
+# Mock-camera JPEG synthesis and the variant encoder run on the tablet in debug builds too, and
+# the debug-build probe times the encoder (wiki/Booth-Upload.md): keep the image code optimised.
 [profile.dev.package.jpeg-encoder]
+opt-level = 3
+[profile.dev.package.jpeg-decoder]
+opt-level = 3
+[profile.dev.package.fast_image_resize]
+opt-level = 3
+[profile.dev.package.photobooth-core]
 opt-level = 3

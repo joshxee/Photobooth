@@ -18,6 +18,7 @@ pub mod photo_store;
 pub mod session;
 pub mod settings;
 pub mod trigger;
+pub mod variants;
 
 pub use camera::{
     Camera, CameraError, CameraId, CameraStatus, CapturedPhoto, FrameStream, JpegFrame,
