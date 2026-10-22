@@ -33,7 +33,8 @@ the booth's disk holds 0.25–0.62 MB per shot instead of 11–17 MB, and only u
 
 ## Format on disk
 
-One directory (`{app_data}/outbox`), three files per shot:
+One directory (`{app_data}/outbox`; on the tablet `/data/user/0/com.jc.photobooth.tauri/outbox`,
+app-private), three files per shot:
 
 ```text
 {client_photo_id}.thumb.jpg   written first
@@ -154,12 +155,23 @@ testing"):
 pwsh apps/booth/scripts/build-android-debug.ps1 -Install
 adb shell am start -n com.jc.photobooth.tauri/com.jc.photobooth.MainActivity
 adb logcat -d -s Photobooth | grep -i outbox          # "outbox opened", "debug outbox probe"
-adb shell run-as com.jc.photobooth.tauri ls -la files/outbox
+adb shell run-as com.jc.photobooth.tauri ls -la outbox
 # plant what a kill leaves behind (a temp file, variants without a record), then:
 adb shell am force-stop com.jc.photobooth.tauri
 adb shell am start -n com.jc.photobooth.tauri/com.jc.photobooth.MainActivity
-adb shell run-as com.jc.photobooth.tauri ls -la files/outbox   # temp gone, the rest kept
+adb shell run-as com.jc.photobooth.tauri ls -la outbox   # temp gone, the rest kept
 ```
 
-Results are in `wiki/portal/PROGRESS.md` (session 08). The real capture → upload run is
-session 10.
+Run on the Xiaomi Pad 6 on 2026-10-22 (debug build of this branch). Use PowerShell for these
+commands on Windows: Git Bash rewrites `/data/...` arguments into Windows paths.
+
+- First launch: `outbox opened dir=/data/user/0/com.jc.photobooth.tauri/outbox items=0`; the
+  directory is `drwx------` and owned by the app's uid.
+- Planted with `run-as`: one valid synthetic item (three files, hashes matching), a record-less
+  thumb + hd pair, and a `.json.tmp`. After `am force-stop` and relaunch: `deleting an
+  incomplete outbox write`, `quarantining outbox variants without a record`, `items=1
+  quarantined=1`, probe `queued=1 needs_attention=1`; the temp file was gone and the other five
+  files were kept. A second force-stop and relaunch gave the same state (no temp file left to
+  delete). The synthetic files were removed afterwards.
+- Not checked on the device: a real enqueue (no encoder or hook yet), a real power cut. The
+  real capture → upload run is session 10.
