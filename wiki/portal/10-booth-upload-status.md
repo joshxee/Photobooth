@@ -3,22 +3,29 @@
 **Goal:** completed sessions flow from the camera to READY on the portal live, survive offline
 periods and app kills, and the operator can see and act on the queue.
 
-- **Depends on:** 06, 09. The device run needs 07 (staging).
+- **Depends on:** 06, 08b, 09. The device run needs 07 (staging).
 - **Unlocks:** 13.
 - **Device check:** **critical**. The agent runs the automated gate; then you do a manual
   once-over.
 
 ## Read first
-- DESIGN.md §9.3, §10 items 3 and 5, §15 (event-day runbook), §17 (release gate 2).
+- DESIGN.md §9.3, §10 items 3 and 5, §15 (event-day runbook), §17 (release gates 2 and 5).
+- PROGRESS.md 08b entry (encode timings on the tablet).
 - `wiki/Booth-Upload.md`, `wiki/Tauri-App.md` (state, runtime, events), `wiki/Frontend.md`.
 - `apps/booth/src-tauri/src/state.rs`, `lib.rs`.
 
 ## Scope
 1. **Wire up the outbox:**
    - `AppState` opens the outbox at `{app_data}/outbox` on startup.
-   - The `OnSessionComplete` hook enqueues each shot's bytes from `PhotoStore` at
-     `StripReview`. Do it off the UI path; enqueue must not delay the review screen.
-   - Test mode is never enqueued.
+   - The `OnSessionComplete` hook runs at `StripReview` on a background task: for each shot's
+     bytes it received (08 hands over owned `Bytes` clones, so a cleared `PhotoStore` doesn't
+     matter), `encode_variants` (08b), then `enqueue` the `EncodedShot`. One shot at a time,
+     off the UI path; neither step may delay the review screen. Originals are never written to
+     disk. Remove 08b's debug probe in favour of this hook.
+   - Nothing is encoded or queued when the booth is not enrolled or no event is selected.
+   - An encode error is logged with the shot's IDs and shown once as an operator notice (the
+     SD card still has the original); it never blocks the other shots.
+   - Test mode is never encoded or enqueued.
 2. **Drain task** on the Tauri runtime:
    - It runs while enrolled. It wakes on enqueue, on backoff timers and on network-change
      hints if cheap; otherwise it polls every 30 s while the queue is non-empty.
@@ -53,7 +60,11 @@ uploads, so use the real camera or a debug-only "upload test mode" flag in the d
    5 minutes while shooting continues, and `am force-stop` once while items are queued.
    Relaunch, then disable airplane mode.
 3. Assert via the staging admin API that exactly 30 READY photos have the correct event and
-   session IDs and no duplicates. Assert the outbox directory is empty (`run-as … ls`).
+   session IDs and no duplicates. Assert the outbox directory is empty (`run-as … ls`), and
+   that no original JPEG was ever written there (only `*.thumb.jpg`/`*.hd.jpg` while queued).
+   Record session-end → READY times (encode plus upload) from the logs, and run one session
+   where "take another" is pressed immediately at the review screen: all its shots still
+   arrive.
    Attach the logcat excerpt and screenshots of the status badge in each state.
 4. Revoke the device mid-run: the operator error appears, items are kept, and re-enrolling
    resumes them.
@@ -68,9 +79,9 @@ pull Wi-Fi briefly, kill the app once, and confirm everything arrives. Tick it i
       cancel during the once-over).
 
 ## Hand-off
-- `wiki/Booth-Upload.md`: the drain loop's design, concurrency, what the operator sees and why,
-  and the airplane-mode and kill results with their limits ("not tested: multi-hour offline,
-  full disk").
+- `wiki/Booth-Upload.md`: the drain loop's design, where encoding runs and why, concurrency,
+  what the operator sees and why, session-end → READY timings, and the airplane-mode and kill
+  results with their limits ("not tested: multi-hour offline, full disk").
 - `wiki/Frontend.md`: the status badge and its Maestro selectors.
 - PROGRESS.md entry.
 

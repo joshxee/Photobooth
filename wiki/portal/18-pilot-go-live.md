@@ -11,7 +11,8 @@ runs on it, and the counts reconcile. After this the MVP is live.
 
 ## Read first
 - `wiki/portal/gates/runbook.md`, `wiki/portal/gates/release.md`.
-- DESIGN.md §4.1 (production row), §15, §16 (cost: what to watch).
+- DESIGN.md §4.1 (production row), §15, §16 (cost, Workers Free as a hard ceiling, and the
+  50,000 requests/day trigger for Workers Paid); `spike/RESULTS.md` Q12 (event-day model).
 - `SETUP.md` F (all ticked; if not, stop).
 
 ## Scope
@@ -39,11 +40,18 @@ runs on it, and the counts reconcile. After this the MVP is live.
 5. **Reconcile** (agent, read-only):
    - Compare the SD-card shot count for completed sessions with READY photos in the portal.
    - Account for every difference: cancelled sessions, rejected photos, needs-attention items.
-   - Review Workers errors and the Images and R2 usage against the DESIGN §16 estimates.
+   - Review Workers errors, R2 storage and operations, and D1 rows read and written against the
+     DESIGN §16 estimates.
+   - Read the pilot day's Workers requests (and the CPU p95 per route) from Workers analytics.
+     Compare them with the event-day model in `spike/RESULTS.md` Q12 and DESIGN §16's trigger. If the peak is over 50,000
+     requests a day, or another trigger fired, recommend moving the account to Workers Paid
+     (USD 5 a month; the plan covers staging and production) and **ask the user**; the agent
+     never changes the plan.
 6. **Retrospective:**
    - Add to PROGRESS.md: what broke, what operators found confusing, the cost after the first
-     month, and the backlog of post-MVP items (Keystore credential wrapping, strips, Previews,
-     async processing if needed, SD-card recovery upload).
+     month, the Workers plan decision, and the backlog of post-MVP items (Keystore credential
+     wrapping, strips, Previews, presigned uploads if §9.4's triggers fire, SD-card recovery
+     upload).
 
 ## Out of scope
 - Any feature work. Issues found here become new sessions in a follow-up plan.
@@ -51,7 +59,8 @@ runs on it, and the counts reconcile. After this the MVP is live.
 ## Done when
 - [ ] Production is deployed via the approval gate, with no manual `wrangler deploy`.
 - [ ] The pilot event ran, and the counts reconcile, with every difference explained.
-- [ ] The cost is in line with DESIGN §16, or the difference is explained.
+- [ ] The cost and the event-day requests are in line with DESIGN §16, or the difference is
+      explained, and the user has decided the Workers plan (stay Free or move to Paid).
 - [ ] The retrospective and the post-MVP backlog are recorded.
 
 ## Hand-off

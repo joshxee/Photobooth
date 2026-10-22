@@ -8,10 +8,11 @@ and prunes the audit log. It is idempotent, resumable within Worker limits, and 
 - **Device check:** n/a.
 
 ## Read first
-- DESIGN.md §7 (lifecycle table), §9.2 (partial failure and late writes), §14 (retention
-  table), §15 (logs).
+- DESIGN.md §7 (storage table), §9.2 (partial failure and late writes), §14 (retention
+  table), §15 (logs), §16 (Workers Free).
 - Cloudflare docs: Cron Triggers, R2 `list` and `delete` (batch delete up to 1,000 keys),
-  Worker limits for scheduled handlers (subrequests, CPU).
+  Worker limits for scheduled handlers. On Workers Free a cron invocation gets 10 ms CPU and
+  1,000 subrequests to Cloudflare services.
 
 ## Scope
 1. **`domain/retention.ts`**, pure: given now, decide which events are expired
@@ -24,10 +25,12 @@ and prunes the audit log. It is idempotent, resumable within Worker limits, and 
      column via migration 0002, additive). Write an audit row.
    - Deleted events past `purge_after`: the same purge.
    - Audit rows older than 90 days: delete in batches.
-   - Stray `incoming/` older than 1 day: rely on the lifecycle rule, but log a count if any are
-     found (an early warning that the rule is missing).
-   - Work budget per run (a maximum number of keys or events). Anything unfinished continues the
-     next day, and each step is idempotent. Log a structured summary line.
+   - Variants of photos that never became READY live under the same event prefix, so the purge
+     removes them too. There is no `incoming/` prefix or lifecycle rule (DESIGN D6).
+   - Work budget per run (a maximum number of keys or events), sized for Workers Free: 10 ms
+     CPU and 1,000 R2/D1 calls per invocation. Measure the CPU of a full-budget run on staging
+     with `wrangler tail --format json` and record it. Anything unfinished continues the next
+     day, and each step is idempotent. Log a structured summary line.
 3. **Admin visibility:** event detail shows "Expires on" and, for deleted events, "Purges on".
    Restore is disabled after the purge. Update the 14 UI minimally.
 4. **Tests** (Vitest, invoking `scheduled` directly; Local Explorer can also trigger it in dev):
@@ -51,9 +54,11 @@ bunx wrangler dev --test-scheduled   # curl "http://localhost:8787/__scheduled?c
 - [ ] Every row in DESIGN §14 that the system enforces has a test.
 - [ ] A purge of more than 1,000 objects is proven to resume across runs.
 - [ ] Migration 0002 is additive and applied by the staging deploy.
+- [ ] A full-budget run's CPU on staging is recorded and under the Workers Free 10 ms, or the
+      budget is reduced until it is.
 
 ## Hand-off
-- `wiki/Portal.md`: the retention design (why prefix delete makes late writes harmless, the
-  work budget, what is *not* automatic: SD cards).
+- `wiki/Portal.md`: the retention design (why prefix delete makes late writes and stray
+  variants harmless, the work budget and its measured CPU, what is *not* automatic: SD cards).
 - PROGRESS.md entry.
 

@@ -2,8 +2,8 @@
 
 Status: **accepted**, no implementation yet. v2.1 applies the spike results
 ([spike/RESULTS.md](./spike/RESULTS.md)): the booth makes the variants (D14), the Worker stores and
-checks them, and the target volume is 2,000 photos a month. **D14 awaits the user's confirmation**
-(see PROGRESS.md, session 01).
+checks them, and the target volume is 2,000 photos a month. **D14 was confirmed by the user on
+2026-10-22** (PROGRESS.md, sessions 01 and 01b).
 Implementation plan: [README.md](./README.md) in this folder. This replaces *Photobooth Portal MVP Solution v1.2*
 (PDF). v1.2's goals still hold: live delivery, private media, no lost captures, NZ operations,
 roughly USD 20 a month. v2.0 keeps those goals and removes machinery that was sized for a much
@@ -82,7 +82,7 @@ updates live. Admins manage events, devices and moderation behind Cloudflare Acc
 | D11 | **No cache layer**: serve from R2 after the access check | Well under included R2 reads; no egress charges | Gallery read volume grows about 50× |
 | D12 | **Recovery = D1 Time Travel + SD card + 7-day soft delete of events** | Fewest moving parts | Need for independent backup |
 | D13 | **Contract = zod (TypeScript) + serde (Rust), pinned by shared JSON fixtures** | Private API; no OpenAPI tooling | A third-party client appears |
-| D14 | **The booth makes the variants** (thumb 480 px q75, HD 2560 px q85, orientation applied, no metadata) in Rust; the Worker never decodes (spike Q10, option B). **Awaiting the user's confirmation.** | The Images binding keeps GPS and serial numbers whatever `metadata` is set to (Q6). It also needs Workers Paid for CPU (355–470 ms per photo against the Free 10 ms, Q11) and caps inputs at 20,000,000 bytes (Q3). Uploading 0.25–0.62 MB instead of 11–17 MB per shot is 28–44× less traffic on venue networks. Trade-off: guests' browsers decode the booth's JPEG rather than a Cloudflare re-encode. Uploads come only from enrolled, revocable devices, and the header walk limits what is stored (RESULTS.md, Q10) | Uploads from devices we don't own, or on-tablet encoding is too slow (unverified, estimated 0.6–1.6 s per shot) |
+| D14 | **The booth makes the variants** (thumb 480 px q75, HD 2560 px q85, orientation applied, no metadata) in Rust; the Worker never decodes (spike Q10, option B). **Confirmed by the user on 2026-10-22.** | The Images binding keeps GPS and serial numbers whatever `metadata` is set to (Q6). It also needs Workers Paid for CPU (355–470 ms per photo against the Free 10 ms, Q11) and caps inputs at 20,000,000 bytes (Q3). Uploading 0.25–0.62 MB instead of 11–17 MB per shot is 28–44× less traffic on venue networks. Trade-off: guests' browsers decode the booth's JPEG rather than a Cloudflare re-encode. Uploads come only from enrolled, revocable devices, and the header walk limits what is stored (RESULTS.md, Q10) | Uploads from devices we don't own, or on-tablet encoding is too slow (unverified, estimated 0.6–1.6 s per shot) |
 
 ## 4. Architecture
 
@@ -311,8 +311,8 @@ Booth                         Worker                                   D1 / R2
   metadata (D14); the outbox stores the two variants, not the original
 1 POST /v1/device/photos {eventId, clientPhotoId, sessionId, shot, capturedAt, width, height,
                           variants: {thumb: {bytes, sha256}, hd: {bytes, sha256}}}
-                              device active? event OPEN, not deleted? thumb ≤ 200 KB and
-                                     ≤ 480 px, hd ≤ 3 MB and ≤ 2560 px?
+                              device active? event OPEN, not deleted? thumb ≤ 200 KB,
+                                     hd ≤ 3 MB and ≤ 2560 px?
                               INSERT-if-under-limit … ON CONFLICT(device_id, client_photo_id)
    ◄── READY  → done (nothing to upload)
    ◄── PENDING + uploads {thumb, hd: {method:PUT, url (HMAC, exp 15 min), headers, expiresAt}}
@@ -324,7 +324,8 @@ Booth                         Worker                                   D1 / R2
                                      integrity (throws 10037 → 422 hash_mismatch)
                               R2.get(range 0–64 KB) → header walk: SOI, allowed segments only
                                      (APP0, APP14, DQT, DHT, DRI, SOF0 baseline), SOF size =
-                                     declared size, SOS within 64 KB; R2.get(last 2 bytes) = EOI;
+                                     declared size for hd / ≤ 480 px for thumb, SOS within 64 KB;
+                                     R2.get(last 2 bytes) = EOI;
                                      else delete the object, REJECTED (422 invalid_image)
                               UPDATE photos SET <variant>_stored=1 … ;
                               UPDATE photos SET state='READY' … WHERE id=? AND state='PENDING'
@@ -538,7 +539,8 @@ responsibility; Cloudflare location hints are not a residency guarantee.
 ## 15. Operations
 
 - **Logs**: structured JSON (request ID, event ID, photo ID, device ID, version, outcome code)
-  via Workers Observability with 7-day retention. Successful media reads are sampled.
+  via Workers Observability. Retention is 3 days on Workers Free (7 on Paid) until 2026-12-01,
+  then 7 days for both under Cloudflare Observability pricing. Successful media reads are sampled.
 - **Alerts**: Cloudflare billing notifications at USD 25, 50 and 100. There is no paging in MVP.
   During events the operator watches the booth's status bar and the admin devices view (backlog,
   last seen), which v1.2's queue-age alerts would have duplicated.
