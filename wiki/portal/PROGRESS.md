@@ -20,7 +20,7 @@ this file first, so state facts and not intentions.
 ---
 
 ## 03 — Schema, data layer and the shared contract — DONE — 2026-10-22
-- PR: #<n> (branch `portal/03-schema-contracts`)
+- PR: #21 (branch `portal/03-schema-contracts`)
 - **The booth track (08, then 08b) may now start**, in parallel with the portal track (04). The shared contract is `apps/portal/contract/` (fixtures + `manifest.json`) and `apps/portal/src/shared/schemas.ts`; the error codes are listed in `wiki/Portal.md`.
 - Built:
   - `migrations/0001_init.sql`: `events`, `devices`, `photos`, `audit` with every DESIGN §6 column and index, plus CHECKs on the invariants (status enums; READY ⇒ both variants stored + `published_at`; REJECTED ⇔ reason; `deleted_at` ⇔ `purge_after`; sha256 format; JSON columns), `enrol_code_hash UNIQUE`, `photos.event_id … ON DELETE CASCADE`. IDs are UUIDv7.
