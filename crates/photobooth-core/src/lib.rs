@@ -6,12 +6,14 @@
 //! - [`trigger`]: the seam through which a session is started.
 //! - [`gesture`]: open-palm start, built on that seam.
 //! - [`settings`]: validated, atomically persisted configuration.
-//! - [`photo_store`]: the only place captured photos live (in memory).
+//! - [`photo_store`]: where captured photos live for the UI (in memory).
 //! - [`mock`]: the in-memory camera behind "test mode".
+//! - [`outbox`]: the portal upload queue, the one place shots touch disk (as variants).
 
 pub mod camera;
 pub mod gesture;
 pub mod mock;
+pub mod outbox;
 pub mod photo_store;
 pub mod session;
 pub mod settings;
