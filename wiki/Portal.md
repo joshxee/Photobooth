@@ -4,11 +4,12 @@ The guest web portal: one Cloudflare Worker in `apps/portal`. The behaviour spec
 [portal/DESIGN.md](./portal/DESIGN.md) and the build plan is [portal/README.md](./portal/README.md).
 This page records *why* the code is shaped the way it is, and is extended as each session lands.
 
-**Status (session 03):** the scaffold (02) plus the D1 schema, the data layer, the pure domain
-rules and the shared contract (zod schemas and JSON fixtures). It routes by host and serves two
-placeholder SPAs; there is no auth or API route yet. **Nothing here has run on real Cloudflare.**
-It is verified with Vitest in workerd (local D1), `wrangler dev`, `wrangler d1 … --local` and
-`wrangler deploy --dry-run` only.
+**Status (session 04):** the scaffold (02), the D1 schema, data layer, domain rules and shared
+contract (03), plus admin authentication (Cloudflare Access JWT, verified in code) and the admin
+events API with audit rows (04). There are no device or guest API routes yet. **Nothing here has
+run on real Cloudflare or against a real Access application.** It is verified with Vitest in
+workerd (local D1, JWTs signed with a locally generated key), `wrangler dev`, `wrangler d1 … --local`
+and `wrangler deploy --dry-run` only.
 
 ## One Worker, routed by host
 
@@ -138,6 +139,102 @@ without it): `fnm exec --using=22.11.0 -- bun run test`.
 - Vitest 4 is used (the plugin supports 4.1+ and 5). There is no Testing Library: the placeholder
   tests need only `createRoot`, and DESIGN §5 doesn't list it.
 
+## Admin authentication (session 04)
+
+`middleware/adminAuth.ts` runs before every route on the admin host: the API, the SPA shell, its
+bundles and `/healthz`. `middleware/sameOrigin.ts` runs after it for every request that isn't GET
+or HEAD.
+
+- **Why the JWT is verified in code, not left to Access.** Access in front of the hostname is the
+  first gate, but it is a dashboard setting: a policy edited by mistake, a hostname or route it
+  doesn't cover, or `workers.dev` switched back on would let requests through with nothing in the
+  Worker noticing. Verifying `Cf-Access-Jwt-Assertion` against the team's keys
+  (`https://<ACCESS_TEAM_DOMAIN>/cdn-cgi/access/certs`), with `iss` = `https://<ACCESS_TEAM_DOMAIN>`
+  and `aud` containing `ACCESS_AUD` (the AUD tag of *this* Access application), means only a token
+  Access signed for this application gets in. `exp` is required (Hono checks it only when present),
+  `nbf` and `iat` are checked when present, and only RS256 is accepted, so `alg: none`, HS256 and a
+  token signed by any other key are refused. Every failure is a 401 or 403 with the generic error
+  body and no reason.
+- **Hono's verifier, not the `jwk` middleware itself.** `jwk` only reads `Authorization: Bearer …`,
+  and Access sends the bare token in its own header, so the middleware calls `verifyWithJwks` (the
+  function `jwk` wraps) directly. Same checks, same code (DESIGN §13 says so).
+- **The keys are cached per isolate** for 10 minutes. A token whose `kid` isn't cached causes a
+  refetch, at most once a minute, so a key rotation is picked up quickly (Access rotates every 6
+  weeks and keeps the old key valid for 7 days) and a flood of forged `kid`s can't become a flood
+  of certs fetches. If the certs can't be fetched, the request is refused (fail closed). An unset
+  or malformed `ACCESS_TEAM_DOMAIN` (a bare hostname, no scheme) or `ACCESS_AUD` also refuses
+  everything, with a warning log.
+- **`Cf-Access-Authenticated-User-Email` is never read.** It is a plain header; only the signed
+  `email` claim counts.
+- **Why an `ADMIN_EMAILS` variable rather than an admins table.** Access already decides who may
+  sign in. The allowlist is a second, independent check in the Worker's own config, so a too-broad
+  Access policy (say, "any Google account") still doesn't make someone an admin. A table would be a
+  third place to keep in step, would need its own admin UI and bootstrap, and a row can't stop
+  someone Access lets through any better than a variable can. Two or three admins change rarely,
+  and a change is a reviewed config edit plus a deploy. Emails are compared lowercase, and the
+  audit actor is the lowercased email.
+- **Service tokens (agents on staging).** An Access service token's JWT has no `email`; its
+  `common_name` is the token's client ID. It is accepted only when that ID is in
+  `ADMIN_SERVICE_CLIENTS` (comma-separated), and the actor is `svc:<client id>`, so an agent's
+  changes stand out in the audit log. **The production list is empty**, so no service token is an
+  admin there. A token with both an `email` and a `common_name`, or neither, is refused.
+- **Immediate revocation.** Removing an email from `ADMIN_EMAILS` (or a client ID from
+  `ADMIN_SERVICE_CLIENTS`) takes effect on the first request after the deploy, even for someone
+  whose Access session is still valid, because the Worker checks the claim on every request and
+  keeps no admin session of its own. Removing a person from the Access policy, or revoking their
+  Access session, stops them at the edge as well. A revoked service token can't get a JWT at all.
+- **CSRF.** Non-GET requests need `Origin` equal to `https://<ADMIN_HOST>` (or `http://` for a
+  local `*.localhost` host) and `Content-Type: application/json`. A cross-site form can't send JSON,
+  and a cross-site `fetch` with a JSON body needs a CORS preflight, which never succeeds because the
+  Worker sends no CORS headers. This doesn't rely on the Access cookie's `SameSite` setting.
+- **`DEV_AUTH` (local development only).** `wrangler dev --var DEV_AUTH:1` injects the fixed actor
+  `dev@admin.localhost`, but only when the value is exactly `1` **and** the request's hostname ends
+  in `.localhost`. Staging and production set `DEV_AUTH` to empty in `wrangler.jsonc`, and their
+  hostnames are never `*.localhost`, so setting it there by mistake still does nothing. Tests cover
+  unset and other values, and non-localhost hosts.
+- Tests sign tokens with an RSA key pair generated per run (`src/worker/test/access.ts`) and stub
+  the certs fetch; `vitest.config.ts` sets fake Access values. No real team domain or AUD is in the
+  repo (they arrive as config in session 07).
+
+## Admin events API (session 04)
+
+`routes/admin/events.ts`, under `/api` on the admin host:
+
+| Route | Does |
+|---|---|
+| `GET /api/events` | Every event, deleted ones included, newest start first (`AdminEventList`) |
+| `POST /api/events` | Create: DRAFT, HIDDEN, a new public ID and share token, `uploads_until` = `ends_at` + 90 days. 201 |
+| `GET /api/events/{id}` | One event |
+| `PATCH /api/events/{id}` | Edit name, venue, time zone, times or photo limit (statuses change only through actions) |
+| `POST /api/events/{id}/{action}` | `open`, `close`, `publish`, `suspend`, `rotate-link`, `delete`, `restore` |
+
+- Every response is an `AdminEvent`: the row, the gallery URL with its `#k=` token (the event QR),
+  `uploadsUntil`, and photo counts (`pending`, `ready`, `rejected`, plus `hidden`, which counts
+  hidden photos of any state). The counts are one grouped query that the `photos_gallery` index
+  covers, so it reads one index entry per photo. Admin responses are `Cache-Control: no-store`.
+- **Every mutation and its audit row are one `db.batch`.** For an existing event the audit insert
+  is conditional on the event still being at the version the route read (`insertAuditIfEventAt`),
+  and the update has the same condition (`updateEvent(…, readAt)`), so both apply or neither does.
+  If another admin changed the event in between, the request gets 409 `conflict` and **no audit
+  row is written for a change that didn't happen**. `updated_at` always moves forward by at least
+  1 ms, so two writes in the same millisecond can't both pass the check.
+- The audit `detail` never holds a secret: create records the name, update the names of the fields
+  sent, rotation the new `accessVersion` (never the token), delete the `purgeAfter` date. The
+  actions are `event.create`, `event.update`, `event.open`, `event.close`, `event.publish`,
+  `event.suspend`, `event.rotate_link`, `event.delete` and `event.restore`.
+- Transitions go through `applyEventAction`, and every refusal is 409 `conflict` with the same
+  message. A deleted event refuses everything but `restore` (edits too), and `restore` is refused
+  once `purge_after` has passed. An event past `uploads_until` can be published but not opened (D15).
+- An update checks `endsAt >= startsAt` on the merged row (400 `invalid_request`), because the
+  schema can check it only when both are in the body, and recomputes `uploads_until` when `ends_at`
+  changes.
+- **Rotation** writes a new 128-bit token and bumps `access_version`. The old link stops working at
+  once, and so does every guest cookie, because the cookie carries the version (D10, enforced in
+  session 11). Delete sets `deleted_at` and `purge_after` (+7 days); `galleryVisible` and
+  `acceptsUploads` treat a deleted event as gone from that moment.
+- An unknown or malformed event ID is a 404 (a malformed one can't name an event, so it isn't a
+  400). Bodies over 16 KB are 413 `too_large`; invalid JSON and schema failures are 400.
+
 ## Data model (D1)
 
 The schema is `migrations/0001_init.sql`: DESIGN §6 plus the refinements listed there. The
@@ -243,5 +340,10 @@ EOI only), so the header walk (session 06) accepts them and browsers display the
 
 - The health version is the `package.json` version. A git SHA arrives with the deploy workflow in session 07.
 - The rate-limit bindings are declared but unused, and their thresholds are placeholders.
-- `ADMIN_EMAILS`, `ACCESS_*` and `CONTACT_*` are empty vars here. Later sessions fill or read them. The
-  postal address in DESIGN §11 is not copied into the config.
+- `ADMIN_EMAILS`, `ADMIN_SERVICE_CLIENTS`, `ACCESS_*` and `CONTACT_*` are empty vars here, so a
+  deployed Worker refuses every admin request until session 07 sets them. The postal address in
+  DESIGN §11 is not copied into the config.
+- Admin auth is tested only against tokens signed locally. The real Access JWT shape (`common_name`
+  on service tokens, `aud` as an array) follows Cloudflare's docs and is **unverified** until
+  staging (session 07).
+- The certs cache is per isolate, so each new isolate fetches the certs once.

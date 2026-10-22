@@ -55,6 +55,9 @@ cd apps/booth && bun install --frozen-lockfile && bun run typecheck && bun test 
 - **Portal local hosts:** the Worker routes on `Host`. Under `wrangler dev` (port 8787) the gallery/device host is
   `photos.localhost:8787` and the admin host is `admin.localhost:8787` (browsers resolve `*.localhost`; for curl use
   `curl -H "Host: photos.localhost:8787" http://localhost:8787/healthz`, port included). Any other host is a 404.
+- **Portal admin locally:** `fnm exec --using=22.11.0 -- node node_modules/wrangler/bin/wrangler.js dev --var DEV_AUTH:1`
+  skips Access on `*.localhost` hosts only (actor `dev@admin.localhost`). Admin mutations also need
+  `-H "Origin: http://admin.localhost:8787" -H "Content-Type: application/json"`.
 - **Portal local data:** from `apps/portal`, `fnm exec --using=22.11.0 -- bun run migrate:local` (D1 migrations, local
   only), then `fnm exec --using=22.11.0 -- bun run seed`. The seed (`scripts/seed.ts`) **replaces** the local D1 and R2
   contents with two events (OPEN/LIVE and CLOSED/LIVE), one enrolled device and READY photos with placeholder JPEGs,
