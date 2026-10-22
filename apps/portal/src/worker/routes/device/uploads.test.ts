@@ -105,6 +105,19 @@ describe("PUT /v1/device/uploads/{photoId}/{variant}: the happy path", () => {
     expect((await env.MEDIA.head(variantKey(event.id, photoId, "hd")))!.etag).toBe(etag);
   });
 
+  it("a replayed URL for a READY photo writes nothing: the body isn't even read (DESIGN §13)", async () => {
+    const { event, photoId, urls } = await accepted();
+    expect((await upload(urls.thumb, THUMB)).status).toBe(200);
+    expect((await upload(urls.hd, HD)).status).toBe(201);
+    const before = await env.MEDIA.head(variantKey(event.id, photoId, "hd"));
+    // Same length, other bytes: a write would fail R2's sha256 check with 422.
+    const replay = await upload(urls.hd, new Uint8Array(HD.length));
+    expect(replay.status).toBe(201);
+    expect(await replay.json()).toEqual({ state: "READY", photoId });
+    const after = await env.MEDIA.head(variantKey(event.id, photoId, "hd"));
+    expect(after!.uploaded.getTime()).toBe(before!.uploaded.getTime());
+  });
+
   it("two concurrent PUTs of the last variant: one READY, no error", async () => {
     const { photoId, urls } = await accepted();
     expect((await upload(urls.thumb, THUMB)).status).toBe(200);
