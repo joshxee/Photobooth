@@ -18,13 +18,12 @@ takes effect immediately.
 1. **`POST /e/{publicId}/api/session {token}`:**
    - Rate-limited per IP.
    - Timing-safe comparison of the token with the event's `share_token`. The event must be
-     LIVE, not deleted and not expired.
+     LIVE and not deleted (galleries don't expire, DESIGN D15).
    - Set the cookie: name `g`, value `HMAC(SESSION_KEY, eventId|accessVersion|exp)`,
-     `Path=/e/{publicId}`, `Secure`, `HttpOnly`, `SameSite=Lax`. `exp` is the earlier of
-     gallery expiry and 30 days.
+     `Path=/e/{publicId}`, `Secure`, `HttpOnly`, `SameSite=Lax`. `exp` is 30 days.
    - Every failure returns the same 404.
 2. **`middleware/guestAuth.ts`:** check the cookie signature and `exp`, load the event by
-   `publicId`, and require it to be LIVE, not deleted, not expired, with a matching
+   `publicId`, and require it to be LIVE, not deleted (`galleryVisible`), with a matching
    `access_version`. A failure returns 404 and clears the cookie.
 3. **`GET /e/{publicId}/api/photos?cursor&session&limit`:**
    - Returns READY, non-hidden photos for this event only, newest first; default 24, maximum
@@ -44,7 +43,7 @@ takes effect immediately.
      every refetch is a Workers Free request).
 5. **Tests:**
    - Valid session flow.
-   - Wrong token, suspended, deleted, expired → identical 404s.
+   - Wrong token, suspended, deleted → identical 404s. An event past `uploads_until` still serves.
    - After rotation, both the old cookie and the old token get 404.
    - Cross-event: a photo ID from event B under event A's path → 404. A session ID from event B
      → empty result or 404.

@@ -1,0 +1,11 @@
+{
+  "eventName": "Smith wedding",
+  "localDate": "2026-10-22",
+  "eventOpen": false,
+  "photos": [],
+  "nextCursor": null,
+  "contact": {
+    "address": "34b Malvern Road, Morningside, Auckland",
+    "email": "privacy@example.invalid"
+  }
+}

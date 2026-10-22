@@ -46,7 +46,7 @@ cd apps/booth && bun install --frozen-lockfile && bun run typecheck && bun test 
 - Android debug APK: `bun x tauri android build --apk --debug --ci --target aarch64 --config src-tauri/tauri.dev.conf.json`
   from `apps/booth`. On Windows use `pwsh apps/booth/scripts/build-android-debug.ps1 -Install`. See `wiki/Android-Build.md`.
 - Portal, from `apps/portal` (CI job `portal`): `bun install --frozen-lockfile`, `bun run typecheck`,
-  `bun run test` (Vitest in workerd for `src/worker`, then `bun test` for `src/web`), `bun run build`
+  `bun run test` (Vitest in workerd for `src/worker`, then `bun test` for `src/web` and `scripts`), `bun run build`
   (both SPAs, then `wrangler deploy --dry-run` for local, staging and production). See
   `wiki/portal/README.md` → "Global definition of done".
 - **Portal on this PC:** Wrangler and Vitest need Node on PATH, and `bunx wrangler` silently does nothing without it.
@@ -55,6 +55,12 @@ cd apps/booth && bun install --frozen-lockfile && bun run typecheck && bun test 
 - **Portal local hosts:** the Worker routes on `Host`. Under `wrangler dev` (port 8787) the gallery/device host is
   `photos.localhost:8787` and the admin host is `admin.localhost:8787` (browsers resolve `*.localhost`; for curl use
   `curl -H "Host: photos.localhost:8787" http://localhost:8787/healthz`, port included). Any other host is a 404.
+- **Portal local data:** from `apps/portal`, `fnm exec --using=22.11.0 -- bun run migrate:local` (D1 migrations, local
+  only), then `fnm exec --using=22.11.0 -- bun run seed`. The seed (`scripts/seed.ts`) **replaces** the local D1 and R2
+  contents with two events (OPEN/LIVE and CLOSED/LIVE), one enrolled device and READY photos with placeholder JPEGs,
+  and prints the gallery links and a local-only device credential. Inspect it with `wrangler dev` → `/cdn-cgi/local/explorer`
+  or `wrangler d1 execute DB --local --command "…"`. The API contract is `apps/portal/src/shared/schemas.ts` plus
+  `apps/portal/contract/` (fixtures and manifest); see `wiki/Portal.md`.
 
 ## Definition of done
 

@@ -1,0 +1,18 @@
+{
+  "events": [
+    {
+      "id": "019a0b6c-4f00-7a3e-9c41-5b2d8e0f1a01",
+      "name": "Smith wedding",
+      "venue": "Morningside Hall",
+      "timezone": "Pacific/Auckland",
+      "localDate": "2026-10-22"
+    },
+    {
+      "id": "019a0b6d-2e10-7b4f-8d52-6c3e9f102b02",
+      "name": "Ng 40th",
+      "venue": "",
+      "timezone": "Pacific/Auckland",
+      "localDate": "2026-10-24"
+    }
+  ]
+}

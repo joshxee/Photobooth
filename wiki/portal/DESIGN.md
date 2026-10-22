@@ -36,7 +36,7 @@ updates live. Admins manage events, devices and moderation behind Cloudflare Acc
 | Hostnames | `photos.<domain>` (guests and devices), `admin.<domain>` (Access-protected) |
 | Booth changes | Variant encoding, durable outbox, device enrolment, event selection, gallery QR, upload status |
 | Repo | `apps/portal` next to `apps/booth`. No shared workspace, booth toolchain untouched |
-| Base cost | USD 0/month of Cloudflare usage on Workers Free (2,000 photos/month, 90-day retention, about 2.6 GB stored), about USD 1.50/month all-in with the domain; USD 5 more if the account moves to Workers Paid for request headroom (section 16). Budget: USD 20/month all-in |
+| Base cost | USD 0/month of Cloudflare usage on Workers Free (2,000 photos/month; photos are kept until deleted, so storage grows about 0.9 GB a month), about USD 1.50/month all-in with the domain; USD 5 more if the account moves to Workers Paid for request headroom (section 16). Budget: USD 20/month all-in |
 | Effort | 17–24 engineering days, including the spike and 1–2 days for the booth's variant encoder (D14) |
 
 ## 2. Scope
@@ -47,7 +47,8 @@ updates live. Admins manage events, devices and moderation behind Cloudflare Acc
 - HD download (2560 px long edge) of the sanitised copy. The full-resolution original stays on the
   camera's SD card
 - admin event, device and moderation management
-- 90-day retention
+- uploads close 90 days after the event ends; photos stay viewable until an admin deletes the
+  event (D15)
 - link rotation
 - device revocation
 - audit log
@@ -82,6 +83,7 @@ updates live. Admins manage events, devices and moderation behind Cloudflare Acc
 | D11 | **No cache layer**: serve from R2 after the access check | Well under included R2 reads; no egress charges | Gallery read volume grows about 50× |
 | D12 | **Recovery = D1 Time Travel + SD card + 7-day soft delete of events** | Fewest moving parts | Need for independent backup |
 | D13 | **Contract = zod (TypeScript) + serde (Rust), pinned by shared JSON fixtures** | Private API; no OpenAPI tooling | A third-party client appears |
+| D15 | **Uploads stop 90 days after the event ends; the photos and the gallery stay** until an admin deletes the event (7-day undo, then purged). No automatic photo expiry in the MVP. **Decided by the user on 2026-10-22** (session 03), replacing the 90-day deletion of published variants. | Events run once, and early on we'd rather be generous about when guests can retrieve photos. The 90-day mark only guards against a stale booth uploading into an old event. Storage grows about 0.9 GB a month, still free up to 10 GB and then USD 0.015 per GB-month (§16) | Storage cost matters, a privacy review asks for a fixed retention, or galleries need a lifetime |
 | D14 | **The booth makes the variants** (thumb 480 px q75, HD 2560 px q85, orientation applied, no metadata) in Rust; the Worker never decodes (spike Q10, option B). **Confirmed by the user on 2026-10-22.** | The Images binding keeps GPS and serial numbers whatever `metadata` is set to (Q6). It also needs Workers Paid for CPU (355–470 ms per photo against the Free 10 ms, Q11) and caps inputs at 20,000,000 bytes (Q3). Uploading 0.25–0.62 MB instead of 11–17 MB per shot is 28–44× less traffic on venue networks. Trade-off: guests' browsers decode the booth's JPEG rather than a Cloudflare re-encode. Uploads come only from enrolled, revocable devices, and the header walk limits what is stored (RESULTS.md, Q10) | Uploads from devices we don't own, or on-tablet encoding is too slow (unverified, estimated 0.6–1.6 s per shot) |
 
 ## 4. Architecture
@@ -95,7 +97,7 @@ updates live. Admins manage events, devices and moderation behind Cloudflare Acc
  └──────────────────────────────┘           │   SPA assets (gallery)               │
  Guest phone ── gallery SPA ───────────────►│                                      │
  Admin browser ── Access ── admin SPA ─────►│ Worker  admin.<domain>  Access JWT   │
-                                            │ scheduled(): retention / purge       │
+                                            │ scheduled(): purge / audit prune     │
                                             └──┬──────────┬───────────┬────────────┘
                                                │D1        │R2 bucket
 ```
@@ -207,7 +209,7 @@ events(
   gallery_status TEXT,                          -- HIDDEN | LIVE | SUSPENDED
   share_token TEXT, access_version INTEGER,     -- rotation: new token, access_version+1
   photo_limit INTEGER DEFAULT 2000,
-  retention_until,                              -- ends_at + 90 d (stored for future extension)
+  uploads_until,                                -- ends_at + 90 d: uploads stop, the gallery stays (D15)
   deleted_at, purge_after,                      -- soft delete; purge_after = deleted_at + 7 d
   created_at, updated_at)
 
@@ -241,6 +243,23 @@ audit(id, at, actor, action, event_id, target_id, detail)   -- INDEX(event_id, a
 - Admins come from the Worker variable `ADMIN_EMAILS` plus the Access policy. There is no
   admins table.
 - Migrations are additive only, applied with `wrangler d1 migrations apply`.
+- Refinements made when the schema was written (session 03, `apps/portal/migrations/0001_init.sql`):
+  - `retention_until` is named `uploads_until`, because it only closes uploads (D15).
+  - IDs are UUIDv7 (time-ordered). Times are exactly `toISOString()` text (UTC, milliseconds),
+    because SQL compares them as text; the API schemas accept only that form.
+  - `NOT NULL` on every column that always has a value: all of `events` except `deleted_at` and
+    `purge_after` (`venue` defaults to `''`, `access_version` to 1); `devices.name`; all of
+    `photos` except `reject_reason` and `published_at`; `audit.at`, `actor` and `action`.
+  - `CHECK`s beyond the status enums: `ends_at >= starts_at`; `deleted_at` and `purge_after` set
+    together; `enrol_code_hash` and `enrol_expires_at` set together; `token_hash` and
+    `enrolled_at` set together; READY needs both `*_stored` flags and `published_at`; REJECTED
+    needs `reject_reason`; sha256 columns are 64 lowercase hex; flags are 0/1; `shot`,
+    `last_backlog` and `photo_limit` ≥ 0, `access_version` ≥ 1, `width`/`height` > 0;
+    `variant_bytes` and `audit.detail` are valid JSON.
+  - `devices.enrol_code_hash` is `UNIQUE`, because enrolment looks the device up by the code's hash.
+  - `photos.event_id` is `ON DELETE CASCADE`, so purging an event row removes its photo rows.
+    `audit` has no foreign key, so it outlives the event it describes.
+  - Index names: `photos_gallery`, `photos_session`, `audit_event_at`, `audit_at`.
 
 ## 7. Storage layout and lifecycle (one private bucket)
 
@@ -268,7 +287,8 @@ was dropped because it keeps that EXIF whatever `metadata` is set to; spike Q6.)
 ## 8. API
 
 All bodies are JSON validated by zod, unknown fields are rejected, and body sizes are capped.
-Errors look like `{code, message, correlationId}`.
+Errors look like `{code, message, correlationId}`; `code` comes from a closed set with one HTTP
+status per code (`apps/portal/src/shared/schemas.ts`, listed in `wiki/Portal.md`).
 
 **Device** (`photos.<domain>`, `Authorization: Bearer <device credential>`, except enrolment):
 
@@ -311,7 +331,7 @@ Booth                         Worker                                   D1 / R2
   metadata (D14); the outbox stores the two variants, not the original
 1 POST /v1/device/photos {eventId, clientPhotoId, sessionId, shot, capturedAt, width, height,
                           variants: {thumb: {bytes, sha256}, hd: {bytes, sha256}}}
-                              device active? event OPEN, not deleted? thumb ≤ 200 KB,
+                              device active? event OPEN, not deleted, before uploads_until? thumb ≤ 200 KB,
                                      hd ≤ 3 MB and ≤ 2560 px?
                               INSERT-if-under-limit … ON CONFLICT(device_id, client_photo_id)
    ◄── READY  → done (nothing to upload)
@@ -408,8 +428,9 @@ authorisation, validation or a synchronous result at upload time.
 4. we move to a zone plan where the body limit differs, or volume grows by about 100×.
 
 **Making the switch non-breaking.** The client treats `upload` as an opaque descriptor
-(`method`, `url`, `headers`, `expiresAt`). It already handles both `201 READY` and
-`202 PENDING`, and recovers by re-POSTing the intent. Moving to R2 presigned URLs then needs
+(`method`, `url`, `headers`, `expiresAt`), and `headers` is an open map that it sends as
+given. It already handles both `201 READY` and `202 {state: "PROCESSING"}`, and recovers by
+re-POSTing the intent. Moving to R2 presigned URLs then needs
 only server changes:
 - swap the HMAC signer for SigV4 presigning;
 - add an R2 object-created notification on `events/`, feeding a Queue consumer;
@@ -463,12 +484,12 @@ day 1 to preserve this.
   2. `history.replaceState` removes the fragment.
   3. The fragment is never sent to the server or in `Referer` headers.
 - **Cookie**: `HMAC(SESSION_KEY, eventId|accessVersion|exp)`, with `Secure`, `HttpOnly`,
-  `SameSite=Lax` and `Path=/e/{publicId}`. It lasts until gallery expiry (capped at 30 days), so
+  `SameSite=Lax` and `Path=/e/{publicId}`. It lasts 30 days (galleries have no expiry, D15), so
   a guest returning the next day doesn't need the QR again. Each request checks `access_version`,
   so rotating the link or suspending the gallery takes effect immediately.
 - **Media**:
   1. Validate the cookie.
-  2. Read the event row: gallery LIVE, not deleted, not expired, version matches.
+  2. Read the event row: gallery LIVE, not deleted, version matches.
   3. Read the photo row: belongs to the event, READY, not hidden.
   4. Stream from R2. Anything unauthorised returns a generic 404.
   - Response headers: `Cache-Control: private, max-age=31536000, immutable` (a key never changes
@@ -491,7 +512,7 @@ day 1 to preserve this.
 ## 12. Admin portal
 
 - **Events**: create and edit, open and close uploads, publish and suspend the gallery, copy link,
-  rotate link (with confirmation), counts by state, expiry date shown, delete with a 7-day undo.
+  rotate link (with confirmation), counts by state, the date uploads close (`uploads_until`), delete with a 7-day undo.
 - **Event QR**: QR code for the whole event (`galleryUrl#k=…`), with no session filter.
   - Shown on screen, and downloadable as SVG (for print and signage) and PNG (for messaging).
   - Generated in the admin SPA with one small, dependency-free QR library.
@@ -524,7 +545,7 @@ day 1 to preserve this.
 
 | Data | Retention | Enforcement |
 |---|---|---|
-| Published variants | 90 days after event end | Access check at expiry; daily cron prefix-deletes |
+| Published variants | Until the event is deleted, then the 7-day undo (D15). Uploads stop 90 days after event end | Admin delete; daily cron prefix-deletes the purged event |
 | Deleted event | 7-day undo, then purged | Daily cron |
 | Booth outbox (thumb + HD variants, never the original) | Until READY | Outbox deletes on READY |
 | SD-card originals | 90 days after event end | Operator process (custody register) |
@@ -557,16 +578,17 @@ responsibility; Cloudflare location hints are not a residency guarantee.
     operator decision.
   - *After*: close uploads only when every booth shows a zero backlog in admin.
 
-## 16. Cost (USD per month, steady state at 90 days; rates rechecked 2026-10-22 in spike 01)
+## 16. Cost (USD per month, in the first year; rates rechecked 2026-10-22 in spike 01)
 
-Volume: 4 events × 500 photos = 2,000 photos a month, about 6,000 stored. Budget USD 20 all-in.
+Volume: 4 events × 500 photos = 2,000 photos a month. Photos are kept until deleted (D15), so
+about 24,000 are stored after a year. Budget USD 20 all-in.
 The full model, including the event-day request and D1 estimates, is in
 [spike/RESULTS.md](./spike/RESULTS.md) (Q12).
 
 | | Workers Free (D14) | Workers Paid (D14) |
 |---|---|---|
 | Workers (3 requests per photo, guest polling at 30 s, media cached immutably) | 0.00 | 5.00 |
-| R2 storage (thumb + HD ≈ 0.44 MB per photo × 6,000 ≈ 2.6 GB; 10 GB free) | 0.00 | 0.00 |
+| R2 storage (thumb + HD ≈ 0.44 MB per photo, ≈ 0.9 GB a month; 10 GB free) | 0.00 | 0.00 |
 | R2 operations (≈ 4k Class A, ≈ 0.1–0.2 M Class B; 1 M / 10 M free) | 0.00 | 0.00 |
 | D1 (≤ 1.5 M rows read on an event day; 5 M/day free) | 0.00 | 0.00 |
 | Images | not used | not used |
@@ -578,8 +600,9 @@ The full model, including the event-day request and D1 estimates, is in
   day is about 36,000 requests and a heavy one about 96,000, and staging shares the account.
   Keep staging idle on event days, and move the account to Workers Paid if the pilot's peak is
   over 50,000 requests a day (session 18).
-- Storage would pass the 10 GB free tier only at about 23,000 stored photos (about 7,700 a month
-  at 90-day retention), and then costs USD 0.015 per GB-month.
+- With no automatic deletion (D15), storage passes the 10 GB free tier after about 11 months
+  (about 23,000 photos) and then costs USD 0.015 per GB-month: about USD 0.17 a month after two
+  years. Deleting old events through admin brings it back down.
 - v2.0's Images path (3 variants including a full-resolution copy) would have needed Workers
   Paid for CPU and cost ≈ USD 5.90 at this volume. It is dropped for privacy (spike Q6), not
   cost.
