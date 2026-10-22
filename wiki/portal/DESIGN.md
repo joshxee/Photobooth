@@ -362,6 +362,23 @@ there is no metadata before the (single, baseline) scan and that the object ends
 not parse the entropy-coded data, so a crafted file from a stolen, unrevoked tablet is the
 residual risk (section 13).
 
+Refinements made when the path was built (session 06; the reasons are in `wiki/Portal.md`):
+- **Intent:** an unknown event is 404 `not_found`; a deleted event refuses even an accepted photo's
+  re-intent (409 `event_closed`); a retry must repeat the whole declaration (event, both hashes and
+  byte counts, the HD size) or it is 409 `conflict`. A PENDING photo with both variants stored (its
+  event was deleted between a variant's checks and its publish, then restored) is published by the
+  next intent. `INTENT_LIMITER` allows 120 intents a minute per device.
+- **PUT:** an unknown photo and a bad signature get the same 403 `forbidden`; a revoked device is
+  401 `unauthorized`; a deleted event is 409 `event_closed`; a wrong content type or
+  `Content-Length` is 400 `invalid_request`. A READY photo answers 201 without reading the body. The
+  PUT doesn't write the device heartbeat (it has no bearer or device headers).
+- **Header walk:** APP0 must start `JFIF ` and APP14 `Adobe`; the SOF0 must be 8-bit with a non-zero
+  size, and there must be exactly one, before SOS.
+- `width`, `height` and `variant_bytes` are written by the intent; the HD's SOF check proves the
+  stored HD matches them, so the publish UPDATE sets only `state` and `published_at`.
+- A rejected variant's object is deleted at once; the photo's other variant, if stored, stays until
+  the event is purged and is never served.
+
 ### 9.2 Why this is correct without leases, attempts or a queue
 
 - **Idempotency.** `UNIQUE(device_id, client_photo_id)` means retries never create a second

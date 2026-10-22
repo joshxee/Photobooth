@@ -4,13 +4,14 @@ The guest web portal: one Cloudflare Worker in `apps/portal`. The behaviour spec
 [portal/DESIGN.md](./portal/DESIGN.md) and the build plan is [portal/README.md](./portal/README.md).
 This page records *why* the code is shaped the way it is, and is extended as each session lands.
 
-**Status (session 05):** the scaffold (02), the D1 schema, data layer, domain rules and shared
+**Status (session 06):** the scaffold (02), the D1 schema, data layer, domain rules and shared
 contract (03), admin authentication (Cloudflare Access JWT, verified in code) and the admin events
-API with audit rows (04), and devices: the admin devices API, enrolment and the authenticated device
-events API (05). There are no upload or guest API routes yet. **Nothing here has run on real
-Cloudflare or against a real Access application.** It is verified with Vitest in
-workerd (local D1, JWTs signed with a locally generated key), `wrangler dev`, `wrangler d1 … --local`
-and `wrangler deploy --dry-run` only.
+API with audit rows (04), devices: the admin devices API, enrolment and the authenticated device
+events API (05), and the live-delivery path: the upload intent, the signed per-variant PUT, the JPEG
+header walk and `processPhoto()` (06). There are no guest API routes yet. **Nothing here has run on
+real Cloudflare or against a real Access application.** It is verified with Vitest in workerd (local
+D1 and R2, JWTs signed with a locally generated key), `wrangler dev` with `scripts/smoke.ts`,
+`wrangler d1 … --local` and `wrangler deploy --dry-run` only.
 
 ## One Worker, routed by host
 
@@ -123,6 +124,11 @@ curl -H "Host: other.example"         http://localhost:8787/healthz   # 404
 
 On the Windows dev PC, Wrangler and Vitest need Node on PATH (`bunx wrangler` silently does nothing
 without it): `fnm exec --using=22.11.0 -- bun run test`.
+
+`wrangler dev` needs the `UPLOAD_KEY` secret: `cp .dev.vars.example .dev.vars` once (a local-only
+value; `.dev.vars` is git-ignored). It also needs `dist/` (`bun run build.ts`). The upload path's
+end-to-end check is `bun run scripts/smoke.ts --base http://localhost:8787` against
+`wrangler dev --var DEV_AUTH:1`.
 
 ## Tests
 
@@ -329,6 +335,167 @@ Device routes on the gallery host (`routes/device/`):
   `device.*` fixture field by field (the same keys and JSON types at every depth) as well as with
   the schema.
 
+## Upload and validation (session 06)
+
+The live-delivery path (DESIGN §9). The booth makes both variants (D14), declares them, PUTs each
+one to a URL the Worker signed, and the photo is READY once both are stored and checked:
+
+| Route | Auth | Does |
+|---|---|---|
+| `POST /v1/device/photos` (intent) | Bearer, `INTENT_LIMITER` per device | 200 with the photo's state: READY, REJECTED `{reason}`, or PENDING with `uploads` for the variants not yet stored |
+| `PUT /v1/device/uploads/{photoId}/{variant}?exp&sig` | the signed URL only | Streams the body into R2 with the declared sha256, walks its headers, then 200 STORED (the first variant) or 201 READY (the second) |
+
+Code: `routes/device/photos.ts`, `routes/device/uploads.ts`, `lib/uploadUrl.ts` (the signer),
+`domain/jpegHeaders.ts` (the header walk), `domain/processPhoto.ts` (check + publish),
+`domain/media.ts` (object keys).
+
+### Why bytes go through the Worker (DESIGN §9.4, in brief)
+
+Cloudflare documents both a Worker-binding upload and presigned R2 URLs. Presigned URLs win for big
+files, multipart, or high-volume uploads from untrusted browsers; a Worker in the path wins when the
+upload needs authorisation, validation and a synchronous answer. Ours are 0.25–0.62 MB variants from
+five owned tablets at about 0.5 photos a second at peak, so the Worker path is simpler *and* safer:
+no S3 key pair exists anywhere, integrity is checked in-path, and the booth learns READY in the same
+request. It stops fitting only with files near 100 MB, resumable uploads, browser uploads at volume,
+or ~100× the volume. The switch would be server-only, because the booth already treats the upload
+as an opaque descriptor (method, URL, an open `headers` map, `expiresAt`) and understands 202:
+
+- `UploadSigner` (`lib/uploadUrl.ts`) is the seam where SigV4 presigning replaces the HMAC signer.
+- `processPhoto()` and the header walk take no HTTP types (a test checks the source), so an R2
+  object-created notification → Queue consumer could call the same function.
+- **Why a 202 exists although the MVP never sends it:** with D14 the PUT does no processing, so it
+  always answers synchronously. The booth treats `202 {state: "PROCESSING"}` like a retryable
+  response, so an asynchronous path later needs no app release (DESIGN §9.2).
+
+### Why the Worker validates but never decodes (D14, spike Q6/Q10)
+
+The spike tried the Images binding: on real Cloudflare it **kept GPS and camera/lens serial
+numbers** whatever `metadata` was set to (local `wrangler dev` strips them, so a local test would
+have passed), it needs Workers Paid for CPU (355–470 ms per photo), and it caps inputs at 20 MB. The
+booth re-encodes instead (08b), and the Worker only proves the stored bytes are what the booth's
+encoder writes. That costs about 1 ms of CPU per request (spike Q11: sha256 put + header check p50
+1 ms, p95 1 ms), so the account stays on Workers Free. Spike wall times for the put and check from
+Auckland: HD p50 334 ms / p95 449 ms, thumb p50 278 / p95 361 ms. Streaming the body into
+`put(key, request.body, {sha256})` costs 0–1 ms CPU even for 17 MB (Q2), so nothing is buffered.
+
+**The header walk** (`checkJpegHeaders(head, tail)`) reads the first 64 KB and the last 2 bytes:
+
+- SOI; then only APP0 starting `JFIF\0`, APP14 starting `Adobe`, DQT, DHT, DRI and exactly one
+  SOF0 (8-bit, non-zero size) before SOS, and the SOS header must end inside the 64 KB. Anything else
+  fails with a named reason (`segment 0xe1 not allowed`, `SOS past 64 KB`, `no EOI`, …), which
+  becomes the photo's `reject_reason`.
+- Baseline means one scan, so nothing can hide between scans beyond the walked range (progressive
+  files carry segments between scans, and Sony's MPF previews sit after EOI).
+- The object must end in `FFD9`. Only the last 2 bytes are read, so a trailer that itself ends in
+  `FFD9` passes.
+- The rules are the booth's `check_segments` (`crates/photobooth-core/src/variants/segments.rs`)
+  minus its scan walk, which the Worker can't afford, plus one check the encoder's output always
+  passes: the APP0/APP14 identifiers (a JFXX APP0 carries a thumbnail). A pair made by the booth's own encoder is committed
+  (`scripts/fixtures/booth-{thumb,hd}.jpg`, synthetic pattern, no photo) and a test uploads it, so a
+  change on either side that breaks the other fails CI.
+- Size rules (`processPhoto`): the HD's SOF size must equal the declared `width`×`height`; the
+  thumb's long edge must be ≤ 480 px.
+- A variant that fails is **deleted from R2 at once** and the photo becomes REJECTED; it never
+  becomes READY. The photo's other variant, if already stored, stays until the event is purged; it is
+  never served. The delete runs even when the photo is already REJECTED, so a bad object written by
+  a racing PUT doesn't stay behind.
+
+**Accepted risk (DESIGN §13).** Without a re-encode on the server, the entropy-coded data reaches
+guests' browsers as the booth wrote it. A crafted scan, or a trailer that ends in `FFD9`, could aim
+at a browser decoder bug or smuggle data. Only enrolled, revocable tablets can upload (bearer for
+the intent, a signed URL per variant, and the PUT re-checks the device), browsers' JPEG decoders are
+heavily fuzzed, and media is served as `image/jpeg` with `nosniff`. Revisit if uploads ever come
+from devices we don't own.
+
+### Signed upload URLs
+
+- HMAC-SHA256 with the `UPLOAD_KEY` secret over `photoId|variant|bytes|sha256|exp`, valid 15
+  minutes. The URL carries only `exp` and `sig`; the PUT reads the declared bytes and hash from the
+  photo row and recomputes, so a URL is good for one variant of one photo with exactly those bytes.
+- The signature is checked first and in constant time, then the expiry, so a tampered `exp` is 403
+  whether or not it is in the past, and only a genuine URL can be 410. `exp` must be canonical
+  decimal, so one expiry has one signed spelling.
+- **An unknown photo gets the same 403 as a bad signature**, so a URL tells a prober nothing about
+  which photos exist.
+- **Replay:** a READY photo answers 201 without reading the body (a test replays the URL with other
+  bytes and checks the object wasn't rewritten); a REJECTED photo answers 422; a PENDING one can only
+  receive the declared bytes, because R2 checks the sha256. A revoked device's URLs stop working at
+  once and a deleted event's too, because the PUT re-reads both.
+- **The PUT doesn't write the heartbeat:** it carries no bearer or device headers (the booth sends
+  them on the intent, which precedes every PUT).
+- `UPLOAD_KEY` is a Wrangler secret (`secrets.required` in `wrangler.jsonc`, so `wrangler types`
+  knows it). Locally `wrangler dev` reads it from `.dev.vars` (copy `.dev.vars.example`, a
+  local-only value); the Vitest config sets a test key. A signer with a missing or short key (< 32
+  characters) throws, so a misconfigured Worker fails closed with 500. **Rotating it** makes every
+  outstanding URL a 403, which the booth treats as needs attention (the operator's retry re-intents
+  and gets a fresh URL): rotate between events, when every booth shows a zero backlog.
+
+### Idempotency, concurrency and failure (DESIGN §9.2)
+
+- **The intent** uses 03's single-statement insert (photo limit and `UNIQUE(device_id,
+  client_photo_id)`), so a retry never makes a second photo. A retry must repeat the whole
+  declaration (event, both hashes and byte counts, the HD size), or it is 409 `conflict`.
+- **Closing uploads blocks new photos only.** When the event no longer accepts uploads (CLOSED,
+  DRAFT, past `uploads_until`), a photo that was already accepted is still answered with its state
+  and fresh URLs, because re-POSTing the intent is how the booth recovers from `upload_expired`.
+  Only a new photo gets 409 `event_closed`. A **deleted** event refuses everything with
+  `event_closed`, and an unknown event is 404.
+- **The PUT** writes to a fixed key, so retries overwrite the same object with the same bytes.
+  `markVariantStored` and the conditional `publishPhotoIfComplete` run in one batch; the publish
+  changes one row for exactly one request, and every other request re-reads the photo. Two
+  concurrent PUTs of the last variant both answer 201 READY.
+- **Partial failure:** anything failing before that batch (R2 or D1 down, a crash) leaves the photo
+  PENDING, and a retry redoes the check and the batch. Infrastructure errors are 500s, which the
+  booth retries; a missing object after the put is an error, not a rejection.
+- **Event deleted between the two variants:** the publish checks the event, so nothing becomes
+  READY; the second PUT itself gets 409 `event_closed` (or, if the deletion lands after its checks,
+  200 STORED with the photo still PENDING). If the event is then restored, the next intent sees
+  both variants stored and publishes the photo.
+- `width`, `height` and `variant_bytes` come from the intent and the HD's SOF check proves the stored
+  HD matches them, so the publish only sets `state` and `published_at`.
+
+### PUT responses
+
+| Case | Response |
+|---|---|
+| Malformed photo ID or unknown variant | 404 `not_found` |
+| Unknown photo, bad or missing signature, a URL signed for other bytes | 403 `forbidden` |
+| Expired (genuine) URL | 410 `upload_expired`: re-POST the intent |
+| Revoked device | 401 `unauthorized` |
+| Deleted event | 409 `event_closed` |
+| READY photo | 201 READY, body not read |
+| REJECTED photo | 422 `invalid_image` |
+| Content type not `image/jpeg`, or `Content-Length` missing or not the declared bytes | 400 `invalid_request` |
+| Bytes don't match the declared sha256 (R2 error 10037; nothing is stored) | 422 `hash_mismatch` |
+| Header walk or size rule failed (object deleted, photo REJECTED) | 422 `invalid_image`, the reason in the message |
+| Stored, the other variant still missing | 200 `{state: "STORED", photoId, variant}` |
+| Stored, the photo is now READY | 201 `{state: "READY", photoId}` |
+
+### Rate limit and logging
+
+- `INTENT_LIMITER`: 120 intents a minute **per device** (keyed by the device ID after
+  authentication, never by IP), answered with 429 `rate_limited` and `Retry-After: 60`. The booth's
+  outbox drains a backlog with two upload workers, about one intent a second each on a good uplink,
+  so 120 a minute lets a backlog drain at full speed while capping a runaway or stolen tablet at
+  about 170,000 rows a day, which the per-event photo limit (2,000 by default) stops much sooner.
+  The PUTs are not rate-limited: each needs a URL from a limited intent.
+- The access log line carries `deviceId` on every authenticated device request, and `eventId` and
+  `photoId` on intents and PUTs (`addLogIds` in `middleware/accessLog.ts`). The path is logged
+  without its query, so `sig` never reaches the logs (a test checks).
+
+### What was verified, and where
+
+Everything above runs locally: Vitest in workerd with real local D1 and R2 (local R2 enforces
+`sha256` with the production error, spike Q9), and `scripts/smoke.ts` against `wrangler dev`
+(create and open an event and a device, enrol, intent, PUT thumb → 200 STORED, PUT hd → 201 READY,
+re-intent → READY; the stored objects' sha256 match the fixtures). Nothing in this path depends on a
+binding that behaves differently remotely: no Images binding, and R2's `sha256` check, range reads
+and streaming behaved the same in the spike's remote runs. **Not verified on real Cloudflare:** this
+code itself (no deploy), CPU per request (the 1 ms figure is the spike's), the Rate Limiting
+binding's real behaviour (approximate, per location), and concurrent PUTs on remote D1 (local D1
+serialises statements, so the concurrency tests prove the conditional UPDATE, not remote
+scheduling). Session 07 checks the path on staging.
+
 ## Data model (D1)
 
 The schema is `migrations/0001_init.sql`: DESIGN §6 plus the refinements listed there. The
@@ -433,9 +600,12 @@ EOI only), so the header walk (session 06) accepts them and browsers display the
 ## Known limits
 
 - The health version is the `package.json` version. A git SHA arrives with the deploy workflow in session 07.
-- `ENROL_LIMITER` is used (session 05, 10 a minute per IP); `SESSION_LIMITER` and `INTENT_LIMITER`
-  are declared but unused, and their thresholds are placeholders. The limiter has only run in the
-  local simulation: its behaviour on Cloudflare (per location, approximate) is **unverified**.
+- `ENROL_LIMITER` (session 05, 10 a minute per IP) and `INTENT_LIMITER` (session 06, 120 a minute per
+  device) are used; `SESSION_LIMITER` is declared but unused, and its threshold is a placeholder. The
+  limiter has only run in the local simulation: its behaviour on Cloudflare (per location,
+  approximate) is **unverified**.
+- `UPLOAD_KEY` has one value at a time, so rotating it voids every outstanding upload URL (the
+  booth's items need the operator's retry). Rotate between events.
 - `GET /api/devices` is unpaginated (schema cap 1,000); there are five tablets.
 - `ADMIN_EMAILS`, `ADMIN_SERVICE_CLIENTS`, `ACCESS_*` and `CONTACT_*` are empty vars here, so a
   deployed Worker refuses every admin request until session 07 sets them. The postal address in
