@@ -10,6 +10,7 @@ import { heartbeatDue, parseAppVersion, parseBearer, parseOutboxDepth } from "..
 import { hashToken } from "../domain/tokens";
 import { AppError } from "../lib/errors";
 import type { AppEnv } from "../types";
+import { addLogIds } from "./accessLog";
 
 /**
  * Sets `device` for the route. Also writes the heartbeat (last seen, `X-Outbox-Depth`,
@@ -33,5 +34,6 @@ export const deviceAuth = () =>
       }).run();
     }
     c.set("device", device);
+    addLogIds(c, { deviceId: device.id });
     return next();
   });
