@@ -177,9 +177,12 @@ reasons behind it:
 - `eventState.ts` is the event state machine. Uploads go DRAFT/CLOSED → OPEN → CLOSED; the gallery
   goes HIDDEN/SUSPENDED → LIVE → SUSPENDED; the two are independent. **Deleted** = `deleted_at` set:
   nothing is served or accepted and only `restore` is allowed, until `purge_after` (+7 days).
-  **Expired** = now ≥ `retention_until` (`ends_at` + 90 days): no gallery, no uploads, and it can't
-  be opened or published again. **Purge due** = deleted and now ≥ `purge_after`. Routes map every
-  refusal to 409 `conflict`.
+  **Upload window closed** = now ≥ `uploads_until` (`ends_at` + 90 days): no more uploads, and
+  uploads can't be opened again. **Nothing else expires** (DESIGN D15, decided 2026-10-22): the
+  gallery and its photos stay until an admin deletes the event, because events run once and early
+  on we'd rather be generous about when guests can retrieve photos. The 90-day mark only stops a
+  stale booth uploading into an old event. **Purge due** = deleted and now ≥ `purge_after`. Routes
+  map every refusal to 409 `conflict`.
 - `cursor.ts`: the keyset cursor is `published_at|id` in base64url. It is opaque to clients but
   not secret: a forged cursor can only page within the event the guest's cookie already allows.
 
@@ -232,7 +235,7 @@ LIVE event with 6 READY photos in two sessions plus a PENDING and a REJECTED one
 event with 2 READY photos, and one enrolled device. It prints the two gallery links and the
 device's local-only credential. It goes through Wrangler's `getPlatformProxy`, so it writes the
 same local state `wrangler dev` reads, and it uses the real data layer, so seeded rows obey the
-same rules. Times are anchored to the current hour so the events don't expire. The placeholder
+same rules. Times are anchored to the current hour so event A's upload window stays open. The placeholder
 images are solid-colour baseline JPEGs from `scripts/solidJpeg.ts` (APP0, DQT, SOF0, DHT, SOS and
 EOI only), so the header walk (session 06) accepts them and browsers display them.
 

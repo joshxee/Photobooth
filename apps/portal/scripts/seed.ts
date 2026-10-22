@@ -7,7 +7,7 @@
 // It REPLACES everything in the local database and bucket with: event A (OPEN, gallery LIVE)
 // with 6 READY photos in two sessions, 1 PENDING and 1 REJECTED; event B (CLOSED, gallery LIVE)
 // with 2 READY photos; and one enrolled device. IDs, tokens and images are fixed; times are
-// anchored to the current UTC hour so the events never expire under you.
+// anchored to the current UTC hour so event A's upload window stays open.
 // The share token and device credential below are LOCAL-ONLY placeholders, not secrets.
 import { getPlatformProxy } from "wrangler";
 import { insertAudit } from "../src/worker/db/audit";
@@ -20,7 +20,7 @@ import {
   publishPhotoIfComplete,
   rejectPhoto,
 } from "../src/worker/db/photos";
-import { retentionUntil } from "../src/worker/domain/eventState";
+import { uploadsUntil } from "../src/worker/domain/eventState";
 import { hashToken } from "../src/worker/domain/tokens";
 import { solidJpeg } from "./solidJpeg";
 
@@ -73,7 +73,7 @@ function event(id: string, publicId: string, shareToken: string, name: string, s
     share_token: shareToken,
     access_version: 1,
     photo_limit: 2000,
-    retention_until: retentionUntil(ends),
+    uploads_until: uploadsUntil(ends),
     deleted_at: null,
     purge_after: null,
     created_at: starts,

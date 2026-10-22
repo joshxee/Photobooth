@@ -6,10 +6,10 @@ import {
   type EventState,
   galleryVisible,
   isDeleted,
-  isExpired,
   isPurgeDue,
   purgeAfter,
-  retentionUntil,
+  uploadsUntil,
+  uploadWindowClosed,
 } from "./eventState";
 
 const NOW = new Date("2026-10-22T10:00:00.000Z");
@@ -20,7 +20,7 @@ function state(overrides: Partial<EventState> = {}): EventState {
     gallery_status: "HIDDEN",
     share_token: "old-token",
     access_version: 1,
-    retention_until: "2027-01-20T10:00:00.000Z",
+    uploads_until: "2027-01-20T10:00:00.000Z",
     deleted_at: null,
     purge_after: null,
     ...overrides,
@@ -133,46 +133,46 @@ describe("delete and restore", () => {
   });
 });
 
-describe("expiry", () => {
-  const expired = state({ retention_until: "2026-10-22T10:00:00.000Z" });
+describe("the upload window (uploads stop 90 days after the event ends; photos stay)", () => {
+  const past = state({ uploads_until: "2026-10-22T10:00:00.000Z" });
 
-  it("an event is expired from retention_until on", () => {
-    expect(isExpired(expired, NOW)).toBe(true);
-    expect(isExpired(expired, new Date("2026-10-22T09:59:59.999Z"))).toBe(false);
+  it("closes at uploads_until", () => {
+    expect(uploadWindowClosed(past, NOW)).toBe(true);
+    expect(uploadWindowClosed(past, new Date("2026-10-22T09:59:59.999Z"))).toBe(false);
   });
 
-  it("an expired event can't be opened or published", () => {
-    expect(apply(expired, { type: "open" })).toEqual({ ok: false, reason: "expired" });
-    expect(apply(expired, { type: "publish" })).toEqual({ ok: false, reason: "expired" });
+  it("after it closes, uploads can't be opened again", () => {
+    expect(apply(past, { type: "open" })).toEqual({ ok: false, reason: "upload_window_closed" });
   });
 
-  it("an expired event can still be closed, suspended, rotated and deleted", () => {
-    expect(apply(state({ ...expired, upload_status: "OPEN" }), { type: "close" }).ok).toBe(true);
-    expect(apply(state({ ...expired, gallery_status: "LIVE" }), { type: "suspend" }).ok).toBe(true);
-    expect(apply(expired, { type: "rotate", shareToken: "n" }).ok).toBe(true);
-    expect(apply(expired, { type: "delete" }).ok).toBe(true);
+  it("the gallery is unaffected: it can still be published, suspended, rotated and deleted", () => {
+    expect(apply(past, { type: "publish" })).toEqual({ ok: true, next: state({ ...past, gallery_status: "LIVE" }) });
+    expect(apply(state({ ...past, upload_status: "OPEN" }), { type: "close" }).ok).toBe(true);
+    expect(apply(state({ ...past, gallery_status: "LIVE" }), { type: "suspend" }).ok).toBe(true);
+    expect(apply(past, { type: "rotate", shareToken: "n" }).ok).toBe(true);
+    expect(apply(past, { type: "delete" }).ok).toBe(true);
   });
 });
 
 describe("predicates", () => {
   const open = state({ upload_status: "OPEN", gallery_status: "LIVE" });
   const deleted = { ...open, deleted_at: "2026-10-21T10:00:00.000Z", purge_after: "2026-10-28T10:00:00.000Z" };
-  const expired = { ...open, retention_until: "2026-10-01T00:00:00.000Z" };
+  const windowClosed = { ...open, uploads_until: "2026-10-01T00:00:00.000Z" };
 
-  it("acceptsUploads: OPEN, not deleted, not expired", () => {
+  it("acceptsUploads: OPEN, not deleted, inside the upload window", () => {
     expect(acceptsUploads(open, NOW)).toBe(true);
     expect(acceptsUploads({ ...open, upload_status: "CLOSED" }, NOW)).toBe(false);
     expect(acceptsUploads({ ...open, upload_status: "DRAFT" }, NOW)).toBe(false);
     expect(acceptsUploads(deleted, NOW)).toBe(false);
-    expect(acceptsUploads(expired, NOW)).toBe(false);
+    expect(acceptsUploads(windowClosed, NOW)).toBe(false);
   });
 
-  it("galleryVisible: LIVE, not deleted, not expired", () => {
-    expect(galleryVisible(open, NOW)).toBe(true);
-    expect(galleryVisible({ ...open, gallery_status: "SUSPENDED" }, NOW)).toBe(false);
-    expect(galleryVisible({ ...open, gallery_status: "HIDDEN" }, NOW)).toBe(false);
-    expect(galleryVisible(deleted, NOW)).toBe(false);
-    expect(galleryVisible(expired, NOW)).toBe(false);
+  it("galleryVisible: LIVE and not deleted; the upload window doesn't matter", () => {
+    expect(galleryVisible(open)).toBe(true);
+    expect(galleryVisible({ ...open, gallery_status: "SUSPENDED" })).toBe(false);
+    expect(galleryVisible({ ...open, gallery_status: "HIDDEN" })).toBe(false);
+    expect(galleryVisible(deleted)).toBe(false);
+    expect(galleryVisible(windowClosed)).toBe(true);
   });
 
   it("isDeleted and isPurgeDue", () => {
@@ -185,8 +185,8 @@ describe("predicates", () => {
 });
 
 describe("dates", () => {
-  it("retention_until is ends_at + 90 days", () => {
-    expect(retentionUntil("2026-10-22T10:00:00.000Z")).toBe("2027-01-20T10:00:00.000Z");
+  it("uploads_until is ends_at + 90 days", () => {
+    expect(uploadsUntil("2026-10-22T10:00:00.000Z")).toBe("2027-01-20T10:00:00.000Z");
   });
 
   it("purge_after is deleted_at + 7 days", () => {

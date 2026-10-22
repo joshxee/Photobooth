@@ -54,14 +54,14 @@ describe("events", () => {
     expect((await listEvents(db)).map((e) => e.id)).toEqual([newer.id, older.id]);
   });
 
-  it("lists OPEN, non-deleted, unexpired events for booths", async () => {
+  it("lists OPEN, non-deleted events inside their upload window for booths", async () => {
     const open = eventRow({ upload_status: "OPEN" });
     const rows = [
       open,
       eventRow({ upload_status: "CLOSED" }),
       eventRow({ upload_status: "DRAFT" }),
       eventRow({ upload_status: "OPEN", deleted_at: T0, purge_after: "2026-10-29T09:00:00.000Z" }),
-      eventRow({ upload_status: "OPEN", retention_until: "2026-10-22T10:00:00.000Z" }),
+      eventRow({ upload_status: "OPEN", uploads_until: "2026-10-22T10:00:00.000Z" }),
     ];
     await db.batch(rows.map((r) => insertEvent(db, r)));
     expect((await listOpenEvents(db, NOW)).map((e) => e.id)).toEqual([open.id]);

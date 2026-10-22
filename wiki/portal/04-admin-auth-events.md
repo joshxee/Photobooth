@@ -36,8 +36,8 @@ exposes the full events API with audit records.
    - `rotate-link`: new token, `access_version + 1`
    - `delete`: sets `deleted_at` and `purge_after = +7 days`; access stops immediately
    - `restore` (within 7 days)
-   - Responses include photo counts by state, the gallery URL (with token), and the expiry
-     date.
+   - Responses include photo counts by state, the gallery URL (with token), and the date uploads close
+     (`uploadsUntil`).
    - Transitions use the domain state machine from 03; an invalid one returns 409 `conflict`.
 4. **`lib/audit.ts`:** every mutation writes an audit row (actor, action, event, target, and a
    detail with **no secrets**: rotation records that it happened, not the token). Writes go in

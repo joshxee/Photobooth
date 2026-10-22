@@ -17,14 +17,14 @@ export interface EventRow extends EventState {
 
 const COLUMNS =
   "id, public_id, name, venue, timezone, starts_at, ends_at, upload_status, gallery_status, share_token, " +
-  "access_version, photo_limit, retention_until, deleted_at, purge_after, created_at, updated_at";
+  "access_version, photo_limit, uploads_until, deleted_at, purge_after, created_at, updated_at";
 
 export function insertEvent(db: D1Database, e: EventRow): D1PreparedStatement {
   return db
     .prepare(`INSERT INTO events (${COLUMNS}) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
     .bind(
       e.id, e.public_id, e.name, e.venue, e.timezone, e.starts_at, e.ends_at, e.upload_status, e.gallery_status,
-      e.share_token, e.access_version, e.photo_limit, e.retention_until, e.deleted_at, e.purge_after,
+      e.share_token, e.access_version, e.photo_limit, e.uploads_until, e.deleted_at, e.purge_after,
       e.created_at, e.updated_at,
     );
 }
@@ -48,7 +48,7 @@ export async function listOpenEvents(db: D1Database, now: Date): Promise<EventRo
   const { results } = await db
     .prepare(
       `SELECT ${COLUMNS} FROM events
-       WHERE upload_status = 'OPEN' AND deleted_at IS NULL AND retention_until > ?
+       WHERE upload_status = 'OPEN' AND deleted_at IS NULL AND uploads_until > ?
        ORDER BY starts_at, id`,
     )
     .bind(now.toISOString())
@@ -65,13 +65,13 @@ export function updateEvent(db: D1Database, e: EventRow, readAt: string): D1Prep
   return db
     .prepare(
       `UPDATE events SET name = ?, venue = ?, timezone = ?, starts_at = ?, ends_at = ?, upload_status = ?,
-         gallery_status = ?, share_token = ?, access_version = ?, photo_limit = ?, retention_until = ?,
+         gallery_status = ?, share_token = ?, access_version = ?, photo_limit = ?, uploads_until = ?,
          deleted_at = ?, purge_after = ?, updated_at = ?
        WHERE id = ? AND updated_at = ?`,
     )
     .bind(
       e.name, e.venue, e.timezone, e.starts_at, e.ends_at, e.upload_status, e.gallery_status, e.share_token,
-      e.access_version, e.photo_limit, e.retention_until, e.deleted_at, e.purge_after, e.updated_at,
+      e.access_version, e.photo_limit, e.uploads_until, e.deleted_at, e.purge_after, e.updated_at,
       e.id, readAt,
     );
 }

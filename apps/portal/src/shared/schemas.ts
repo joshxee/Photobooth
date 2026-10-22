@@ -301,7 +301,8 @@ export const AdminEvent = z.strictObject({
   galleryStatus: GalleryStatus,
   accessVersion: z.int().min(1),
   photoLimit: z.int().min(0),
-  retentionUntil: IsoDateTime,
+  /** ends_at + 90 days: uploads stop then; the gallery and photos stay. */
+  uploadsUntil: IsoDateTime,
   deletedAt: IsoDateTime.nullable(),
   purgeAfter: IsoDateTime.nullable(),
   createdAt: IsoDateTime,

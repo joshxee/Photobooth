@@ -34,7 +34,7 @@ describe("0001_init: columns match DESIGN §6", () => {
     expect(await columns("events")).toEqual([
       "id", "public_id", "name", "venue", "timezone", "starts_at", "ends_at",
       "upload_status", "gallery_status", "share_token", "access_version", "photo_limit",
-      "retention_until", "deleted_at", "purge_after", "created_at", "updated_at",
+      "uploads_until", "deleted_at", "purge_after", "created_at", "updated_at",
     ]);
   });
 

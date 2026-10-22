@@ -17,7 +17,7 @@ CREATE TABLE events (
   share_token     TEXT NOT NULL,                     -- stored retrievably (D9)
   access_version  INTEGER NOT NULL DEFAULT 1 CHECK (access_version >= 1),
   photo_limit     INTEGER NOT NULL DEFAULT 2000 CHECK (photo_limit >= 0),
-  retention_until TEXT NOT NULL,                     -- ends_at + 90 days
+  uploads_until   TEXT NOT NULL,                     -- ends_at + 90 days; uploads stop, photos stay
   deleted_at      TEXT,                              -- soft delete
   purge_after     TEXT,                              -- deleted_at + 7 days
   created_at      TEXT NOT NULL,

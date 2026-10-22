@@ -31,7 +31,7 @@ export function eventRow(overrides: Partial<EventRow> = {}): EventRow {
     share_token: newShareToken(),
     access_version: 1,
     photo_limit: 2000,
-    retention_until: "2027-01-20T11:00:00.000Z",
+    uploads_until: "2027-01-20T11:00:00.000Z",
     deleted_at: null,
     purge_after: null,
     created_at: T0,
