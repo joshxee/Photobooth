@@ -300,9 +300,11 @@ status per code (`apps/portal/src/shared/schemas.ts`, listed in `wiki/Portal.md`
 | `POST /v1/device/photos` | Upload intent (section 9). Idempotent on `clientPhotoId`. |
 | `PUT /v1/device/uploads/{photoId}/{variant}?exp&sig` | Upload and check one variant (section 9). Authorised by the signed URL. |
 
-Every device call sends an `X-Outbox-Depth` header, and the server records `last_seen_at`,
-`last_backlog` and `app_version`. That gives admins live visibility into each booth at no extra
-cost.
+Every authenticated device call sends `X-Outbox-Depth` and `X-App-Version` headers, and the
+server records `last_seen_at`, `last_backlog` and `app_version`, at most once a minute per device to
+save D1 writes. That gives admins live visibility into each booth at no extra cost. (Session 05
+named the app-version header, `DEVICE_HEADERS` in `src/shared/schemas.ts`. The event detail serves
+any event that isn't deleted, and reports an OPEN event past `uploads_until` as CLOSED.)
 
 **Guest** (`photos.<domain>`; cookie scoped to `Path=/e/{publicId}`):
 
