@@ -78,7 +78,9 @@
         "ACCESS_TEAM_DOMAIN": "",
         "ACCESS_AUD": "",
         "CONTACT_ADDRESS": "",
-        "CONTACT_EMAIL": ""
+        "CONTACT_EMAIL": "",
+        // Always empty here: DEV_AUTH is for `wrangler dev` only (and works only on *.localhost).
+        "DEV_AUTH": ""
       }
     },
     "production": {
@@ -104,7 +106,9 @@
         "ACCESS_TEAM_DOMAIN": "",
         "ACCESS_AUD": "",
         "CONTACT_ADDRESS": "",
-        "CONTACT_EMAIL": ""
+        "CONTACT_EMAIL": "",
+        // Always empty here: DEV_AUTH is for `wrangler dev` only (and works only on *.localhost).
+        "DEV_AUTH": ""
       }
     }
   }
