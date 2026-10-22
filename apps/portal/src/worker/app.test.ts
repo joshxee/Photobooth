@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { createApp } from "./app";
 import { createHostApp } from "./lib/hostApp";
 import worker from "./index";
+import { signJwt, stubAccessCerts, userClaims } from "./test/access";
 
 const GALLERY = "http://photos.localhost:8787";
 const ADMIN = "http://admin.localhost:8787";
@@ -32,8 +33,10 @@ describe("host routing", () => {
     expect(await res.json()).toEqual({ ok: true, version: expect.any(String) });
   });
 
-  it("serves /healthz on the admin host", async () => {
-    const res = await get(`${ADMIN}/healthz`);
+  it("serves /healthz on the admin host, only with the Access JWT", async () => {
+    stubAccessCerts();
+    expect((await get(`${ADMIN}/healthz`)).status).toBe(401);
+    const res = await get(`${ADMIN}/healthz`, { headers: { "Cf-Access-Jwt-Assertion": await signJwt(userClaims()) } });
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ ok: true, version: expect.any(String) });
   });
@@ -64,7 +67,8 @@ describe("host routing", () => {
   });
 
   it("does not mix up the two hosts' routes", async () => {
-    expect((await get(`${ADMIN}/e/abc`)).status).toBe(404);
+    stubAccessCerts();
+    expect((await get(`${ADMIN}/e/abc`, { headers: { "Cf-Access-Jwt-Assertion": await signJwt(userClaims()) } })).status).toBe(404);
     expect((await get(`${GALLERY}/`)).status).toBe(404);
   });
 

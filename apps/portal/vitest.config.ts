@@ -8,7 +8,16 @@ export default defineConfig({
   plugins: [
     cloudflareTest(async () => ({
       wrangler: { configPath: "./wrangler.jsonc" },
-      miniflare: { bindings: { TEST_MIGRATIONS: await readD1Migrations("./migrations") } },
+      miniflare: {
+        bindings: {
+          TEST_MIGRATIONS: await readD1Migrations("./migrations"),
+          // Fake Access values, matched by src/worker/test/access.ts (its key pair is made per run).
+          ACCESS_TEAM_DOMAIN: "test-team.cloudflareaccess.com",
+          ACCESS_AUD: "test-aud-0000000000000000000000000000000000000000000000000000000000",
+          ADMIN_EMAILS: "admin@example.com",
+          ADMIN_SERVICE_CLIENTS: "",
+        },
+      },
     })),
   ],
   test: {

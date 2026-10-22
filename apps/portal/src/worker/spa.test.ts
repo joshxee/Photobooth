@@ -1,7 +1,8 @@
 import { createExecutionContext } from "cloudflare:test";
 import { env } from "cloudflare:workers";
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createApp } from "./app";
+import { signJwt, stubAccessCerts, userClaims } from "./test/access";
 
 const GALLERY = "http://photos.localhost:8787";
 const ADMIN = "http://admin.localhost:8787";
@@ -26,10 +27,10 @@ const assets = {
   },
 } as unknown as Fetcher;
 
-async function get(url: string) {
+async function get(url: string, headers: HeadersInit = {}) {
   requested.length = 0;
   const app = createApp();
-  return app.fetch(new Request(url), { ...env, ASSETS: assets }, createExecutionContext());
+  return app.fetch(new Request(url, { headers }), { ...env, ASSETS: assets }, createExecutionContext());
 }
 
 describe("gallery SPA", () => {
@@ -73,21 +74,34 @@ describe("gallery SPA", () => {
 });
 
 describe("admin SPA", () => {
+  // The admin host authenticates every request, the shell and bundles included.
+  const getAdmin = async (url: string) => get(url, { "Cf-Access-Jwt-Assertion": await signJwt(userClaims()) });
+  beforeEach(() => {
+    stubAccessCerts();
+  });
+  afterEach(() => vi.restoreAllMocks());
+
+  it("needs the Access JWT for the shell and the bundles", async () => {
+    expect((await get(`${ADMIN}/`)).status).toBe(401);
+    expect((await get(`${ADMIN}/assets/main-def456.js`)).status).toBe(401);
+    expect(requested).toEqual([]);
+  });
+
   it("serves the HTML shell for /", async () => {
-    const res = await get(`${ADMIN}/`);
+    const res = await getAdmin(`${ADMIN}/`);
     expect(res.status).toBe(200);
     expect(await res.text()).toContain("<title>Admin</title>");
     expect(res.headers.get("content-security-policy")).toContain("frame-ancestors 'none'");
   });
 
   it("serves hashed bundles from /assets/ as immutable, and not the gallery's", async () => {
-    const ok = await get(`${ADMIN}/assets/main-def456.js`);
+    const ok = await getAdmin(`${ADMIN}/assets/main-def456.js`);
     expect(ok.status).toBe(200);
     expect(ok.headers.get("cache-control")).toBe("public, max-age=31536000, immutable");
-    expect((await get(`${ADMIN}/assets/main-abc123.js`)).status).toBe(404);
+    expect((await getAdmin(`${ADMIN}/assets/main-abc123.js`)).status).toBe(404);
   });
 
   it("does not serve the gallery shell", async () => {
-    expect((await get(`${ADMIN}/e/abc123`)).status).toBe(404);
+    expect((await getAdmin(`${ADMIN}/e/abc123`)).status).toBe(404);
   });
 });

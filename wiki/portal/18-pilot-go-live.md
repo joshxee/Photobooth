@@ -25,7 +25,7 @@ runs on it, and the counts reconcile. After this the MVP is live.
      such var, and a test already covers the host check).
 2. **Deploy** (you): merge, then `gh workflow run deploy-portal.yml` → approve the
    `production` job. Then:
-   - `curl` `/healthz` on both hosts;
+   - `curl` `/healthz` on both hosts (the admin host needs an Access session or service token: since session 04 every admin request is authenticated);
    - Access login works for both admins;
    - the `workers.dev` and preview URLs are disabled.
 3. **Production dry run** (you and the agent, before the event):
