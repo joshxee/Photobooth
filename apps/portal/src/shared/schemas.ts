@@ -119,7 +119,8 @@ export const DEVICE_HEADERS = { outboxDepth: "X-Outbox-Depth", appVersion: "X-Ap
 export const EnrolRequest = z.strictObject({
   code: z.string().min(1).max(32),
   name: Name,
-  appVersion: z.string().min(1).max(32),
+  /** Printable ASCII, as `X-App-Version` (DEVICE_HEADERS). */
+  appVersion: z.string().regex(/^[\x20-\x7e]{1,32}$/),
 });
 export type EnrolRequest = z.infer<typeof EnrolRequest>;
 

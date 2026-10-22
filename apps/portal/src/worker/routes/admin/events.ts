@@ -1,28 +1,21 @@
 // The admin events API (DESIGN §8 admin, §12), mounted under /api on the admin host behind
-// adminAuth and sameOrigin. Every mutation runs its write and its audit row in one `db.batch`.
+// adminAuth, sameOrigin, the body limit and no-store (routes/admin.ts). Every mutation runs its
+// write and its audit row in one `db.batch`.
 import { Hono, type Context } from "hono";
-import { bodyLimit } from "hono/body-limit";
-import type { z } from "zod";
 import { AdminEvent, AdminEventList, EventCreateRequest, EventUpdateRequest, Id } from "../../../shared/schemas";
 import { insertAudit, insertAuditIfEventAt } from "../../db/audit";
 import { type EventRow, getEvent, insertEvent, listEvents, updateEvent } from "../../db/events";
 import { countPhotos, type PhotoCounts } from "../../db/photos";
 import { type EventAction, applyEventAction, uploadsUntil } from "../../domain/eventState";
 import { newId, newPublicId, newShareToken } from "../../domain/ids";
+import { readBody } from "../../lib/api";
 import { auditEntry } from "../../lib/audit";
 import { AppError } from "../../lib/errors";
-import { originOf } from "../../lib/hosts";
+import { galleryUrl } from "../../lib/hosts";
 import type { AppEnv } from "../../types";
 
 const NO_PHOTOS: PhotoCounts = { pending: 0, ready: 0, rejected: 0, hidden: 0 };
 const DEFAULT_PHOTO_LIMIT = 2000;
-/** Admin bodies are a few hundred bytes; this only stops a flood from being parsed. */
-const MAX_BODY_BYTES = 16 * 1024;
-
-/** The event QR link (D9): `/e/{publicId}#k={shareToken}`, no session filter. */
-export function galleryUrl(env: Env, e: Pick<EventRow, "public_id" | "share_token">): string {
-  return `${originOf(env.GALLERY_HOST)}/e/${e.public_id}#k=${e.share_token}`;
-}
 
 function toAdminEvent(env: Env, e: EventRow, counts: PhotoCounts = NO_PHOTOS): AdminEvent {
   return {
@@ -45,16 +38,6 @@ function toAdminEvent(env: Env, e: EventRow, counts: PhotoCounts = NO_PHOTOS): A
     galleryUrl: galleryUrl(env, e),
     counts,
   };
-}
-
-async function readBody<S extends z.ZodType>(c: Context<AppEnv>, schema: S): Promise<z.infer<S>> {
-  let body: unknown;
-  try {
-    body = await c.req.json();
-  } catch {
-    throw new AppError("invalid_request", "The body must be JSON.");
-  }
-  return schema.parse(body);
 }
 
 /** The event for `:id`, or 404 (a malformed ID is also a 404: it can't name an event). */
@@ -81,14 +64,6 @@ async function saveEvent(c: Context<AppEnv>, read: EventRow, next: EventRow, now
 }
 
 export const eventsApi = new Hono<AppEnv>();
-
-eventsApi.use(bodyLimit({ maxSize: MAX_BODY_BYTES }));
-
-// Admin data is never cached by the browser or anything in between.
-eventsApi.use(async (c, next) => {
-  await next();
-  c.header("Cache-Control", "no-store");
-});
 
 eventsApi.get("/events", async (c) => {
   const [events, counts] = await Promise.all([listEvents(c.env.DB), countPhotos(c.env.DB)]);
