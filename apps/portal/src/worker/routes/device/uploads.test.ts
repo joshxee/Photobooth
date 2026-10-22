@@ -240,6 +240,18 @@ describe("PUT: the device and the event", () => {
     expect(await listKeys()).toEqual([]);
   });
 
+  it("a photo deleted by an admin during the PUT: 404, and its object is removed", async () => {
+    const { photoId, urls } = await accepted();
+    const put = env.MEDIA.put.bind(env.MEDIA);
+    vi.spyOn(env.MEDIA, "put").mockImplementation(async (...args: Parameters<R2Bucket["put"]>) => {
+      const stored = await put(...args);
+      await db.prepare("DELETE FROM photos WHERE id = ?").bind(photoId).run();
+      return stored;
+    });
+    await expectCode(await upload(urls.thumb, THUMB), 404, "not_found");
+    expect(await listKeys()).toEqual([]);
+  });
+
   it("an event deleted between the two variants: no READY", async () => {
     const { event, photoId, urls } = await accepted();
     expect((await upload(urls.thumb, THUMB)).status).toBe(200);

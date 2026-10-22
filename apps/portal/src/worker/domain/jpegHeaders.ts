@@ -66,7 +66,7 @@ export function checkJpegHeaders(head: Uint8Array, tail: Uint8Array): HeaderChec
       return { ok: true, ...frame };
     } else if (marker === SOF0) {
       if (frame) return fail("more than one SOF");
-      if (payload.length < 5) return fail("truncated before SOS");
+      if (payload.length < 5) return fail("SOF too short");
       if (payload[0] !== 8) return fail("SOF not 8-bit");
       const height = (payload[1]! << 8) | payload[2]!;
       const width = (payload[3]! << 8) | payload[4]!;

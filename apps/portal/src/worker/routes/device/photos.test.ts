@@ -282,12 +282,21 @@ describe("POST /v1/device/photos: rate limit", () => {
   });
 
   it("allows 120 intents a minute per device (the local simulation of the binding)", async () => {
-    const { credential } = await enrolledDevice();
     const event = await openEvent();
-    const body = await intentBody(event.id);
-    const statuses: number[] = [];
-    for (let i = 0; i < 121; i++) statuses.push((await postIntent(credential, body)).status);
-    expect(statuses.slice(0, 120).every((s) => s === 200)).toBe(true);
-    expect(statuses[120]).toBe(429);
+    // The simulation counts in wall-clock minutes, so a run that crosses a minute boundary starts
+    // its count again part-way. Such a run is repeated once with a fresh device (a fresh key).
+    const run = async () => {
+      const { credential } = await enrolledDevice();
+      const body = await intentBody(event.id);
+      const window = Math.floor(Date.now() / 60_000);
+      const statuses: number[] = [];
+      for (let i = 0; i < 121; i++) statuses.push((await postIntent(credential, body)).status);
+      return { statuses, crossedMinute: Math.floor(Date.now() / 60_000) !== window };
+    };
+    let result = await run();
+    if (result.crossedMinute) result = await run();
+    expect(result.crossedMinute).toBe(false);
+    expect(result.statuses.slice(0, 120).every((s) => s === 200)).toBe(true);
+    expect(result.statuses[120]).toBe(429);
   });
 });

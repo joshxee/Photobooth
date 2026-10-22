@@ -88,6 +88,8 @@ deviceUploadsApi.put("/:photoId/:variant", async (c) => {
     case "REJECTED":
       throw new AppError("invalid_image", `The image failed validation: ${result.reason}.`);
     case "NOT_FOUND":
+      // An admin deleted the photo between this request's checks and its put: don't leave the object.
+      await c.env.MEDIA.delete(variantKey(photo.event_id, photo.id, variant.data));
       throw new AppError("not_found", "The photo was deleted.");
   }
 });

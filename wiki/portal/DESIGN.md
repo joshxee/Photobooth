@@ -372,7 +372,7 @@ Refinements made when the path was built (session 06; the reasons are in `wiki/P
   401 `unauthorized`; a deleted event is 409 `event_closed`; a wrong content type or
   `Content-Length` is 400 `invalid_request`. A READY photo answers 201 without reading the body. The
   PUT doesn't write the device heartbeat (it has no bearer or device headers).
-- **Header walk:** APP0 must start `JFIF ` and APP14 `Adobe`; the SOF0 must be 8-bit with a non-zero
+- **Header walk:** APP0 must start `JFIF\0` and APP14 `Adobe`; the SOF0 must be 8-bit with a non-zero
   size, and there must be exactly one, before SOS.
 - `width`, `height` and `variant_bytes` are written by the intent; the HD's SOF check proves the
   stored HD matches them, so the publish UPDATE sets only `state` and `published_at`.

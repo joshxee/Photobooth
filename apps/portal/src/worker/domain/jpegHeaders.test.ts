@@ -113,6 +113,7 @@ describe("checkJpegHeaders rejects", () => {
     const zero = sof.slice(4);
     zero.set([0, 0], 3);
     expect(rejected(replacePayload(jpeg, 0xc0, zero))).toBe("SOF zero size");
+    expect(rejected(replacePayload(jpeg, 0xc0, [8, 0, 48, 0]))).toBe("SOF too short");
   });
 
   it("trailing data that doesn't end in FFD9", () => {
