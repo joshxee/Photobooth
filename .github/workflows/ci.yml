@@ -77,6 +77,26 @@ jobs:
       - run: bun test
       - run: bun run build
 
+  portal:
+    name: Portal (typecheck, test, build)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/portal
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      # Vitest and Wrangler run on Node; Bun only installs and runs scripts and the SPA tests.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - run: bun install --frozen-lockfile
+      - run: bun run typecheck
+      - run: bun run test
+      # Builds both SPAs, then `wrangler deploy --dry-run` for local, staging and production.
+      # Nothing is deployed and no Cloudflare credentials are used.
+      - run: bun run build
+
   android:
     name: Android debug APK
     runs-on: ubuntu-latest

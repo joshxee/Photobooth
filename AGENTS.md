@@ -6,7 +6,7 @@ Single source of repo instructions for every agent harness (`CLAUDE.md` just poi
 
 - **Booth:** a Tauri v2 photobooth for Android tablets. A Rust core owns all business logic, a React
   WebView only renders state and sends intent, and one Android plugin drives the camera hardware.
-- **Portal (in progress):** a guest web portal on one Cloudflare Worker (`apps/portal`, not created yet): live
+- **Portal (in progress):** a guest web portal on one Cloudflare Worker (`apps/portal`): live
   upload from the booth, a private guest gallery, an admin portal. The plan is in `wiki/portal/`.
 
 ## Directory map
@@ -18,7 +18,7 @@ Single source of repo instructions for every agent harness (`CLAUDE.md` just poi
 | `plugins/tauri-plugin-photobooth-camera` | Android CameraX + USB host plugin, Rust `NativeCamera` |
 | `apps/booth/src-tauri` | Tauri app: commands, `AppState`, `booth://` protocol, capabilities, `gen/android` (committed, hand-edited) |
 | `apps/booth` | React 19 + TS UI, **bun only** (no npm, no Vite) |
-| `apps/portal` | Cloudflare Worker + SPAs (planned, see `wiki/portal/`) |
+| `apps/portal` | Cloudflare Worker (Hono) + two placeholder SPAs (gallery, admin); see `wiki/Portal.md` and `wiki/portal/` |
 | `.maestro/tauri/` | Maestro flows for the Tauri debug build (CI and emulators) |
 | `wiki/` | The *why* behind decisions, not structure. Read only the area you touch |
 | `wiki/portal/` | The portal implementation plan: `README.md`, `DESIGN.md`, `PROGRESS.md`, `SETUP.md`, `REVIEW.md`, session files `NN-*.md` |
@@ -45,8 +45,16 @@ cd apps/booth && bun install --frozen-lockfile && bun run typecheck && bun test 
 - Use `bun x tauri …`, not `bun run tauri` (it panics in `android init`).
 - Android debug APK: `bun x tauri android build --apk --debug --ci --target aarch64 --config src-tauri/tauri.dev.conf.json`
   from `apps/booth`. On Windows use `pwsh apps/booth/scripts/build-android-debug.ps1 -Install`. See `wiki/Android-Build.md`.
-- Portal (once `apps/portal` exists): `bun install --frozen-lockfile`, `bun run typecheck`, `bun run test`,
-  `bun run build`. See `wiki/portal/README.md` → "Global definition of done".
+- Portal, from `apps/portal` (CI job `portal`): `bun install --frozen-lockfile`, `bun run typecheck`,
+  `bun run test` (Vitest in workerd for `src/worker`, then `bun test` for `src/web`), `bun run build`
+  (both SPAs, then `wrangler deploy --dry-run` for local, staging and production). See
+  `wiki/portal/README.md` → "Global definition of done".
+- **Portal on this PC:** Wrangler and Vitest need Node on PATH, and `bunx wrangler` silently does nothing without it.
+  Prefix commands: `fnm exec --using=22.11.0 -- bun run test`, or
+  `fnm exec --using=22.11.0 -- node node_modules/wrangler/bin/wrangler.js dev`.
+- **Portal local hosts:** the Worker routes on `Host`. Under `wrangler dev` (port 8787) the gallery/device host is
+  `photos.localhost:8787` and the admin host is `admin.localhost:8787` (browsers resolve `*.localhost`; for curl use
+  `curl -H "Host: photos.localhost:8787" http://localhost:8787/healthz`, port included). Any other host is a 404.
 
 ## Definition of done
 
