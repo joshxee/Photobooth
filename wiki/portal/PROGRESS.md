@@ -20,7 +20,7 @@ this file first, so state facts and not intentions.
 ---
 
 ## 04 — Admin authentication and the events API — DONE — 2026-10-22
-- PR: #PRNUM (branch `portal/04-admin-auth-events`)
+- PR: #22 (branch `portal/04-admin-auth-events`)
 - Built:
   - `middleware/adminAuth.ts`: every admin-host request (API, SPA shell, bundles, `/healthz`) needs a `Cf-Access-Jwt-Assertion` JWT verified with Hono's `verifyWithJwks` against `https://<ACCESS_TEAM_DOMAIN>/cdn-cgi/access/certs` (RS256 only; `iss`, `aud`, required `exp`, `nbf`). Keys cached per isolate for 10 min, refetched on an unknown `kid` at most once a minute; fails closed when the certs or the config are missing. Identity: `email` in `ADMIN_EMAILS` (case-insensitive) or `common_name` in `ADMIN_SERVICE_CLIENTS` (actor `svc:<id>`); 401/403 with no detail. `DEV_AUTH=1` works only on `*.localhost` (actor `dev@admin.localhost`); staging/production declare it empty.
   - `middleware/sameOrigin.ts`: non-GET/HEAD needs `Origin` = `https://<ADMIN_HOST>` (`http://` for `*.localhost`) and `application/json`; no CORS headers.
