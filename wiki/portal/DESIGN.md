@@ -529,7 +529,7 @@ day 1 to preserve this.
 
 | Threat | Control |
 |---|---|
-| Admin impersonation or Access bypass | Verify the `Cf-Access-Jwt-Assertion` header against the team JWKS (Hono `jwk` middleware) and check `aud`, `iss` and `exp`, plus the `ADMIN_EMAILS` allowlist. Never trust the email header. Disable `workers.dev` and preview URLs. Host allowlist. |
+| Admin impersonation or Access bypass | Verify the `Cf-Access-Jwt-Assertion` header against the team JWKS (Hono's JWKS verifier, `verifyWithJwks`, which the `jwk` middleware wraps; `jwk` itself only reads `Authorization: Bearer`) and check `aud`, `iss`, `exp` (required) and `nbf`, plus the `ADMIN_EMAILS` allowlist (or `ADMIN_SERVICE_CLIENTS` for a service token). Every admin request is checked, the SPA shell and `/healthz` included. Never trust the email header. Disable `workers.dev` and preview URLs. Host allowlist. |
 | CSRF on admin | No CORS; mutations require a same-origin `Origin` and `application/json` |
 | Cross-event access | Every guest query joins event to photo; tests try IDs from another event |
 | Leaked gallery link | 128-bit-plus token, explicit rotation, suspension, operator guidance that links can be forwarded |
