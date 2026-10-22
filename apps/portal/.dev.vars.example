@@ -1,3 +1,4 @@
 # Local development secrets for `wrangler dev`. Copy to .dev.vars (git-ignored): cp .dev.vars.example .dev.vars
 # These values are LOCAL-ONLY placeholders, not secrets. Staging and production get theirs from `wrangler secret put`.
 UPLOAD_KEY=local-only-upload-key-not-a-secret-0123456789
+SESSION_KEY=local-only-session-key-not-a-secret-0123456789

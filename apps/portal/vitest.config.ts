@@ -18,6 +18,8 @@ export default defineConfig({
           ADMIN_SERVICE_CLIENTS: "",
           // A test-only signing key for the upload URLs (lib/uploadUrl.ts).
           UPLOAD_KEY: "test-upload-key-not-a-secret-0123456789abcdef",
+          // And for the guest cookies (lib/guestCookie.ts).
+          SESSION_KEY: "test-session-key-not-a-secret-0123456789abcdef",
         },
       },
     })),

@@ -50,7 +50,7 @@ describe("events", () => {
     const event = eventRow();
     await insertEvent(db, event).run();
     expect(await getEvent(db, event.id)).toEqual(event);
-    expect(await getEventByPublicId(db, event.public_id)).toEqual(event);
+    expect(await getEventByPublicId(db, event.public_id)).toEqual({ event, rowsRead: 1 });
     expect(await getEvent(db, "missing")).toBeNull();
   });
 

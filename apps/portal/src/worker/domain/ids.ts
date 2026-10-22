@@ -40,6 +40,11 @@ export function newPublicId(): string {
   return randomChars(BASE32_LOWER, 16);
 }
 
+/** Could this be a `public_id`? Checked before one goes into a query or a cookie's Path. */
+export function isPublicId(s: string): boolean {
+  return /^[a-z2-7]{16}$/.test(s);
+}
+
 /** The gallery share token (`#k=`): 128 bits, base64url (22 characters). */
 export function newShareToken(): string {
   return base64url(randomBytes(16));

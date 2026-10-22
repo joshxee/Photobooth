@@ -22,6 +22,8 @@ export interface LogFields {
   host?: string;
   errorName?: string;
   cron?: string;
+  /** D1 rows the request read (guest routes), to watch the Workers Free daily row budget. */
+  rowsRead?: number;
 }
 
 const ALLOWED = new Set<string>([
@@ -38,6 +40,7 @@ const ALLOWED = new Set<string>([
   "host",
   "errorName",
   "cron",
+  "rowsRead",
 ] satisfies (keyof LogFields)[]);
 
 function stripQuery(path: string): string {

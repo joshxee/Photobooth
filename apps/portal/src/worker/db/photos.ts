@@ -134,6 +134,22 @@ export function deletePhoto(db: D1Database, eventId: string, id: string): D1Prep
   return db.prepare(`DELETE FROM photos WHERE id = ? AND event_id = ?`).bind(id, eventId);
 }
 
+/**
+ * The photo a guest may fetch: this event's, READY and not hidden (DESIGN §11 Media, step 3). One
+ * primary-key read; the rows D1 read are returned for the access log.
+ */
+export async function getGalleryPhoto(
+  db: D1Database,
+  eventId: string,
+  photoId: string,
+): Promise<{ photo: Pick<PhotoRow, "id" | "session_id" | "shot"> | null; rowsRead: number }> {
+  const { results, meta } = await db
+    .prepare(`SELECT id, session_id, shot FROM photos WHERE id = ? AND event_id = ? AND state = 'READY' AND hidden = 0`)
+    .bind(photoId, eventId)
+    .all<Pick<PhotoRow, "id" | "session_id" | "shot">>();
+  return { photo: results[0] ?? null, rowsRead: meta.rows_read };
+}
+
 export type GalleryPhoto = Pick<PhotoRow, "id" | "session_id" | "shot" | "width" | "height"> & { published_at: string };
 
 /**
