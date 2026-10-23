@@ -77,6 +77,54 @@ impl From<DeviceEvent> for PortalEvent {
     }
 }
 
+/// The operator's view of the upload queue (`outbox_status` and the `portal://outbox` event).
+/// Counts and flags only: never image bytes or the credential.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]
+pub struct OutboxStatus {
+    /// The outbox opened. False means this booth can't queue anything (see the logs).
+    pub available: bool,
+    pub queued: usize,
+    pub uploading: usize,
+    /// Uploads stopped for the operator, files without a record, and shots that couldn't be
+    /// queued: everything in the needs-attention list.
+    pub needs_attention: usize,
+    /// The last upload attempt got no answer from the portal.
+    pub offline: bool,
+    /// The portal refused this booth's credential. Nothing uploads until it is enrolled
+    /// again; the queue is kept.
+    pub revoked: bool,
+    /// `None` when the platform can't say.
+    pub free_bytes: Option<u64>,
+    /// Free space is known and below 1 GB.
+    pub low_disk: bool,
+}
+
+/// What an entry of the needs-attention list is.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum OutboxEntryKind {
+    /// A queued shot the portal refused or that can't be read; retry or dismiss.
+    Upload,
+    /// Files without a usable record (an interrupted enqueue); dismiss only.
+    Damaged,
+    /// A shot that was never queued (the encoder failed); dismiss only, to acknowledge it.
+    NotQueued,
+}
+
+/// One row of the needs-attention list (`outbox_items`). IDs and reasons only.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+pub struct OutboxEntry {
+    pub id: String,
+    pub kind: OutboxEntryKind,
+    pub reason: String,
+    pub session_id: Option<String>,
+    pub shot: Option<u8>,
+    /// ISO 8601, UTC.
+    pub captured_at: Option<String>,
+    pub event_id: Option<String>,
+    pub can_retry: bool,
+}
+
 /// Faults and shortcuts for the developer panel (`test_inject`).
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]

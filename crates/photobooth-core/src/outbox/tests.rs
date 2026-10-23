@@ -665,6 +665,9 @@ enum Expect {
     Retry,
     /// Stopped, with the error as the reason.
     Attention,
+    /// The device was refused: the pass stops and the item waits, untouched, for a new
+    /// enrolment (`attempts` 0, still due).
+    Paused,
 }
 
 /// DESIGN §9.3, one row at a time, answered to the intent and then to an upload.
@@ -680,7 +683,8 @@ async fn each_error_row_of_the_design_table() {
         ("429", PortalError::code(RateLimited), Expect::Retry),
         ("500", PortalError::code(Internal), Expect::Retry),
         ("502 without a body", http(502), Expect::Retry),
-        ("401", PortalError::code(Unauthorized), Expect::Attention),
+        ("401", PortalError::code(Unauthorized), Expect::Paused),
+        ("401 without a body", http(401), Expect::Paused),
         ("403", PortalError::code(Forbidden), Expect::Attention),
         (
             "event_closed",
@@ -709,10 +713,11 @@ async fn each_error_row_of_the_design_table() {
             } else {
                 ScriptedPortal::default().intents(vec![Err(error.clone())])
             };
-            outbox.drain_once(&portal, t(0)).await;
+            let report = outbox.drain_once(&portal, t(0)).await;
 
             let item = outbox.get(&id).unwrap();
             let case = format!("{name} at {}", if at_upload { "upload" } else { "intent" });
+            assert_eq!(report.revoked, expect == Expect::Paused, "{case}");
             match expect {
                 Expect::Retry => {
                     assert_eq!(item.state, ItemState::Queued, "{case}");
@@ -723,6 +728,12 @@ async fn each_error_row_of_the_design_table() {
                 Expect::Attention => {
                     assert_eq!(needs_attention(&item), error.to_string(), "{case}");
                     assert_eq!(outbox.next_due(t(100_000)), None, "{case}");
+                }
+                Expect::Paused => {
+                    assert_eq!(item.state, ItemState::Queued, "{case}");
+                    assert_eq!(item.attempts, 0, "{case}");
+                    assert_eq!(outbox.next_due(t(0)), Some(item.clone()), "{case}");
+                    assert_eq!(item.last_error, None, "{case}");
                 }
             }
             assert_eq!(files(dir.path()).len(), 3, "{case}: files kept");
@@ -1013,4 +1024,156 @@ async fn a_202_passes_on_its_retry_after() {
     })]);
     outbox.drain_once(&portal, t(0)).await;
     assert_eq!(outbox.get(&id).unwrap().next_attempt_at, t(45));
+}
+
+// ----- session 10: the upload loop's inputs ----------------------------------------------
+
+/// A revoked device (401 on the intent or a PUT) stops the pass: nothing more is tried with
+/// that credential, and every item stays queued and due, so a new enrolment resumes them.
+#[tokio::test(start_paused = true)]
+async fn a_revoked_device_stops_the_pass_and_keeps_every_item_queued() {
+    let dir = tempfile::tempdir().unwrap();
+    let outbox = open(dir.path());
+    let ids: Vec<String> = (0..5)
+        .map(|seed| enqueue(&outbox, seed, u64::from(seed)).client_photo_id)
+        .collect();
+    let portal = ScriptedPortal::with_latency(Duration::from_millis(10)).intents(vec![
+        Err(
+            PortalError::code(ErrorCode::Unauthorized)
+        );
+        5
+    ]);
+
+    let report = outbox.drain_once(&portal, t(0)).await;
+
+    assert!(report.revoked);
+    assert_eq!(
+        (report.ready, report.retried, report.needs_attention),
+        (0, 0, 0)
+    );
+    assert!(
+        portal.intent_count() <= MAX_CONCURRENT_UPLOADS,
+        "no new item is tried after the refusal: {} intents",
+        portal.intent_count()
+    );
+    for id in &ids {
+        let item = outbox.get(id).unwrap();
+        assert_eq!((item.state.clone(), item.attempts), (ItemState::Queued, 0));
+    }
+    assert_eq!(outbox.stats().queued, 5);
+    assert_eq!(files(dir.path()).len(), 15, "every file kept");
+}
+
+#[tokio::test]
+async fn network_failures_are_counted_apart_from_other_retries() {
+    let dir = tempfile::tempdir().unwrap();
+    let outbox = open(dir.path());
+    enqueue(&outbox, 1, 0);
+    enqueue(&outbox, 2, 1);
+    let portal = ScriptedPortal::default().intents(vec![
+        Err(PortalError::Network("no route to host".into())),
+        Err(PortalError::code(ErrorCode::Internal)),
+    ]);
+    let report = outbox.drain_once(&portal, t(0)).await;
+    assert_eq!(report.retried, 2);
+    assert_eq!(report.network_failures, 1);
+    assert!(!report.revoked);
+}
+
+/// `subscribe` is how the app learns that `stats()` may have changed, uploads included.
+#[test]
+fn every_state_change_is_announced() {
+    let dir = tempfile::tempdir().unwrap();
+    let outbox = open(dir.path());
+    let mut changes = outbox.subscribe();
+    let mut fired = || {
+        let changed = changes.has_changed().unwrap();
+        changes.mark_unchanged();
+        changed
+    };
+    assert!(!fired());
+
+    let id = enqueue(&outbox, 1, 0).client_photo_id;
+    assert!(fired(), "enqueue");
+    outbox.mark_retry(&id, "HTTP 503", None, t(0)).unwrap();
+    assert!(fired(), "retry scheduled");
+    outbox.mark_needs_attention(&id, "conflict (409)").unwrap();
+    assert!(fired(), "needs attention");
+    outbox.retry(&id).unwrap();
+    assert!(fired(), "operator retry");
+    let _ = outbox.stats();
+    assert!(!fired(), "reading changes nothing");
+    assert!(outbox.claim_due(t(0)).is_some());
+    assert!(fired(), "claimed for upload");
+    outbox.mark_ready(&id).unwrap();
+    assert!(fired(), "ready");
+
+    let other = enqueue(&outbox, 2, 1).client_photo_id;
+    fired();
+    outbox.dismiss(&other).unwrap();
+    assert!(fired(), "dismissed");
+    assert!(outbox.retry(&other).is_err());
+    assert!(!fired(), "a refused call changes nothing");
+}
+
+#[test]
+fn len_counts_every_item_not_yet_ready() {
+    let dir = tempfile::tempdir().unwrap();
+    let outbox = open(dir.path());
+    assert_eq!(outbox.len(), 0);
+    let a = enqueue(&outbox, 1, 0).client_photo_id;
+    enqueue(&outbox, 2, 1);
+    outbox.mark_needs_attention(&a, "conflict (409)").unwrap();
+    assert_eq!(outbox.len(), 2);
+}
+
+/// The loop's connectivity probe: after an offline spell it brings the oldest waiting item
+/// forward, and once the portal answers again, all of them.
+#[test]
+fn expedite_brings_queued_items_forward() {
+    let dir = tempfile::tempdir().unwrap();
+    let outbox = open(dir.path());
+    let old = enqueue(&outbox, 1, 0).client_photo_id;
+    let new = enqueue(&outbox, 2, 5).client_photo_id;
+    let stuck = enqueue(&outbox, 3, 9).client_photo_id;
+    for id in [&old, &new] {
+        for _ in 0..8 {
+            outbox
+                .mark_retry(id, "network error: offline", None, t(0))
+                .unwrap();
+        }
+    }
+    outbox
+        .mark_needs_attention(&stuck, "conflict (409)")
+        .unwrap();
+    assert_eq!(outbox.next_due(t(10)), None, "both backing off");
+
+    assert!(outbox.expedite_next(t(10)));
+    assert_eq!(outbox.next_due(t(10)).unwrap().client_photo_id, old);
+    assert!(outbox.get(&new).unwrap().next_attempt_at > t(10));
+
+    assert_eq!(
+        outbox.expedite_all(t(10)),
+        1,
+        "only the newer one was still waiting"
+    );
+    let due: Vec<String> = outbox
+        .items()
+        .into_iter()
+        .filter(|i| i.state == ItemState::Queued && i.next_attempt_at <= t(10))
+        .map(|i| i.client_photo_id)
+        .collect();
+    assert_eq!(due, vec![old.clone(), new.clone()]);
+    assert!(
+        needs_attention(&outbox.get(&stuck).unwrap()).contains("409"),
+        "needs attention is untouched"
+    );
+    // The backoff count stays, so a still-failing item keeps backing off.
+    assert_eq!(outbox.get(&old).unwrap().attempts, 8);
+    assert_eq!(
+        outbox.expedite_all(t(10)),
+        0,
+        "nothing left to bring forward"
+    );
+    assert!(!outbox.expedite_next(t(10)));
 }

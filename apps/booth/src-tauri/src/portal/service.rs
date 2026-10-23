@@ -49,8 +49,7 @@ pub struct PortalService {
     credentials: CredentialStore,
     config: PortalConfig,
     http: OnceLock<Result<reqwest::Client, String>>,
-    /// `X-Outbox-Depth`. Nothing is queued before session 10, which passes the outbox's
-    /// length.
+    /// `X-Outbox-Depth`: the outbox's length once the app has one.
     outbox_depth: OutboxDepth,
 }
 
@@ -62,6 +61,12 @@ impl PortalService {
             http: OnceLock::new(),
             outbox_depth: Arc::new(|| 0),
         }
+    }
+
+    /// Reports `depth()` as `X-Outbox-Depth` on authenticated calls.
+    pub fn with_outbox_depth(mut self, depth: OutboxDepth) -> Self {
+        self.outbox_depth = depth;
+        self
     }
 
     pub fn config(&self) -> &PortalConfig {
@@ -179,9 +184,14 @@ impl PortalService {
         })
     }
 
-    /// A client with the stored credential, for the device API (session 10's upload loop
-    /// adds the outbox depth).
+    /// A client with the stored credential, for the device API.
     pub fn client(&self) -> Result<HttpPortalClient, CommandError> {
+        self.client_with(self.http()?)
+    }
+
+    /// The same, on `http`: the upload loop brings its own, so its connections live on its
+    /// own runtime.
+    pub fn client_with(&self, http: reqwest::Client) -> Result<HttpPortalClient, CommandError> {
         let stored = self
             .enrolment()?
             .ok_or_else(|| CommandError::new("This booth isn't enrolled with a portal."))?;
@@ -193,7 +203,7 @@ impl PortalService {
                 )
             })?;
         Ok(HttpPortalClient::new(
-            self.http()?,
+            http,
             origin,
             Some(stored.credential),
             self.app_version(),

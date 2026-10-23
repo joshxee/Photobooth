@@ -27,6 +27,10 @@
     "allow-portal-unenrol",
     "allow-portal-events",
     "allow-portal-select-event",
-    "allow-portal-clear-event"
+    "allow-portal-clear-event",
+    "allow-outbox-status",
+    "allow-outbox-items",
+    "allow-outbox-retry",
+    "allow-outbox-dismiss"
   ]
 }

@@ -4,7 +4,8 @@ A photobooth for Android tablets, built with Tauri v2: a Rust core that owns all
 WebView that only renders state, and one Android plugin for the camera hardware. It takes photos from a
 wired Sony A7 III (PTP over USB), the tablet's own camera, or a built-in test camera.
 
-Photos are never written to disk; they live in memory for one session.
+Photos live in memory for one session. The one exception is the portal upload outbox, which keeps
+each shot's two small variants (never the original) on disk until the server confirms them.
 
 | Path | What |
 |------|------|

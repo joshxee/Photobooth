@@ -116,6 +116,14 @@ is what stops pieces from different threads interleaving (found by a concurrency
   accepts only a contract ID and re-checks the event with the portal, and enrolment and
   unenrolment are refused or confirmed rather than silently replacing a credential. See
   [Booth-Upload.md](./Booth-Upload.md) for the credential's storage.
+- The upload queue commands (`outbox_status`, `outbox_items`, `outbox_retry{id}`,
+  `outbox_dismiss{id}`, session 10) are in `default.json` for the same reason: the operator's
+  Settings screen and the camera picker need them in a release build, in the one window.
+  Least-privilege review: they return counts, flags, IDs and reasons only (never image bytes,
+  paths or the credential); `retry` and `dismiss` act only on an ID the outbox already holds
+  and are refused for an item in the wrong state (a stale tap can't start a second upload or
+  delete files mid-PUT); `dismiss` is confirmed in the UI. `portal://outbox` carries the same
+  `OutboxStatus`. Retry and dismiss do file I/O, so they run in `spawn_blocking`.
 
 ## Verified, and not
 

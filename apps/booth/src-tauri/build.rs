@@ -22,6 +22,10 @@ fn main() {
         "portal_events",
         "portal_select_event",
         "portal_clear_event",
+        "outbox_status",
+        "outbox_items",
+        "outbox_retry",
+        "outbox_dismiss",
         "test_inject",
         "logs_recent",
     ]);

@@ -8,6 +8,7 @@ import {
   enrolledStatus,
   flush,
   installBackend,
+  outboxStatus,
   portalStatus,
   removeBackend,
   SMITH,
@@ -145,6 +146,30 @@ describe("CameraSelect", () => {
       });
       rerender(<CameraSelect />);
       expect(status()).toBe("Portal: not enrolled");
+    });
+
+    test("an upload badge sits beside it, and follows the queue", async () => {
+      installBackend({ camera_list: () => cameras() });
+      useBooth.setState({
+        portal: enrolledStatus({ selected_event: SMITH }),
+        outbox: outboxStatus({ queued: 2, offline: true }),
+      });
+      const { rerender } = await mount();
+      const badge = () => screen.getByRole("status", { name: "Upload status" });
+      expect(badge().textContent).toBe("Uploads: offline, 2 waiting");
+      expect(badge().className).toContain("upload-badge--offline");
+      act(() => {
+        useBooth.setState({ outbox: outboxStatus({ needs_attention: 1 }) });
+      });
+      rerender(<CameraSelect />);
+      expect(badge().textContent).toBe("Uploads: 1 needs attention");
+    });
+
+    test("no badge for an idle booth that isn't enrolled", async () => {
+      installBackend({ camera_list: () => cameras() });
+      useBooth.setState({ portal: portalStatus(), outbox: outboxStatus() });
+      await mount();
+      expect(screen.queryByRole("status", { name: "Upload status" })).toBeNull();
     });
   });
 });

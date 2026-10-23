@@ -33,6 +33,11 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", default-features = false, features = ["fmt", "std", "registry", "ansi"] }
 webpki-roots = "1"
 
+# Free space for the outbox's low-disk warning (`statvfs`; upload/disk.rs). Already in the
+# lockfile through tokio and others.
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
 # The native camera and the Sony USB camera exist only on Android; their glue is compiled there
 # (and, so it is checked and tested, in unit tests everywhere).
 [target.'cfg(target_os = "android")'.dependencies]

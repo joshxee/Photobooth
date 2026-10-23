@@ -2366,6 +2366,7 @@ dependencies = [
  "async-trait",
  "bytes",
  "futures-util",
+ "libc",
  "photobooth-core",
  "reqwest",
  "rustls",

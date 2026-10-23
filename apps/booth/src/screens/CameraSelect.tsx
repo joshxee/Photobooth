@@ -4,6 +4,7 @@ import { cameraSelect } from "../ipc";
 import { errorMessage, refreshCameras } from "../store/bridge";
 import { useBooth } from "../store/store";
 import { portalSummary } from "./portalText";
+import { uploadBadge } from "./uploadText";
 
 const DESCRIPTIONS: Record<string, string> = {
   device: "Use your device's built-in camera",
@@ -18,6 +19,8 @@ export function CameraSelect() {
   const cameras = useBooth((s) => s.cameras);
   const settings = useBooth((s) => s.settings);
   const portal = useBooth((s) => s.portal);
+  const outbox = useBooth((s) => s.outbox);
+  const badge = uploadBadge(outbox, portal);
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
@@ -96,9 +99,20 @@ export function CameraSelect() {
         })}
       </ul>
 
-      <p className="select__portal" role="status" aria-label="Portal status">
-        {portalSummary(portal)}
-      </p>
+      <div className="select__status">
+        <p className="select__portal" role="status" aria-label="Portal status">
+          {portalSummary(portal)}
+        </p>
+        {badge && (
+          <p
+            className={`upload-badge upload-badge--${badge.tone}`}
+            role="status"
+            aria-label="Upload status"
+          >
+            {badge.text}
+          </p>
+        )}
+      </div>
 
       <button
         type="button"

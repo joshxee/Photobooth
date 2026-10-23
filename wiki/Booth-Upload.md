@@ -4,7 +4,7 @@ How the booth gets photos to the portal: a durable outbox in the Rust core, drai
 `PortalClient` trait. This page holds the reasons; the behaviour spec is
 [DESIGN.md §9–§10](./portal/DESIGN.md). Built so far: the outbox and its retry state machine
 (session 08), the variant encoder (08b), and the reqwest client, enrolment and event selection
-(09). The upload loop and operator status (10) come next and extend this page.
+(09), and the upload loop and operator status (10).
 
 ## What is queued, and when
 
@@ -83,11 +83,9 @@ a `VariantError`, never an upload. Inputs over 50 MP are refused before decoding
 decoder's own buffers are capped at 256 MB, so a strange file is an error rather than an
 out-of-memory kill.
 
-**Debug builds time it on real captures.** `apps/booth/src-tauri/src/variant_probe.rs`
-(`#[cfg(debug_assertions)]`) is a completion hook that encodes each completed session's shots
-one at a time on one background thread and logs a `variant probe` line per shot, then drops the
-output. It holds at most one waiting session. Release builds don't contain it; session 10
-replaces it with the real hook. The root `Cargo.toml` builds `jpeg-encoder`, `jpeg-decoder`,
+**Session 08b timed it on real captures** with a debug-only completion hook
+(`variant_probe.rs`, `variant probe` log lines); session 10 replaced it with the real hook,
+whose `shot encoded and queued` line carries `encode_ms`. The root `Cargo.toml` builds `jpeg-encoder`, `jpeg-decoder`,
 `fast_image_resize` and `photobooth-core` at `opt-level = 3` in the dev profile, so the debug
 APK times optimised code.
 
@@ -188,7 +186,8 @@ variant it returned (only the ones the server still needs), delete on READY.
 | Network error, 429, 5xx, 408, upload 202 | Retry with backoff, honouring `Retry-After` |
 | 410 `upload_expired` | Re-POST the intent at once (same `clientPhotoId`) for fresh URLs |
 | 422 `hash_mismatch` | Retry with backoff, at most 3 times; the 4th needs attention |
-| 401, 403, 409 (`conflict`, `event_closed`, `photo_limit`), 422 `invalid_image`, 400, 404, 413 | Needs attention |
+| 401 (intent or PUT) | The device is refused: the pass stops, the item stays queued untouched, and the loop pauses until the booth is enrolled again (session 10) |
+| 403, 409 (`conflict`, `event_closed`, `photo_limit`), 422 `invalid_image`, 400, 404, 413 | Needs attention |
 
 - The contract code decides when the body has one; a body without one (a proxy's 502 page) is
   mapped on status alone. `ErrorCode` lists the closed set, and a test checks every
@@ -327,27 +326,140 @@ hosts (`PHOTOBOOTH_PORTAL_URL` at build time overrides both).
 - The camera picker (the operator's landing screen) shows a status line: the event and its
   date, "no event selected (photos stay on the SD card)", or "not enrolled". Clearing the
   event has its own confirmation too, since it stops uploads; removing a damaged enrolment
-  does not, because a damaged credential can't upload anything anyway. Session 10 adds
-  the upload counts.
+  does not, because a damaged credential can't upload anything anyway. The upload badge
+  sits beside it (session 10).
+
+## The upload loop and operator status (session 10)
+
+Code: `apps/booth/src-tauri/src/upload/` (`hook.rs`, `pump.rs`, `mod.rs`, `disk.rs`), wired in
+`lib.rs` and `state.rs`; the operator UI is `src/screens/UploadQueue.tsx` and the badge on the
+camera picker (`src/screens/uploadText.ts`).
+
+### Where encoding runs, and why
+
+- The session hands a completed session to `EncodeAndQueue` (`OnSessionComplete`) on the session
+  task. The hook only reads the selected event (settings, in memory) and sends the session down
+  a channel, so the review screen never waits; a test blocks the encoder and checks the hook
+  returns at once. The test camera is refused here too (the session already skips it).
+- One `outbox-encoder` thread takes sessions in order and, per shot: checks the booth is still
+  enrolled (it reads the credential file, so not on the session task), encodes with 08b,
+  `enqueue`s, and nudges the upload loop. One shot at a time keeps peak memory at one decode
+  (08b measured ≈ 175 MB native heap at peak) and leaves CPU for the live view. The channel is
+  unbounded: dropping a completed session is worse than queueing one, and a session takes tens
+  of seconds while its encode takes about a second.
+- The event is the one selected **when the session completes**; an event switch later never
+  moves it (the record carries it). Nothing is encoded without an event and an enrolment.
+- An encode or enqueue failure is logged with the session ID and shot and added once to the
+  needs-attention list as a "not queued" entry (memory only, dismiss to acknowledge): guest
+  screens can't show it, and the camera's SD card has the original anyway.
+- Originals never reach the disk: the hook holds the session's own `Bytes` and only the
+  variants are written. On the tablet the outbox held only `*.thumb.jpg`, `*.hd.jpg` and
+  `*.json` while items were queued.
+
+### The drain loop
+
+- **Its own thread and runtime** (`outbox-upload`, a current-thread tokio runtime) with **its own
+  reqwest client**, because `drain_once` reads variants and `fsync`s records inline (08's
+  review). One loop means one `drain_once` at a time, which is what keeps uploads at **two at
+  once**; a test runs 12 shots arriving during passes and sees at most two in flight.
+- **Wakes on**: an enqueue or an operator retry (a `Notify` permit, so a nudge during a pass
+  isn't lost), the earliest item's backoff, an enrolment or unenrolment, and at least every
+  **30 s** while items wait. It asks `PortalService` for a client before every pass, so an
+  unenrolment takes effect at once; not enrolled, it sleeps until nudged.
+- **Offline**: a pass whose only outcomes were network failures (no HTTP answer, or a captive
+  portal's page) sets `offline`. There is no network-change hint (that would need Android's
+  `ConnectivityManager` through the plugin). Instead, while offline, each 30 s poll brings the
+  oldest waiting item forward as a probe (`expedite_next`), and the first pass that gets any
+  answer brings every waiting item forward (`expedite_all`), so uploads resume within about
+  30 s of the network returning rather than after a backoff of up to 5 minutes. The probe
+  costs one request per 30 s while offline; a paused-clock test bounds a 10-minute outage at
+  ≤ 50 intents for 3 items, and checks recovery within one poll.
+- **Revoked device**: a 401 on the intent or a PUT now stops the whole pass (core
+  `Action::Revoked`), hands the item back untouched (no attempt counted, still due) and pauses
+  the loop for the current enrolment *epoch*. Nothing is tried with that credential again;
+  the status shows `revoked`; the queue is kept. Unenrolling and enrolling again bumps the
+  epoch and resumes every item. Before session 10 a 401 made each item need attention one by
+  one, which would have left a revoked booth's whole backlog for the operator to retry by
+  hand. A 403 stays per item: on a PUT it means the signed URL isn't valid (06), not the
+  device.
+- **Shutdown**: on `RunEvent::Exit` the loop stops while waiting or mid-upload; an upload in
+  flight stays queued on disk (claims are memory only) and goes at the next start. On Android
+  the app is usually killed instead, which the outbox's recovery covers.
+- `X-Outbox-Depth` is the outbox's length (`PortalService::with_outbox_depth`); the admin
+  devices list showed it as `lastBacklog` on the tablet.
+
+### What the operator sees, and why
+
+- **Badge** on the camera picker, beside the `Portal:` line, never on guest screens: the most
+  urgent of "paused: the portal refused this booth", "N need(s) attention", "N waiting, booth
+  not enrolled", "offline, N waiting", "sending, N left", "N queued", "all sent", plus
+  "· storage low" below 1 GB. Nothing for an idle booth that isn't enrolled. The picker is
+  the operator's landing screen, and the booth must look the same to guests whatever the
+  queue is doing.
+- **Settings → Upload Queue**: counts, free storage, the revoked and offline explanations, the
+  low-storage warning, and the needs-attention list (stopped uploads with the server's reason,
+  damaged files, shots that weren't queued). **Retry** requeues a stopped upload at once;
+  **Delete…** needs a confirmation ("Delete this photo from the booth?", "The camera's SD card
+  still has the original") and is refused while the item uploads. The list is re-read on every
+  status change.
+- **Status feed**: `portal://outbox` carries `OutboxStatus` whenever the outbox (`subscribe`)
+  or the loop's facts change, and at least every 60 s for the free-space figure; it is only
+  sent when it differs. `outbox_status` gives the snapshot at start-up. No image bytes or IDs
+  beyond photo/session/event IDs cross IPC.
+- **Free space** comes from `statvfs` on Unix/Android (`PlatformDiskSpace`); the Windows desktop
+  build reports it as unknown, never low. Nothing is ever evicted to make room.
+- **Logs**: every transition at info with IDs only: `session handed to the outbox`, `shot
+  encoded and queued` (with `encode_ms`), `upload started`, `upload will be retried`, `upload
+  needs attention` (warn), `upload confirmed READY` (with session, shot and `since_capture_ms`),
+  `upload retried by the operator`, `outbox entry dismissed`, plus the loop's offline, resumed and
+  refused lines. Never bytes or the credential: on the tablet the 43-character credential
+  appeared 0 times in the whole logcat buffer and in `settings.json`.
+
+### Timings and device results (session 10, 2026-10-23)
+
+Xiaomi Pad 6, debug APK of the session branch, against `wrangler dev` on the PC through
+`adb reverse tcp:8787 tcp:8787`. Android 14 resolves `photos.localhost` to 127.0.0.1, so the
+debug build's default portal address works on the tablet and the Worker issues plain-http
+upload URLs; this replaces session 09's "uploads from the tablet need staging". The Sony
+timed out on `GetDeviceInfo` (bulk write) after being woken and the app restarted, so the run
+used the tablet's **Device Camera**, a real non-test camera on the same capture → hook →
+upload path. **The Sony leg is unverified** (left for the once-over).
+
+- **Session end → READY** (the `StripReview` hand-over to the last shot's READY), online:
+  1.7–2.2 s for three shots; encode 313–350 ms per shot (Device Camera JPEGs, smaller than
+  the Sony's; 08b measured p95 0.54 s for the Sony's). The desktop build on the PC: 6 shots
+  READY 450 ms after the first review.
+- **10 sessions, 30 shots** to a fresh event: exactly 30 READY rows (30 distinct
+  `clientPhotoId`s, 10 sessions, 30 distinct session/shot pairs), nothing PENDING or REJECTED,
+  outbox empty, files only `*.thumb.jpg`/`*.hd.jpg`/`*.json` while queued.
+- **Offline** (the tunnel removed for 5 min 46 s, Wi-Fi and adb kept up): 5 sessions shot, the
+  badge read `Uploads: offline, 6 waiting` then `15 waiting`; **`am force-stop`** with 6
+  queued, relaunch: `outbox opened … items=6`, offline detected on the first pass, Settings
+  `Queued 6`. Tunnel restored: all 15 READY and the outbox empty 33 s later (one poll).
+- **Take another at once**: tapped on the review screen 3 s after it appeared (the photo store
+  was cleared); all three shots arrived.
+- **Revoked mid-run**: the next session's shots stayed queued (`Queued 3`, needs attention 0),
+  badge `Uploads paused: the portal refused this booth`, Settings explains it; a new device
+  code, Unenrol, Enrol: the queue emptied within 3 s, with no event re-selection needed.
+- **Not tested**: real airplane mode (it turns Wi-Fi off, which ends Wireless debugging and
+  with it every adb command, so it needs someone at the tablet); multi-hour offline; a full
+  disk; real TLS to Cloudflare (staging, 07); concurrent booths.
+- **Cancel**: the booth UI has no cancel control, so a cancelled session can't be made on the
+  tablet; `session_cancel` is covered by the core session tests and an app test that cancels
+  mid-countdown on a non-test camera and checks nothing reaches the portal.
 
 ## Not done yet, and unverified
 
-- The upload path (intent, both PUTs, READY) ran from the PC's desktop build against
-  `wrangler dev` (`http://photos.localhost`), through 08's `drain_once`. From the tablet it is
-  **unverified**, and against a dev PC it can't work as things stand: the Worker signs
-  `https://` upload URLs for any host but `*.localhost`, and the tablet can't resolve
-  `photos.localhost` to the PC. Session 10 runs it against staging. Real TLS (webpki-roots
-  against Cloudflare's certificate) is **unverified** until then. Enrolment, the event list and
-  event detail ran on the tablet against `wrangler dev` on the PC (PROGRESS.md, 09).
-- Nothing calls `enqueue` in the app yet: the hook implementation and upload loop are session
-  10. Until then the outbox and the encoder exist as tested library code plus two debug-build
-  probes (the outbox opened at startup, the encoder timed on completed sessions).
+- The whole path ran on the tablet against `wrangler dev` on the PC (session 10, through
+  `adb reverse` and `photos.localhost`; see above). Against Cloudflare it is **unverified**:
+  real TLS (webpki-roots against Cloudflare's certificate), real airplane mode, and the
+  Sony as the camera wait for the staging run (07) and the user's once-over.
 - File I/O is blocking. `drain_once` reads each variant (typically 0.25–0.62 MB, up to the
   contract's 3 MB HD cap) and writes and `fsync`s records inline, holding the outbox lock
-  during each write; an `fsync` on f2fs can take tens of milliseconds. Session 10 must run
-  `enqueue` in `spawn_blocking` and the drain loop on its own thread or a blocking-tolerant
-  runtime, not on the async workers that serve UI calls. Run one drain at a time: the
-  two-upload limit is per `drain_once` call.
+  during each write; an `fsync` on f2fs can take tens of milliseconds. Hence `enqueue` runs on
+  the encoder thread, the drain loop on its own thread and runtime, and `outbox_retry` /
+  `outbox_dismiss` in `spawn_blocking` (session 10). The two-upload limit is per `drain_once`
+  call, so there is exactly one loop.
 - The operator's **retry** applies only to needs-attention items, and **dismiss** is refused
   while an item is uploading, so a stale or double tap can't start a second upload or delete
   files mid-PUT.
@@ -361,8 +473,9 @@ hosts (`PHOTOBOOTH_PORTAL_URL` at build time overrides both).
 
 ## Device check (session 08)
 
-Debug builds open the outbox at startup and log a `debug outbox probe` line with its path and
-counts (`apps/booth/src-tauri/src/lib.rs`). Steps, with adb over Wi-Fi (`AGENTS.md`, "Device
+Session 08 checked recovery with a debug-only probe that opened the outbox at startup and
+logged a `debug outbox probe` line (removed in session 10; every build now opens the outbox and
+logs `outbox opened … items=N quarantined=N`). Steps, with adb over Wi-Fi (`AGENTS.md`, "Device
 testing"):
 
 ```bash
