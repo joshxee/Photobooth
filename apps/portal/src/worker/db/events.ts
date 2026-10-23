@@ -80,3 +80,32 @@ export function updateEvent(db: D1Database, e: EventRow, readAt: string): D1Prep
       e.id, readAt,
     );
 }
+
+/** What the retention job needs to know about a deleted event. */
+export interface DeletedEvent {
+  id: string;
+  deleted_at: string;
+  purge_after: string;
+}
+
+/**
+ * Soft-deleted events, oldest `purge_after` first (domain `dueForPurge` decides which are due).
+ * Few at a time: an admin deletes an event by hand and it goes after 7 days. The LIMIT only bounds a
+ * backlog after a long outage; the oldest, which are the due ones, come first.
+ */
+export async function listDeletedEvents(db: D1Database, limit: number): Promise<DeletedEvent[]> {
+  const { results } = await db
+    .prepare("SELECT id, deleted_at, purge_after FROM events WHERE deleted_at IS NOT NULL ORDER BY purge_after, id LIMIT ?")
+    .bind(limit)
+    .all<DeletedEvent>();
+  return results;
+}
+
+/**
+ * Removes a purged event's row (its photo rows go with it, `ON DELETE CASCADE`), but only while it is
+ * still deleted and past its undo: an event restored in the meantime is kept. Put the audit row
+ * (`insertPurgeAuditIfDue`) **before** it in the same `db.batch`; the batch is atomic.
+ */
+export function deleteEventIfPurgeDue(db: D1Database, eventId: string, now: Date): D1PreparedStatement {
+  return db.prepare("DELETE FROM events WHERE id = ? AND deleted_at IS NOT NULL AND purge_after <= ?").bind(eventId, now.toISOString());
+}

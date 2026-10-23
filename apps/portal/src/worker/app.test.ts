@@ -131,10 +131,10 @@ describe("logging", () => {
 });
 
 describe("scheduled", () => {
-  it("is a no-op that logs", async () => {
+  it("runs the retention job and logs its summary (jobs/retention.test.ts covers the job)", async () => {
     const spy = vi.spyOn(console, "log").mockImplementation(() => {});
-    await worker.scheduled({ cron: "0 14 * * *", scheduledTime: Date.now(), noRetry() {} });
+    await worker.scheduled({ cron: "0 14 * * *", scheduledTime: Date.now(), noRetry() {} }, env);
     expect(spy).toHaveBeenCalledOnce();
-    expect(String(spy.mock.calls[0]?.[0])).toContain("scheduled");
+    expect(String(spy.mock.calls[0]?.[0])).toContain("retention_run");
   });
 });
