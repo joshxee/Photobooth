@@ -20,7 +20,7 @@ this file first, so state facts and not intentions.
 ---
 
 ## 10 — Booth upload loop and operator status — DONE — 2026-10-23
-- PR: #PRNUM (branch `portal/10-booth-upload-status`)
+- PR: #30 (branch `portal/10-booth-upload-status`)
 - Built:
   - `apps/booth/src-tauri/src/upload/`: `hook.rs` `EncodeAndQueue` (the `OnSessionComplete` hook: reads the selected event on the session task and returns; one `outbox-encoder` thread checks the enrolment, encodes each shot with 08b and `enqueue`s it; test camera refused; nothing without an enrolment and an event; an encode/enqueue failure is logged with the IDs and listed once as a "not queued" entry). `pump.rs`: the upload loop on its own thread, current-thread runtime and reqwest client; one `drain_once` at a time (two uploads); wakes on enqueue/retry/enrolment change, backoff and a 30 s poll; offline = a pass with only network failures, with a 30 s probe (`expedite_next`) and `expedite_all` on the first answer; pauses on a revoked device per enrolment epoch; stops on `RunEvent::Exit`. `mod.rs` `Uploads` (status, needs-attention list, retry/dismiss, nudge, shutdown). `disk.rs` `statvfs` free space on Unix/Android (unknown on Windows).
   - Core outbox: a 401 (intent or PUT) is `Action::Revoked`: the pass stops and the item is handed back untouched (`DrainReport.revoked`); `DrainReport.network_failures`; `subscribe()` (a `watch` bumped on every state change); `len()`; `expedite_next`/`expedite_all` (memory only); info logs for start/retry-by-operator and `since_capture_ms` on READY.
