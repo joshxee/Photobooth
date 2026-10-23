@@ -47,13 +47,16 @@ export function App({ env = browserEnv }: { env?: PollerEnv }) {
   const [attempt, setAttempt] = useState(0);
   // Bumped on every view change, so answers for an old view are dropped.
   const viewSeq = useRef(0);
+  const retryTimer = useRef<unknown>(null);
+  useEffect(() => () => void (retryTimer.current !== null && env.clearTimeout(retryTimer.current)), [env]);
 
   const refuse = useCallback(
     (r: Refusal) => {
       if (r.kind === "unavailable") setPhase("unavailable");
       else if (r.kind === "rate_limited") {
         setPhase("busy");
-        env.setTimeout(() => setAttempt((n) => n + 1), r.retryAfterMs);
+        if (retryTimer.current !== null) env.clearTimeout(retryTimer.current);
+        retryTimer.current = env.setTimeout(() => setAttempt((n) => n + 1), r.retryAfterMs);
       } else setPhase("error");
     },
     [env],
@@ -107,6 +110,8 @@ export function App({ env = browserEnv }: { env?: PollerEnv }) {
           setPhase("unavailable");
           return "stop";
         }
+        // Busy: hold this poll until Retry-After has passed, so the next one waits too.
+        if (r.kind === "rate_limited") await new Promise<void>((resolve) => env.setTimeout(resolve, r.retryAfterMs));
         if (r.kind !== "ok") return undefined;
         setMeta(metaOf(r.page));
         setFeed((f) => (f ? (session ? mergeLatest(f, r.page) : receiveLatest(f, r.page)) : f));
@@ -157,6 +162,12 @@ export function App({ env = browserEnv }: { env?: PollerEnv }) {
   };
 
   const showNew = () => {
+    // Photos may be missing between the new ones and the grid: start again from the first page.
+    if (feed?.gap) {
+      window.scrollTo({ top: 0 });
+      setAttempt((n) => n + 1);
+      return;
+    }
     setFeed((f) => (f ? showPending(f) : f));
     window.scrollTo({ top: 0, behavior: prefersReducedMotion() ? "auto" : "smooth" });
     document.querySelector<HTMLElement>("h1")?.focus({ preventScroll: true });
@@ -182,11 +193,11 @@ export function App({ env = browserEnv }: { env?: PollerEnv }) {
   const index = photoId ? ordered.findIndex((p) => p.id === photoId) : -1;
   const waiting =
     view.session && view.session === boothSession
-      ? view.expected
-        ? Math.max(view.expected - feed.photos.length, 0)
-        : arriving
-          ? 1
-          : 0
+      ? !arriving || !eventOpen
+        ? 0
+        : view.expected
+          ? Math.max(view.expected - feed.photos.length, 0)
+          : 1
       : 0;
 
   return (

@@ -656,7 +656,9 @@ network failure offers "Try again". A new `#k=` in the same tab (a second booth 
 
 `&n={shots}` is new in session 12: the booth's shots per session (`number_of_photos`, 1–10), which
 the gallery can't learn from the API. It sizes the placeholders; session 13 adds it to the QR link
-beside `&s=`. Without it the session view shows one "On its way" tile for the first 2 minutes.
+beside `&s=`. Without it the session view shows one "On its way" tile. Either way placeholders
+show only for the first 2 minutes and while the event is open, so a shot that never arrives never
+leaves a placeholder waiting for ever.
 
 ### Polling and its request cost
 
@@ -672,8 +674,10 @@ guest, booth and admin (DESIGN §16, spike Q12), so the rates are the plan's and
 - Never two polls at once; answers for a view the guest has left are dropped.
 - A 200-guest evening at 30 s, with a third of the guests looking at any moment for 4 hours, is
   about 200 × ⅓ × 480 ≈ 32,000 polls: inside the spike's typical event-day estimate.
-- Polls read the first page only (no cursor) and diff by ID. More than 24 new photos between two
-  polls would leave the oldest of them out until a reload; five booths make about 15 a minute.
+- Polls read the first page only (no cursor) and diff by ID. If a whole polled page is new and
+  more follow (a tab hidden through a busy spell), photos may sit between it and the grid, so
+  tapping the pill reloads the first page instead of merging.
+- A 429 holds the poll for `Retry-After` before the next one is scheduled.
 
 ### "N new", without moving the grid
 
@@ -850,8 +854,6 @@ EOI only), so the header walk (session 06) accepts them and browsers display the
   booth's items need the operator's retry). Rotate between events.
 - The gallery keeps showing a photo hidden or deleted after it loaded until the page reloads (and
   its image stays in that browser's cache). Polls only add photos.
-- The gallery's polls read the newest page only: more than 24 new photos within one poll interval
-  would leave the oldest of them out until a reload.
 - `GET /api/devices` is unpaginated (schema cap 1,000); there are five tablets.
 - `ADMIN_EMAILS`, `ADMIN_SERVICE_CLIENTS`, `ACCESS_*` and `CONTACT_*` are empty vars in staging and
   production, so a deployed Worker refuses every admin request, and answers the gallery list with a

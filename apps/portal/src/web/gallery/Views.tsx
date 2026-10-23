@@ -127,7 +127,7 @@ export function EventView(props: EventViewProps) {
           const hero = hasHero(group.sessionId, group.photos.length);
           const time = formatTime(group.startedAt);
           return (
-            <section className="group" key={group.sessionId} aria-label={`Session at ${time}`}>
+            <section className="group" key={group.sessionId} aria-label={`Session at ${time}, ${photoCount(group.photos.length)}`}>
               <div className="group__head">
                 <h2>
                   <a
@@ -136,7 +136,7 @@ export function EventView(props: EventViewProps) {
                     onClick={(e) => inApp(e, () => props.onSession(group.sessionId))}
                   >
                     {time}
-                    <span className="visually-hidden">, open this session</span>
+                    <span className="visually-hidden">, {photoCount(group.photos.length)}, open this session</span>
                     <Icon name="next" size={18} />
                   </a>
                 </h2>

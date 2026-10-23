@@ -74,6 +74,13 @@ describe("feed", () => {
     expect(ids(feed.pending)).toEqual(["04"]);
   });
 
+  it("flags a gap when a whole polled page is new and more follow", () => {
+    const start = startFeed(page([a1]));
+    expect(receiveLatest(start, page([b2, b1], "more")).gap).toBe(true);
+    expect(receiveLatest(start, page([b2, b1, a1], "more")).gap).toBe(false);
+    expect(receiveLatest(start, page([b2, b1], null)).gap).toBe(false);
+  });
+
   it("merges a session poll straight into the photos", () => {
     const feed = mergeLatest(startFeed(page([a1])), page([a2, a1]));
     expect(ids(feed.photos)).toEqual(["02", "01"]);

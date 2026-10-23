@@ -166,6 +166,33 @@ describe("live updates", () => {
     expect(gets(calls)).toHaveLength(3);
   });
 
+  it("waits Retry-After when a poll is rate limited", async () => {
+    let busy = false;
+    const { calls, env } = await render(`/e/${PUBLIC}`, () =>
+      busy ? json({ code: "rate_limited", message: "Slow down", correlationId: "x" }, 429, { "Retry-After": "120" }) : json(page([a1])),
+    );
+    busy = true;
+    await act(() => env.advance(30_000));
+    expect(gets(calls)).toHaveLength(2);
+    await act(() => env.advance(100_000));
+    expect(gets(calls)).toHaveLength(2);
+    await act(() => env.advance(60_000));
+    expect(gets(calls)).toHaveLength(3);
+  });
+
+  it("reloads the first page when new photos may have left a gap", async () => {
+    let latest = page([a1]);
+    const { calls, env } = await render(`/e/${PUBLIC}`, () => json(latest));
+    latest = page([b2, b1], { nextCursor: "more" });
+    await act(() => env.advance(30_000));
+    expect($("button.pill")?.textContent).toBe("2 new photos");
+    await click($("button.pill"));
+    expect(gets(calls)).toHaveLength(3);
+    expect(calls.at(-1)?.url).toBe(`/e/${PUBLIC}/api/photos`);
+    expect($$("a.tile")).toHaveLength(2);
+    expect($("button.more")).not.toBeNull();
+  });
+
   it("doesn't poll a gallery whose event no longer accepts uploads", async () => {
     const { calls, env } = await render(`/e/${PUBLIC}`, () => json(page([a1], { eventOpen: false })));
     await act(() => env.advance(300_000));
@@ -219,6 +246,13 @@ describe("session view", () => {
     expect(polls()).toBe(12);
     await act(() => env.advance(60_000));
     expect(polls()).toBe(14);
+  });
+
+  it("drops the placeholders after 2 minutes even with a count, so none wait forever", async () => {
+    const { env } = await render(boothLink, route(() => page([a1])));
+    expect($$(".shot--waiting")).toHaveLength(2);
+    await act(() => env.advance(120_000));
+    expect($$(".shot--waiting")).toHaveLength(0);
   });
 
   it("drops the placeholders after 2 minutes without a count", async () => {

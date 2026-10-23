@@ -557,7 +557,7 @@ day 1 to preserve this.
     (page + lookahead + cursor boundary), a media request 2 rows.
 - **Gallery UI (session 12)**, reasons in wiki/Portal.md → "Guest gallery UI":
   - The link may carry `&n={shots}` (1–10) after `&s`; it sizes the session view's placeholders.
-    Without it, one placeholder shows for the first 2 minutes. The SPA replaces the address with
+    Without it, one placeholder shows. Placeholders show for the first 2 minutes only. The SPA replaces the address with
     `/e/{publicId}[?s=…&n=…]` before the swap answers.
   - Only the booth session's view (opened with `#k` and `&s`) polls at 10 s; a session opened from
     the event view polls at 30 s. Polling jitter is ±10 %.

@@ -9,6 +9,8 @@ export interface Feed {
   /** Found by polling, not shown yet, newest first. */
   pending: GalleryPhoto[];
   nextCursor: string | null;
+  /** A poll's whole page was new and more followed: photos may sit between it and the grid. */
+  gap: boolean;
 }
 
 function known(feed: Feed): Set<string> {
@@ -16,7 +18,7 @@ function known(feed: Feed): Set<string> {
 }
 
 export function startFeed(page: GalleryPhotosPage): Feed {
-  return { photos: page.photos, pending: [], nextCursor: page.nextCursor };
+  return { photos: page.photos, pending: [], nextCursor: page.nextCursor, gap: false };
 }
 
 export function appendOlder(feed: Feed, page: GalleryPhotosPage): Feed {
@@ -28,7 +30,9 @@ export function appendOlder(feed: Feed, page: GalleryPhotosPage): Feed {
 export function receiveLatest(feed: Feed, page: GalleryPhotosPage): Feed {
   const seen = known(feed);
   const fresh = page.photos.filter((p) => !seen.has(p.id));
-  return fresh.length ? { ...feed, pending: [...fresh, ...feed.pending] } : feed;
+  if (!fresh.length) return feed;
+  const gap = feed.gap || (fresh.length === page.photos.length && page.nextCursor !== null);
+  return { ...feed, pending: [...fresh, ...feed.pending], gap };
 }
 
 export function showPending(feed: Feed): Feed {
