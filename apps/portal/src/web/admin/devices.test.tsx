@@ -144,9 +144,10 @@ describe("create a booth and show its code once", () => {
     // Not after closing, nor after the list refreshes and the view re-renders.
     await settle(() => env.advance(30_000));
     const everything = [document.documentElement.outerHTML, location.href, document.title, JSON.stringify({ ...localStorage }), JSON.stringify({ ...sessionStorage })].join("\n");
-    expect(everything).not.toContain(CODE);
-    expect(everything).not.toContain("K7QM");
-    expect(everything).not.toContain("2XZ9");
+    // Booleans, not toContain: a failing toContain prints the whole page.
+    expect(everything.includes(CODE)).toBe(false);
+    expect(everything.includes("K7QM")).toBe(false);
+    expect(everything.includes("2XZ9")).toBe(false);
   });
 
   it("never puts the code in the URL, history state or storage even while it is open", async () => {
@@ -164,7 +165,26 @@ describe("create a booth and show its code once", () => {
     await create();
     await settle(() => void dialog()!.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })));
     expect(dialog()).toBeNull();
-    expect(text()).not.toContain("K7QM");
+    expect(text().includes("K7QM")).toBe(false);
+  });
+
+  it("counts the 10 minutes from when the code arrived, so a wrong PC clock can't show it as expired", async () => {
+    mocked = mockFetch((c) =>
+      c.method === "POST" ? json({ deviceId: "d", code: CODE, expiresAt: "2020-01-01T00:00:00.000Z" }, 201) : json({ devices: [] }),
+    );
+    await mountApp(fakeAdminEnv().env, "/devices");
+    await create();
+    expect(dialog()!.textContent).toContain("Expires in 10:00");
+    expect(text()).toContain("K7QM-2XZ9");
+  });
+
+  it("ignores a click on the backdrop: the code can't be shown again", async () => {
+    mocked = server(() => []);
+    await mountApp(fakeAdminEnv().env, "/devices");
+    await create();
+    await settle(() => void document.querySelector(".backdrop")!.dispatchEvent(new MouseEvent("mousedown", { bubbles: true })));
+    expect(dialog()).not.toBeNull();
+    expect(text()).toContain("K7QM-2XZ9");
   });
 
   it("at the 10-minute mark the dialog says the code expired and no longer shows it", async () => {
@@ -177,7 +197,7 @@ describe("create a booth and show its code once", () => {
     expect(text()).toContain("K7QM-2XZ9");
     await settle(() => env.advance(1000));
     expect(dialog()!.textContent).toContain("expired");
-    expect(text()).not.toContain("K7QM");
+    expect(text().includes("K7QM")).toBe(false);
   });
 
   it("asks for a name and sends nothing without one", async () => {
@@ -203,11 +223,39 @@ describe("create a booth and show its code once", () => {
 });
 
 describe("re-issue a code", () => {
-  it("for a booth that isn't enrolled yet shows the new code straight away", async () => {
-    mocked = server(() => [device({ enrolledAt: null, lastSeenAt: null, codeExpiresAt: EXPIRES })]);
+  it("for a booth that isn't enrolled and has no live code shows the new code straight away", async () => {
+    mocked = server(() => [device({ enrolledAt: null, lastSeenAt: null, codeExpiresAt: null })]);
     await mountApp(fakeAdminEnv().env, "/devices");
     await click(button(/Re-issue code/));
     expect(posts().map((c) => c.path)).toEqual(["/api/devices/019a0b7e-0000-7000-8000-0000000000d1/code"]);
+    expect(dialog()!.querySelector(".code")!.textContent).toBe("K7QM-2XZ9");
+  });
+
+  it("a double click issues one code, not two (each voids the one before)", async () => {
+    let release: () => void = () => {};
+    mocked = mockFetch((c) => {
+      if (c.method === "GET") return json({ devices: [device({ enrolledAt: null, lastSeenAt: null, codeExpiresAt: null })] });
+      return new Promise<Response>((resolve) => (release = () => resolve(json({ deviceId: "d1", code: CODE, expiresAt: EXPIRES }))));
+    });
+    await mountApp(fakeAdminEnv().env, "/devices");
+    const reissue = button(/Re-issue code/);
+    await click(reissue);
+    await click(reissue);
+    expect(posts()).toHaveLength(1);
+    expect(reissue.disabled).toBe(true);
+    await settle(() => release());
+    expect(dialog()!.querySelector(".code")!.textContent).toBe("K7QM-2XZ9");
+    expect(posts()).toHaveLength(1);
+  });
+
+  it("for a booth whose code is still live asks first, because someone may be typing it in", async () => {
+    mocked = server(() => [device({ enrolledAt: null, lastSeenAt: null, codeExpiresAt: EXPIRES })]);
+    await mountApp(fakeAdminEnv().env, "/devices");
+    await click(button(/Re-issue code/));
+    expect(posts()).toHaveLength(0);
+    expect(dialog()!.textContent).toContain("stops working");
+    await click(button("Make new code", dialog()!));
+    expect(posts()).toHaveLength(1);
     expect(dialog()!.querySelector(".code")!.textContent).toBe("K7QM-2XZ9");
   });
 

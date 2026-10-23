@@ -9,7 +9,20 @@ const FOCUSABLE = 'button:not([disabled]), a[href], input:not([disabled]), selec
  * A modal. Focus moves in (to `[data-autofocus]` when there is one, so a destructive dialog opens
  * on Cancel), Tab stays inside, Escape closes, and focus returns to what opened it.
  */
-export function Dialog({ title, onClose, restoreFocus, children }: { title: string; onClose(): void; restoreFocus?: HTMLElement | null; children: ReactNode }) {
+export function Dialog({
+  title,
+  onClose,
+  restoreFocus,
+  closeOnBackdrop = true,
+  children,
+}: {
+  title: string;
+  onClose(): void;
+  restoreFocus?: HTMLElement | null;
+  /** False for a dialog whose content can't be shown again: a stray click mustn't lose it. */
+  closeOnBackdrop?: boolean;
+  children: ReactNode;
+}) {
   const titleId = useId();
   const box = useRef<HTMLDivElement>(null);
 
@@ -41,7 +54,7 @@ export function Dialog({ title, onClose, restoreFocus, children }: { title: stri
   };
 
   return (
-    <div className="backdrop" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
+    <div className="backdrop" onMouseDown={(e) => closeOnBackdrop && e.target === e.currentTarget && onClose()}>
       <div className="dialog" role="dialog" aria-modal="true" aria-labelledby={titleId} ref={box} onKeyDown={onKeyDown}>
         <h2 id={titleId}>{title}</h2>
         {children}

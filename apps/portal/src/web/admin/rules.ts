@@ -131,7 +131,7 @@ function closeConfirmation(e: AdminEvent, backlog: BacklogReport | null, nowMs: 
     for (const d of backlog.queued) items.push(`${d.name}: ${d.backlog} waiting to upload (last seen ${relativeTime(d.lastSeenAt, nowMs)})`);
   }
   if (backlog.unknown.length > 0) {
-    warnings.push("We can't tell what the other booths have queued, because they haven't reported lately.");
+    warnings.push("We can't tell what some booths have queued, because they haven't reported lately.");
     for (const d of backlog.unknown) items.push(`${d.name}: last seen ${relativeTime(d.lastSeenAt, nowMs)}, so its queue is unknown`);
   }
   if (warnings.length === 0) return { ...base, confirmLabel: "Close uploads" };

@@ -2,7 +2,7 @@
 // the API stores UTC. The form state is plain strings; `validate*` turns them into the API body
 // or a message per field. An edit sends only the fields that changed (the audit row lists them).
 import type { AdminEvent, EventCreateRequest, EventUpdateRequest } from "../../shared/schemas";
-import { localToUtc, timeZones, utcToLocal } from "./time";
+import { type LocalToUtc, localToUtc, timeZones, utcToLocal } from "./time";
 
 export interface EventForm {
   name: string;
@@ -48,17 +48,25 @@ type Parsed =
   | { ok: true; name: string; venue: string; timezone: string; startsAt: string; endsAt: string; photoLimit: number }
   | { ok: false; errors: FormErrors };
 
-function parse(form: EventForm): Parsed {
+/**
+ * With `existing`, a time the admin didn't touch keeps its stored instant: re-deriving it from the
+ * wall-clock string would drop its seconds and, for the repeated hour when the clocks go back, pick
+ * the first occurrence instead of the second.
+ */
+function parse(form: EventForm, existing?: AdminEvent): Parsed {
   const errors: FormErrors = {};
   const name = form.name.trim();
   if (name.length < 1 || name.length > 100) errors.name = "Enter a name of up to 100 characters.";
   if (form.venue.length > 100) errors.venue = "The venue can be up to 100 characters.";
   if (!timeZones().includes(form.timezone)) errors.timezone = "Choose a time zone.";
   const photoLimit = /^\d+$/.test(form.photoLimit.trim()) ? Number(form.photoLimit.trim()) : NaN;
-  if (!(photoLimit >= 1 && photoLimit <= 10_000)) errors.photoLimit = "Enter a whole number from 1 to 10,000.";
+  // A stored limit of 0 (the schema allows it) stays saveable as it is.
+  if (!(photoLimit >= 1 && photoLimit <= 10_000) && photoLimit !== existing?.photoLimit) errors.photoLimit = "Enter a whole number from 1 to 10,000.";
 
-  const starts = errors.timezone ? null : localToUtc(form.startsLocal, form.timezone);
-  const ends = errors.timezone ? null : localToUtc(form.endsLocal, form.timezone);
+  const was = existing ? formFromEvent(existing) : null;
+  const untouched = (field: "startsLocal" | "endsLocal") => existing && was && form.timezone === existing.timezone && form[field] === was[field];
+  const starts: LocalToUtc | null = errors.timezone ? null : untouched("startsLocal") ? { ok: true, iso: existing!.startsAt } : localToUtc(form.startsLocal, form.timezone);
+  const ends: LocalToUtc | null = errors.timezone ? null : untouched("endsLocal") ? { ok: true, iso: existing!.endsAt } : localToUtc(form.endsLocal, form.timezone);
   if (starts && !starts.ok) errors.startsLocal = starts.reason;
   if (ends && !ends.ok) errors.endsLocal = ends.reason;
   if (starts?.ok && ends?.ok && Date.parse(ends.iso) < Date.parse(starts.iso)) errors.endsLocal = "The end must be after the start.";
@@ -78,7 +86,7 @@ export function validateCreate(form: EventForm): CreateResult {
 export type UpdateResult = { ok: true; body: EventUpdateRequest } | { ok: false; errors: FormErrors; nothing?: true };
 
 export function validateUpdate(form: EventForm, existing: AdminEvent): UpdateResult {
-  const p = parse(form);
+  const p = parse(form, existing);
   if (!p.ok) return p;
   const body: EventUpdateRequest = {};
   if (p.name !== existing.name) body.name = p.name;

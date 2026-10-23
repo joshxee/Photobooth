@@ -7,11 +7,20 @@ import { startRefresh } from "./refresh";
 import { STALE_AFTER_MS, type Confirmation } from "./rules";
 import { countdown, formatInZone, relativeTime } from "./time";
 
-/** The one-time code on screen. It lives only in this state: closing the dialog drops it. */
+/**
+ * A code is valid for 10 minutes (worker/domain/device.ts). The deadline counts from when it arrived,
+ * not from the server's `expiresAt`, so a PC clock that is out can't show a fresh code as expired.
+ */
+const CODE_TTL_MS = 10 * 60_000;
+
+/**
+ * The one-time code on screen. It lives only in this state: closing the dialog or the code expiring
+ * drops it (`code` becomes null), and nothing else ever holds it.
+ */
 interface Reveal {
   deviceName: string;
-  code: string;
-  expiresAtMs: number;
+  code: string | null;
+  deadlineMs: number;
 }
 
 type Action = { kind: "reissue" | "revoke"; device: AdminDevice };
@@ -28,6 +37,7 @@ export function DevicesView() {
   const [busy, setBusy] = useState(false);
   const [actionFailure, setActionFailure] = useState<unknown>(null);
   const [updatedAt, setUpdatedAt] = useState<number | null>(null);
+  const [reissuing, setReissuing] = useState(false);
 
   // The health view keeps itself fresh while the page is visible.
   const reload = useRef(devices.reload);
@@ -41,6 +51,8 @@ export function DevicesView() {
     if (isNotAuthorised(error)) onNotAuthorised();
   };
 
+  const show = (deviceName: string, code: string) => setReveal({ deviceName, code, deadlineMs: env.now() + CODE_TTL_MS });
+
   const create = async (e: FormEvent) => {
     e.preventDefault();
     const trimmed = name.trim();
@@ -53,7 +65,7 @@ export function DevicesView() {
     setCreating(true);
     try {
       const made = await api.createDevice(trimmed);
-      setReveal({ deviceName: trimmed, code: made.code, expiresAtMs: Date.parse(made.expiresAt) });
+      show(trimmed, made.code);
       setName("");
       void devices.reload();
     } catch (error) {
@@ -71,7 +83,7 @@ export function DevicesView() {
     try {
       if (action.kind === "reissue") {
         const made = await api.reissueCode(action.device.id);
-        setReveal({ deviceName: action.device.name, code: made.code, expiresAtMs: Date.parse(made.expiresAt) });
+        show(action.device.name, made.code);
       } else {
         await api.revokeDevice(action.device.id);
       }
@@ -87,21 +99,27 @@ export function DevicesView() {
   };
 
   const reissueNow = async (device: AdminDevice) => {
+    // Each call voids the code before it: a double click must not issue two.
+    if (reissuing) return;
+    setReissuing(true);
     setFailure(null);
     try {
       const made = await api.reissueCode(device.id);
-      setReveal({ deviceName: device.name, code: made.code, expiresAtMs: Date.parse(made.expiresAt) });
+      show(device.name, made.code);
     } catch (error) {
       guard(error);
       setFailure(error);
+    } finally {
+      setReissuing(false);
     }
     void devices.reload();
   };
 
   const start = (kind: Action["kind"], device: AdminDevice) => {
     setActionFailure(null);
-    // A fresh code for a booth that isn't enrolled yet hurts nothing; the others ask first.
-    if (kind === "reissue" && device.enrolledAt === null) void reissueNow(device);
+    // A booth that isn't enrolled and has no live code loses nothing; the others ask first (an
+    // enrolled booth is re-enrolled, a live code may be what someone is typing in at the booth).
+    if (kind === "reissue" && device.enrolledAt === null && !hasLiveCode(device, env.now())) void reissueNow(device);
     else setAction({ kind, device });
   };
 
@@ -167,19 +185,23 @@ export function DevicesView() {
             </thead>
             <tbody>
               {list.map((d) => (
-                <DeviceRow key={d.id} device={d} now={now} onReissue={() => start("reissue", d)} onRevoke={() => start("revoke", d)} />
+                <DeviceRow key={d.id} device={d} now={now} disabled={reissuing || busy} onReissue={() => start("reissue", d)} onRevoke={() => start("revoke", d)} />
               ))}
             </tbody>
           </table>
         </div>
       )}
 
-      {reveal && <CodeDialog reveal={reveal} onClose={() => setReveal(null)} />}
+      {reveal && <CodeDialog reveal={reveal} onExpire={() => setReveal((r) => (r ? { ...r, code: null } : r))} onClose={() => setReveal(null)} />}
       {action && (
         <ConfirmDialog confirmation={confirmationFor(action)} busy={busy} error={actionFailure} onConfirm={() => void confirm()} onCancel={() => setAction(null)} />
       )}
     </section>
   );
+}
+
+function hasLiveCode(d: AdminDevice, now: number): boolean {
+  return d.codeExpiresAt !== null && Date.parse(d.codeExpiresAt) > now;
 }
 
 function confirmationFor({ kind, device }: Action): Confirmation {
@@ -194,6 +216,14 @@ function confirmationFor({ kind, device }: Action): Confirmation {
       danger: true,
     };
   }
+  if (device.enrolledAt === null) {
+    return {
+      title: `Make a new code for ${device.name}?`,
+      paragraphs: ["The code issued earlier stops working. If someone is typing it into the booth now, they will need the new one."],
+      confirmLabel: "Make new code",
+      danger: false,
+    };
+  }
   return {
     title: `Make a new code for ${device.name}?`,
     paragraphs: [
@@ -205,7 +235,19 @@ function confirmationFor({ kind, device }: Action): Confirmation {
   };
 }
 
-function DeviceRow({ device: d, now, onReissue, onRevoke }: { device: AdminDevice; now: number; onReissue(): void; onRevoke(): void }) {
+function DeviceRow({
+  device: d,
+  now,
+  disabled,
+  onReissue,
+  onRevoke,
+}: {
+  device: AdminDevice;
+  now: number;
+  disabled: boolean;
+  onReissue(): void;
+  onRevoke(): void;
+}) {
   const revoked = d.revokedAt !== null;
   const enrolled = d.enrolledAt !== null;
   const stale = enrolled && !revoked && (d.lastSeenAt === null || now - Date.parse(d.lastSeenAt) > STALE_AFTER_MS);
@@ -229,7 +271,7 @@ function DeviceRow({ device: d, now, onReissue, onRevoke }: { device: AdminDevic
       <td className="row-actions">
         {!revoked && (
           <>
-            <button type="button" className="btn btn--small btn--secondary" onClick={onReissue}>
+            <button type="button" className="btn btn--small btn--secondary" onClick={onReissue} disabled={disabled}>
               {enrolled ? "New code" : "Re-issue code"}
               <span className="visually-hidden"> for {d.name}</span>
             </button>
@@ -248,7 +290,7 @@ export function groupCode(code: string): string {
   return `${code.slice(0, 4)}-${code.slice(4)}`;
 }
 
-function CodeDialog({ reveal, onClose }: { reveal: Reveal; onClose(): void }) {
+function CodeDialog({ reveal, onExpire, onClose }: { reveal: Reveal; onExpire(): void; onClose(): void }) {
   const { env } = useAdmin();
   const [now, setNow] = useState(() => env.now());
   useEffect(() => {
@@ -260,21 +302,23 @@ function CodeDialog({ reveal, onClose }: { reveal: Reveal; onClose(): void }) {
     timer = env.setTimeout(tick, 1000);
     return () => env.clearTimeout(timer);
   }, [env]);
-  const left = countdown(reveal.expiresAtMs, now);
+  const left = countdown(reveal.deadlineMs, now);
+  const expired = left.expired || reveal.code === null;
+  // At the deadline the parent lets go of the code itself, not only the screen.
+  useEffect(() => {
+    if (left.expired && reveal.code !== null) onExpire();
+  }, [left.expired, reveal.code, onExpire]);
   return (
-    <Dialog title={`Enrolment code for ${reveal.deviceName}`} onClose={onClose}>
-      {left.expired ? (
+    // No backdrop dismissal: the code can't be shown again, so a stray click must not lose it.
+    <Dialog title={`Enrolment code for ${reveal.deviceName}`} onClose={onClose} closeOnBackdrop={false}>
+      {expired || reveal.code === null ? (
         <p className="error" role="status">
           This code has expired and is no longer shown. Close this and make a new code.
         </p>
       ) : (
         <>
-          <p>
-            Enter this code on the booth (Settings → Guest Portal). It works once.
-          </p>
-          <p className="code">
-            {groupCode(reveal.code)}
-          </p>
+          <p>Enter this code on the booth (Settings → Guest Portal). It works once.</p>
+          <p className="code">{groupCode(reveal.code)}</p>
           <p role="timer" aria-live="off">
             Expires in <strong>{left.text}</strong>
           </p>

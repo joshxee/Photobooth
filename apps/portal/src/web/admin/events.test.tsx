@@ -255,6 +255,24 @@ describe("event detail", () => {
       expect(input("gallery-link").value).toContain("#k=ROTATEDTOKEN");
     });
 
+    it("Confirm can't fire twice: the buttons are disabled while the action is in flight", async () => {
+      let release: () => void = () => {};
+      mocked = mockFetch((c) => {
+        if (c.method === "GET") return json(event({ galleryStatus: "LIVE" }));
+        return new Promise<Response>((resolve) => (release = () => resolve(json(event({ galleryStatus: "LIVE", accessVersion: 2 })))));
+      });
+      await mountApp(fakeAdminEnv().env, `/events/${ID}`);
+      await click(button("Rotate link"));
+      const confirm = button("Rotate link", dialog()!);
+      await click(confirm);
+      await click(confirm);
+      expect(mocked.calls.filter((c) => c.method === "POST")).toHaveLength(1);
+      expect(confirm.disabled).toBe(true);
+      expect(button("Cancel", dialog()!).disabled).toBe(true);
+      await settle(() => release());
+      expect(dialog()).toBeNull();
+    });
+
     it("delete asks first and names the 7-day window", async () => {
       mocked = server([event()]);
       await mountApp(fakeAdminEnv().env, `/events/${ID}`);

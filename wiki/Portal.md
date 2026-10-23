@@ -833,7 +833,9 @@ before and a day after the typed time and keeps the instant that reads back as e
 time the clocks skip (spring forward) is refused with a message; a repeated time (clocks back) takes the
 first occurrence. Changing only the zone on an edit moves the stored instants, because the admin sees and
 edits wall-clock times. An edit sends only the fields that changed, so the audit row's `fields` is the
-real edit. The server still checks the merged row (`endsAt >= startsAt`) and recomputes `uploads_until`.
+real edit; a start or end the admin didn't touch keeps its stored instant (re-deriving it from the
+wall-clock string would drop its seconds, and would turn the second 02:30 of a clocks-back night into
+the first). The server still checks the merged row (`endsAt >= startsAt`) and recomputes `uploads_until`.
 The browser's zone list uses its own names (Chrome lists `Asia/Calcutta`); a name workerd's ICU didn't
 know would be a 400 shown as "check the form" (**not seen**, but possible for exotic zones).
 
@@ -874,12 +876,16 @@ the last reported backlog, and the app version. It refreshes every 15 s while th
 when it becomes visible again, never two at a time (`refresh.ts`); each refresh is one admin request
 against Workers Free's daily limit, hence visible-only. A failed refresh keeps the last data and says so.
 
-The enrolment code is shown once, grouped (`ABCD-EFGH`), with a countdown from the server's
-`expiresAt`; it lives only in the `reveal` state of the devices view. Closing the dialog, or the code
-expiring, drops it: it is never put in the URL, history state, storage or the title, and the list
-(which never contains it) refreshing can't bring it back. Re-issuing for an enrolled booth asks first
-and says it re-enrols the tablet (redeeming replaces its credential, DESIGN §12); revoke asks first and
-says the booth is locked out at once.
+The enrolment code is shown once, grouped (`ABCD-EFGH`), with a 10-minute countdown that counts from when
+the code arrived (not the server's `expiresAt`, so a PC clock that is out can't show a fresh code as
+expired); it lives only in the `reveal` state of the devices view. Closing the dialog, or the deadline
+passing (the state is cleared then, not just hidden), drops it. A click on the dialog's backdrop does
+not close it (the code can't be shown again); Done and Escape do. It is never put in the URL, history state, storage or the title, and the list
+(which never contains it) refreshing can't bring it back. Re-issuing asks first for an enrolled booth (it says
+redeeming re-enrols the tablet, DESIGN §12) and for a booth whose code is still live (someone may be
+typing it in); a booth with neither gets the new code straight away. The button is disabled while the
+call is in flight, because each re-issue voids the code before it. Revoke asks first and says the booth
+is locked out at once.
 
 ### Errors
 

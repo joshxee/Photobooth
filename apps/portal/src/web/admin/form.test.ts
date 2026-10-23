@@ -120,6 +120,33 @@ describe("edit form", () => {
     expect(validateUpdate(form, existing)).toMatchObject({ ok: false, errors: { endsLocal: expect.stringContaining("after") } });
   });
 
+  it("leaves a time alone that wasn't edited, so an unrelated edit can't shift it", () => {
+    // The second 02:30 on 5 Apr 2026 in Auckland (the clocks went back): the wall-clock string alone
+    // would be read as the first one, an hour earlier.
+    const repeated = event({ startsAt: "2026-04-04T14:30:00.000Z", endsAt: "2026-04-04T20:00:00.000Z" });
+    expect(validateUpdate({ ...formFromEvent(repeated), name: "Renamed" }, repeated)).toEqual({ ok: true, body: { name: "Renamed" } });
+    // Seconds the form can't show are kept too.
+    const seconds = event({ startsAt: "2026-10-24T05:00:30.000Z" });
+    expect(validateUpdate({ ...formFromEvent(seconds), venue: "Elsewhere" }, seconds)).toEqual({ ok: true, body: { venue: "Elsewhere" } });
+  });
+
+  it("does send a time the admin did edit, and both when the zone changes", () => {
+    const seconds = event({ startsAt: "2026-10-24T05:00:30.000Z" });
+    const edited = validateUpdate({ ...formFromEvent(seconds), startsLocal: "2026-10-24T19:00" }, seconds);
+    expect(edited).toEqual({ ok: true, body: { startsAt: "2026-10-24T06:00:00.000Z" } });
+  });
+
+  it("an untouched start still counts in the order check against an edited end", () => {
+    const e = event();
+    expect(validateUpdate({ ...formFromEvent(e), endsLocal: "2026-10-24T17:59" }, e)).toMatchObject({ ok: false, errors: { endsLocal: expect.any(String) } });
+  });
+
+  it("an event stored with a photo limit of 0 can still be edited", () => {
+    const zero = event({ photoLimit: 0 });
+    expect(validateUpdate({ ...formFromEvent(zero), name: "Renamed" }, zero)).toEqual({ ok: true, body: { name: "Renamed" } });
+    expect(validateCreate({ ...valid, photoLimit: "0" }).ok).toBe(false);
+  });
+
   it("can clear the venue", () => {
     expect(validateUpdate({ ...formFromEvent(existing), venue: "" }, existing)).toEqual({ ok: true, body: { venue: "" } });
   });
