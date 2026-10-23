@@ -3,7 +3,6 @@ import { LIMITS } from "../../shared/schemas";
 import {
   ENROL_CODE_TTL_MS,
   enrolCodeExpiresAt,
-  enrolRateKey,
   HEARTBEAT_INTERVAL_MS,
   heartbeatDue,
   parseAppVersion,
@@ -96,16 +95,5 @@ describe("parseBearer", () => {
     ]) {
       expect(parseBearer(bad)).toBeNull();
     }
-  });
-});
-
-describe("enrolRateKey", () => {
-  it("keys IPv4 by address and IPv6 by its /64, so rotating within one prefix doesn't help", () => {
-    expect(enrolRateKey("198.51.100.7")).toBe("enrol:198.51.100.7");
-    expect(enrolRateKey("2001:db8:1:2:aaaa::1")).toBe("enrol:2001:db8:1:2::/64");
-    expect(enrolRateKey("2001:DB8:1:2:ffff:ffff:ffff:ffff")).toBe("enrol:2001:db8:1:2::/64");
-    expect(enrolRateKey("2001:db8::1")).toBe("enrol:2001:db8:0:0::/64");
-    expect(enrolRateKey("::1")).toBe("enrol:0:0:0:0::/64");
-    expect(enrolRateKey(undefined)).toBe("enrol:unknown");
   });
 });

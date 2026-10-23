@@ -125,16 +125,20 @@ benefit. Staging's synthetic traffic barely touches the free allowances.
   resources are deleted afterwards.
 - Set billing notifications as in section 15.
 
-**Domain.** The domain will most likely be a **`.co.nz`**, not yet registered. Register it
-before the first event and run its DNS on Cloudflare (the Free zone plan is enough).
-- Cloudflare Registrar does not sell `.nz` domains at the time of writing (check when buying).
-  Register with an InternetNZ-authorised registrar, then add the domain to Cloudflare and change
-  its nameservers to the two Cloudflare gives you.
-- Enable DNSSEC in Cloudflare, then add the DS record at the registrar. `.nz` supports DNSSEC.
-- Turn on registrar lock and auto-renew, and use a business-owned email as the registrant
-  contact.
-- Allow up to 24 hours for the nameserver change before the staging Access app and routes can
-  be created. Do this at least a week before the pilot event.
+**Domain.** **`knockbox.nz`**, registered on 2026-10-21 with Cloudflare Registrar (which now sells
+`.nz`). Its DNS runs on Cloudflare (the Free zone plan is enough). The step-by-step record is
+SETUP.md C.
+- It was registered in a personal Cloudflare account, because the business email (which the
+  business account logs in with) needed the domain first. Workers Custom Domains and Access
+  apps need the zone in the same account as the Worker, so the registration is moved to the
+  business account with Cloudflare Registrar's inter-account move. That move needs the domain to
+  be more than 10 days old and DNSSEC off, copies no DNS records or settings, and transfer-locks
+  the domain for 30 days afterwards.
+- Cloudflare Registrar domains always use Cloudflare nameservers; there is no nameserver change
+  at a registrar. Enable DNSSEC from **Manage Domains → Configuration** (Registrar publishes the
+  DS itself, within 1–2 days).
+- Registrar lock and auto-renew on; the registrant contact is the business email.
+- Do this at least a week before the pilot event.
 - **The design does not depend on the TLD.** Hostnames are Wrangler variables (`GALLERY_HOST`,
   `ADMIN_HOST`) and routes, and nothing in code or the booth hard-codes a domain. The booth's
   portal URL is an operator setting with a build-time default for each environment. Choosing `.com` instead changes only where you register
@@ -242,7 +246,8 @@ audit(id, at, actor, action, event_id, target_id, detail)   -- INDEX(event_id, a
   A single statement is atomic on D1, so no reservation or reconcile step is needed.
 - Admins come from the Worker variable `ADMIN_EMAILS` plus the Access policy. There is no
   admins table.
-- Migrations are additive only, applied with `wrangler d1 migrations apply`.
+- Migrations are additive only, applied with `wrangler d1 migrations apply`. Replacing an index
+  (no data or column changes, as in `0002`) is allowed.
 - Refinements made when the schema was written (session 03, `apps/portal/migrations/0001_init.sql`):
   - `retention_until` is named `uploads_until`, because it only closes uploads (D15).
   - IDs are UUIDv7 (time-ordered). Times are exactly `toISOString()` text (UTC, milliseconds),
@@ -260,6 +265,10 @@ audit(id, at, actor, action, event_id, target_id, detail)   -- INDEX(event_id, a
   - `photos.event_id` is `ON DELETE CASCADE`, so purging an event row removes its photo rows.
     `audit` has no foreign key, so it outlives the event it describes.
   - Index names: `photos_gallery`, `photos_session`, `audit_event_at`, `audit_at`.
+- Session 11 (`migrations/0002_photos_session_index.sql`): `photos_session` is
+  `(event_id, session_id, state, hidden, published_at, id)`, not `(event_id, session_id)`. With the
+  narrow index SQLite read every READY photo of the event for a session page, and the post-shoot
+  view polls that page every 10 s (D1 bills rows read; wiki/Portal.md → "Guest access").
 
 ## 7. Storage layout and lifecycle (one private bucket)
 
@@ -531,6 +540,20 @@ day 1 to preserve this.
   the postal address, because removal requests need a prompt channel. Deployment fails if either
   variable is empty.
 - **Accessibility**: keyboard-operable grid and lightbox, labelled controls, WCAG 2.2 AA target.
+- **Refinements (session 11)**, reasons in wiki/Portal.md → "Guest access and the gallery API":
+  - The cookie value is `{eventId}.{accessVersion}.{exp}.{sig}`, the MAC over
+    `eventId|accessVersion|exp` as above, so its signature is checked before any D1 read.
+    `Max-Age` 30 days, not sliding.
+  - Every refusal of the session swap and of the cookie check is the same `404 not_found`
+    (`no-store`); the cookie check's refusals also clear the cookie. Exceptions that reveal nothing
+    about an event: `429 rate_limited` (`Retry-After: 60`) from `SESSION_LIMITER`, 60 a minute per
+    IP (IPv6 by /64), checked first; `400 invalid_request` for a bad list query behind a valid cookie.
+  - Suspension then publish restores the same links and cookies; only rotation revokes them.
+  - `eventOpen` = the event accepts uploads now (OPEN, not deleted, before `uploads_until`).
+  - Download filename: `<event-slug>-<sessionId>-<shot>.jpg`, slug ASCII `a-z0-9-` (≤ 40, `photo`
+    if empty). Only `download=1` triggers it.
+  - Media refusals are `no-store`. A list page reads 1 event row and at most 26 photo rows
+    (page + lookahead + cursor boundary), a media request 2 rows.
 
 ## 12. Admin portal
 
@@ -617,7 +640,7 @@ The full model, including the event-day request and D1 estimates, is in
 | R2 operations (≈ 4k Class A, ≈ 0.1–0.2 M Class B; 1 M / 10 M free) | 0.00 | 0.00 |
 | D1 (≤ 1.5 M rows read on an event day; 5 M/day free) | 0.00 | 0.00 |
 | Images | not used | not used |
-| Domain (`.co.nz`, about NZD 30/year) | ≈ 1.50 | ≈ 1.50 |
+| Domain (`knockbox.nz`, about NZD 30/year) | ≈ 1.50 | ≈ 1.50 |
 | **Total** | **≈ 1.50** | **≈ 6.50** |
 
 - **Free is a hard ceiling, not a bill.** Going over 100,000 requests/day, or over D1's daily
@@ -705,13 +728,13 @@ The full model, including the event-day request and D1 estimates, is in
 
 ## 20. Open questions
 
-1. Final domain name (expected `.co.nz`). It is needed before staging Access is set up
-   (phase 1), but not for the spike or local development.
+None open.
 
 Resolved:
+- Domain: `knockbox.nz` (2026-10-21; SETUP.md C).
 - D3: cancelled sessions do not upload.
 - D9: the share token is stored retrievably.
-- TLD: probably `.co.nz`. The design does not depend on it (section 4.1).
+- TLD: `.nz`. The design does not depend on it (section 4.1).
 - Post-shoot QR opens the guest's session; admins can also generate an event-wide QR.
 - Contact address: 34b Malvern Road, Morningside, Auckland, plus `privacy@<domain>`.
 - Environments: one dedicated business account with separate staging and production

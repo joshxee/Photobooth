@@ -33,8 +33,10 @@ export function getEvent(db: D1Database, id: string): Promise<EventRow | null> {
   return db.prepare(`SELECT ${COLUMNS} FROM events WHERE id = ?`).bind(id).first<EventRow>();
 }
 
-export function getEventByPublicId(db: D1Database, publicId: string): Promise<EventRow | null> {
-  return db.prepare(`SELECT ${COLUMNS} FROM events WHERE public_id = ?`).bind(publicId).first<EventRow>();
+/** The guest routes' lookup (one row, by the UNIQUE index), with the rows D1 read for the access log. */
+export async function getEventByPublicId(db: D1Database, publicId: string): Promise<{ event: EventRow | null; rowsRead: number }> {
+  const { results, meta } = await db.prepare(`SELECT ${COLUMNS} FROM events WHERE public_id = ?`).bind(publicId).all<EventRow>();
+  return { event: results[0] ?? null, rowsRead: meta.rows_read };
 }
 
 /** Admin list: every event, deleted ones included (they can be restored), newest start first. */

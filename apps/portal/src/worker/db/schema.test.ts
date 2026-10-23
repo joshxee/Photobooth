@@ -59,7 +59,8 @@ describe("0001_init: columns match DESIGN §6", () => {
 
   it("has the indexes from DESIGN §6", async () => {
     expect(await indexColumns("photos_gallery")).toEqual(["event_id", "state", "hidden", "published_at", "id"]);
-    expect(await indexColumns("photos_session")).toEqual(["event_id", "session_id"]);
+    // Widened by 0002 to cover the session filter's order (session 11).
+    expect(await indexColumns("photos_session")).toEqual(["event_id", "session_id", "state", "hidden", "published_at", "id"]);
     expect(await indexColumns("audit_event_at")).toEqual(["event_id", "at"]);
     expect(await indexColumns("audit_at")).toEqual(["at"]);
   });
@@ -74,6 +75,19 @@ describe("0001_init: columns match DESIGN §6", () => {
       .all<{ detail: string }>();
     const plan = results.map((r) => r.detail).join("\n");
     expect(plan).toContain("photos_gallery");
+    expect(plan).not.toContain("TEMP B-TREE");
+  });
+
+  it("the session filter uses the session index (0002)", async () => {
+    const { results } = await db
+      .prepare(
+        `EXPLAIN QUERY PLAN SELECT id FROM photos WHERE event_id = ? AND state = 'READY' AND hidden = 0 AND session_id = ?
+         ORDER BY published_at DESC, id DESC LIMIT 25`,
+      )
+      .bind("e", "s")
+      .all<{ detail: string }>();
+    const plan = results.map((r) => r.detail).join("\n");
+    expect(plan).toContain("photos_session");
     expect(plan).not.toContain("TEMP B-TREE");
   });
 });
