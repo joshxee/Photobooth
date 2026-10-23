@@ -407,7 +407,8 @@ Refinements made when the path was built (session 06; the reasons are in `wiki/P
 | Network error, 429, 5xx, 202 | Retry with jittered exponential backoff (1 s → 5 min cap), honouring `Retry-After` |
 | Upload URL expired | Re-POST the intent (same `clientPhotoId`) for a fresh URL |
 | 422 hash mismatch | Retry at most 3 times, then needs attention |
-| 401/403 (revoked), 409 event_closed or limit, 422 invalid image | **Needs attention**: the variants are kept and shown to the operator; no automatic retry. A 422 invalid image from the booth's own encoder is a booth bug |
+| 401 (revoked device) | **Paused** (session 10): the whole loop stops, items stay queued untouched and the operator sees that the portal refused the booth; enrolling again resumes them. Per item it would have stranded the whole backlog in needs attention |
+| 403 (upload URL not valid), 409 event_closed or limit, 422 invalid image | **Needs attention**: the variants are kept and shown to the operator; no automatic retry. A 422 invalid image from the booth's own encoder is a booth bug |
 
 ### 9.4 Upload through the Worker: is it best practice, and will we have to change it?
 
@@ -495,7 +496,9 @@ day 1 to preserve this.
    - The existing post-shoot text is open for redesign.
 5. **Operator status**: counts of queued, uploading and needs-attention items, an offline badge,
    and a needs-attention list with the reason and retry/dismiss actions. Dismiss deletes the
-   local copy only after confirmation; the SD card still has it.
+   local copy only after confirmation; the SD card still has it. (Session 10: a badge on the
+   camera picker, the operator's landing screen, never on guest screens; a revoked flag and a
+   low-storage warning; shots the encoder couldn't process are listed once, dismiss only.)
 
 ## 11. Guest gallery
 

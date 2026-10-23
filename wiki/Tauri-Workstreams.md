@@ -45,7 +45,8 @@ Pinned precisely in the per-step pages; the names below are the stable seams.
 
 ## Rules that cut across pieces
 
-- Photos are never written to disk by any crate (only `PhotoStore`, in memory).
+- Photos are never written to disk by any crate (only `PhotoStore`, in memory), except the
+  portal outbox's variants until READY (see `Booth-Upload.md`).
 - Commands are least-privilege: `test_inject` and `logs_recent` are reachable only via the
   `dev` capability, never in a release build.
 - Hard-code `Wry`; do not make commands generic over `R: Runtime`.
