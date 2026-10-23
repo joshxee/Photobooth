@@ -117,6 +117,16 @@ export function App({ env = browserEnv }: { env?: PollerEnv }) {
     return () => poller.stop();
   }, [phase, eventOpen, view.session, boothSession, publicId, env]);
 
+  // A new link opened in this tab (another booth QR) changes only the fragment, which reloads
+  // nothing: start again from it.
+  useEffect(() => {
+    const onHash = () => {
+      if (parseLink(location.pathname, location.search, location.hash)?.token) location.reload();
+    };
+    window.addEventListener("hashchange", onHash);
+    return () => window.removeEventListener("hashchange", onHash);
+  }, []);
+
   // Back and Forward: the view comes from the URL, the open photo from history.state.
   useEffect(() => {
     const onPop = (e: PopStateEvent) => {

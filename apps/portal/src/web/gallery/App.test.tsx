@@ -92,6 +92,23 @@ describe("link handling", () => {
     expect(document.body.innerHTML).toBe(refusedCookie);
   });
 
+  it("starts again when a new link's fragment arrives in the same tab", async () => {
+    await render(`/e/${PUBLIC}`, () => json(page([a1])));
+    let reloads = 0;
+    const original = location.reload;
+    location.reload = () => void reloads++;
+    try {
+      setUrl(`/e/${PUBLIC}#s=a-1`);
+      await act(async () => window.dispatchEvent(new HashChangeEvent("hashchange")));
+      expect(reloads).toBe(0);
+      setUrl(`/e/${PUBLIC}#k=new&s=a-1`);
+      await act(async () => window.dispatchEvent(new HashChangeEvent("hashchange")));
+      expect(reloads).toBe(1);
+    } finally {
+      location.reload = original;
+    }
+  });
+
   it("shows the unavailable page for a path that isn't an event, with no request", async () => {
     const { calls } = await render("/e/", () => json(page([])));
     expect($("h1")?.textContent).toBe("This gallery isn't available");
@@ -139,21 +156,21 @@ describe("live updates", () => {
   it("polls every 30 s while visible, stops while hidden, and polls once when visible again", async () => {
     const { calls, env } = await render(`/e/${PUBLIC}`, () => json(page([a1])));
     expect(gets(calls)).toHaveLength(1);
-    await env.advance(30_000, settle);
+    await act(() => env.advance(30_000));
     expect(gets(calls)).toHaveLength(2);
     expect(calls.at(-1)?.url).toBe(`/e/${PUBLIC}/api/photos`);
-    await env.setVisible(false, settle);
-    await env.advance(300_000, settle);
+    await act(() => env.setVisible(false));
+    await act(() => env.advance(300_000));
     expect(gets(calls)).toHaveLength(2);
-    await env.setVisible(true, settle);
+    await act(() => env.setVisible(true));
     expect(gets(calls)).toHaveLength(3);
   });
 
   it("doesn't poll a gallery whose event no longer accepts uploads", async () => {
     const { calls, env } = await render(`/e/${PUBLIC}`, () => json(page([a1], { eventOpen: false })));
-    await env.advance(300_000, settle);
-    await env.setVisible(false, settle);
-    await env.setVisible(true, settle);
+    await act(() => env.advance(300_000));
+    await act(() => env.setVisible(false));
+    await act(() => env.setVisible(true));
     expect(gets(calls)).toHaveLength(1);
     expect(text()).not.toContain("Live");
   });
@@ -163,11 +180,11 @@ describe("live updates", () => {
     const { env } = await render(`/e/${PUBLIC}`, () => json(latest));
     expect($$("a.tile")).toHaveLength(2);
     latest = page([b1, a2, a1]);
-    await env.advance(30_000, settle);
+    await act(() => env.advance(30_000));
     expect($("button.pill")?.textContent).toBe("1 new photo");
     expect($$("a.tile")).toHaveLength(2);
     latest = page([b2, b1, a2, a1]);
-    await env.advance(30_000, settle);
+    await act(() => env.advance(30_000));
     expect($("button.pill")?.textContent).toBe("2 new photos");
     await click($("button.pill"));
     expect($("button.pill")).toBeNull();
@@ -189,7 +206,7 @@ describe("session view", () => {
     expect($$("a.shot")).toHaveLength(1);
     expect($$(".shot--waiting")).toHaveLength(2);
     latest = page([a2, a1]);
-    await env.advance(10_000, settle);
+    await act(() => env.advance(10_000));
     expect($$("a.shot")).toHaveLength(2);
     expect($$(".shot--waiting")).toHaveLength(1);
     expect($("button.pill")).toBeNull();
@@ -198,16 +215,16 @@ describe("session view", () => {
   it("polls every 10 s for its first 2 minutes, then every 30 s", async () => {
     const { calls, env } = await render(boothLink, route(() => page([a1])));
     const polls = () => gets(calls).length - 1;
-    await env.advance(120_000, settle);
+    await act(() => env.advance(120_000));
     expect(polls()).toBe(12);
-    await env.advance(60_000, settle);
+    await act(() => env.advance(60_000));
     expect(polls()).toBe(14);
   });
 
   it("drops the placeholders after 2 minutes without a count", async () => {
     const { env } = await render(`/e/${PUBLIC}#k=tok&s=a-1`, route(() => page([a1])));
     expect($$(".shot--waiting")).toHaveLength(1);
-    await env.advance(120_000, settle);
+    await act(() => env.advance(120_000));
     expect($$(".shot--waiting")).toHaveLength(0);
   });
 
