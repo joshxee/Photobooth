@@ -24,6 +24,14 @@ export interface LogFields {
   cron?: string;
   /** D1 rows the request read (guest routes), to watch the Workers Free daily row budget. */
   rowsRead?: number;
+  /** The daily retention job's counts (session 16): numbers only. */
+  purgedEvents?: number;
+  pendingEvents?: number;
+  deletedObjects?: number;
+  prunedAudit?: number;
+  failures?: number;
+  /** D1 and R2 calls in the run (Workers Free allows 50 an invocation). */
+  subrequests?: number;
 }
 
 const ALLOWED = new Set<string>([
@@ -41,6 +49,12 @@ const ALLOWED = new Set<string>([
   "errorName",
   "cron",
   "rowsRead",
+  "purgedEvents",
+  "pendingEvents",
+  "deletedObjects",
+  "prunedAudit",
+  "failures",
+  "subrequests",
 ] satisfies (keyof LogFields)[]);
 
 function stripQuery(path: string): string {

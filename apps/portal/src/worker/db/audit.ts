@@ -77,3 +77,28 @@ export function insertAuditIfEventAt(db: D1Database, a: AuditEntry, eventId: str
     )
     .bind(a.id, a.at, a.actor, a.action, a.event_id, a.target_id, a.detail === null ? null : JSON.stringify(a.detail), eventId, readAt);
 }
+
+/**
+ * The audit row for an event's purge, written by the retention job (actor `system`). It records the
+ * event's name and how many photo rows it had, since the event row is deleted right after it. Put it
+ * **before** `deleteEventIfPurgeDue` in the same `db.batch`: both match the event only while it is
+ * still deleted and past its undo, so a restored event leaves no audit row. No tokens or URLs.
+ */
+export function insertPurgeAuditIfDue(db: D1Database, a: { id: string; at: string }, eventId: string): D1PreparedStatement {
+  return db
+    .prepare(
+      `INSERT INTO audit (id, at, actor, action, event_id, target_id, detail)
+       SELECT ?1, ?2, 'system', 'event.purge', id, id,
+              json_object('name', name, 'photos', (SELECT COUNT(*) FROM photos WHERE event_id = events.id))
+       FROM events WHERE id = ?3 AND deleted_at IS NOT NULL AND purge_after <= ?2`,
+    )
+    .bind(a.id, a.at, eventId);
+}
+
+/**
+ * Deletes up to `rows` of the oldest audit rows with `at` before `cutoff` (the `audit_at` index
+ * orders them). Run it until `meta.changes < rows`; a repeat is harmless.
+ */
+export function pruneAudit(db: D1Database, cutoff: string, rows: number): D1PreparedStatement {
+  return db.prepare("DELETE FROM audit WHERE id IN (SELECT id FROM audit WHERE at < ? ORDER BY at LIMIT ?)").bind(cutoff, rows);
+}

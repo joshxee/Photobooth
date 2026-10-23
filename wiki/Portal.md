@@ -4,12 +4,12 @@ The guest web portal: one Cloudflare Worker in `apps/portal`. The behaviour spec
 [portal/DESIGN.md](./portal/DESIGN.md) and the build plan is [portal/README.md](./portal/README.md).
 This page records *why* the code is shaped the way it is, and is extended as each session lands.
 
-**Status (session 12):** the scaffold (02), the D1 schema, data layer, domain rules and shared
+**Status (sessions 12 and 16):** the scaffold (02), the D1 schema, data layer, domain rules and shared
 contract (03), admin authentication (Cloudflare Access JWT, verified in code) and the admin events
 API with audit rows (04), devices: the admin devices API, enrolment and the authenticated device
 events API (05), and the live-delivery path: the upload intent, the signed per-variant PUT, the JPEG
 header walk and `processPhoto()` (06), and the guest API: the token → cookie swap, the photo list
-and media (11), and the guest gallery SPA (12). **Nothing here has run on
+and media (11), the guest gallery SPA (12), and the daily retention job (16). **Nothing here has run on
 real Cloudflare or against a real Access application.** It is verified with Vitest in workerd (local
 D1 and R2, JWTs signed with a locally generated key), `wrangler dev` with `scripts/smoke.ts`,
 `wrangler d1 … --local`, `wrangler deploy --dry-run` and a browser against `wrangler dev` only.
@@ -106,7 +106,7 @@ production Worker `portal`; still, never deploy it, as its hosts are localhost. 
 `bun run types` (re-run it after editing `wrangler.jsonc`) and committed, so typecheck needs no Wrangler.
 
 The cron `0 14 * * *` is 14:00 UTC, which is 03:00 NZDT but 02:00 NZST, since cron has no time zone.
-The scheduled handler is a no-op that logs; retention arrives in session 16.
+The scheduled handler runs the retention job ("Retention and deletion" below).
 
 ## Local development
 
@@ -740,6 +740,75 @@ render, then the visible thumbnails. The "first grid under 2.5 s at 10 Mbps" tar
 **estimate** from these sizes, not a throttled measurement. **Not verified:** a real phone (13's
 once-over), iOS Share to Photos, real Cloudflare and HTTPS.
 
+## Retention and deletion (session 16)
+
+The daily job (`jobs/retention.ts`, rules and budget in `domain/retention.ts`) does two things and
+nothing else. **There is no photo expiry** (D15): photos and the gallery stay until an admin deletes the
+event, and `uploads_until` only closes uploads, which the intent route enforces.
+
+1. **Purge deleted events** whose 7-day undo has run out (`purge_after <= now`). The whole R2 prefix
+   `events/{eventId}/` is deleted (lists of up to 1,000 keys, then one batch delete of those keys), then
+   the event row, whose photo rows go with it (`ON DELETE CASCADE`), in one atomic `db.batch` with an
+   `event.purge` audit row (actor `system`, detail `{name, photos}`).
+2. **Prune audit rows** older than 90 days, 500 per statement, with an `audit.prune` row saying how many.
+
+Why a prefix delete: a deleted event's prefix holds more than its READY photos' objects. It also
+holds variants of PENDING and REJECTED photos, and anything written late. Deleting by prefix instead
+of by row makes all of them harmless. The trailing slash in the prefix keeps one event's prefix from
+matching another's. There is no `incoming/` prefix (D14).
+
+Why no object can arrive during the purge: from the deletion on, an intent or a PUT for the event is
+refused (409 `event_closed`), and an upload URL lives 15 minutes, so 7 days later nothing is in flight.
+The final batch is still guarded (`deleted_at IS NOT NULL AND purge_after <= now`) so an event
+restored in the meantime keeps its row and writes no audit row; the admin API itself refuses a restore
+once `purge_after` has passed (409), and a purged event is a 404. We keep the event's R2 objects only
+while it is restorable, so a restore that races the job in the same second is the one case that could
+lose a restorable event's photos (a clock edge, logged as `retention_event_restored`).
+
+**Why the event row is deleted rather than marked `purged_at`:** the audit row keeps the event's ID,
+name and photo count for 90 days (the `audit` table has no foreign key, so it outlives the event), so
+no extra column or migration is needed, and nothing else needs to read a purged event. Session 16
+therefore adds **no migration**.
+
+**Idempotent and resumable.** Each step can be repeated: listing an empty prefix and deleting a gone
+row do nothing. An event stays deleted until its prefix is empty, so the next day's run finds it again
+and carries on. State lives in the data, not in the job.
+
+**Work budget (Workers Free: 10 ms CPU, 50 subrequests, every D1 and R2 call counts).** Per run:
+at most 40 calls (10 left as headroom), 4 of them kept for the prune, 2,000 objects deleted (R2's CPU
+is per key), pages of at most 1,000 keys, 10 events started, at most 1,500 audit rows pruned. An
+event of 2,000 photos has 4,000 objects, so it takes three days; deleted events are rare, so the backlog
+is small. A run with nothing to do makes two calls. If any event fails (an R2 error), the others and
+the prune still run, the failure is logged (`retention_event_failed`, event ID and error name only), and
+the invocation then throws so it shows as an error in Observability; the next run resumes.
+
+**Logs** (DESIGN §15; allowlisted fields only, counts and IDs, never names, tokens or error messages):
+one `retention_run` line per run with `purgedEvents`, `pendingEvents`, `deletedObjects`,
+`prunedAudit`, `failures`, `subrequests`, `durationMs`, plus `retention_event_purged` per event.
+
+**Admin visibility.** The events API already returns `uploadsUntil`, `deletedAt` and `purgeAfter`, and
+refuses a restore after the purge date (409) and for a purged event (404). Showing "Uploads close on"
+and "Purges on" is the admin UI's (session 14, outside this session's allowed files).
+
+**Trigger locally:** `wrangler dev` serves `/cdn-cgi/handler/scheduled?cron=0+14+*+*+*&time=<epoch ms>`;
+`time` becomes the run's clock, so a deleted event can be purged without waiting 7 days. That makes it
+destructive: never trigger the handler with a future `time` on staging or production (a restore could race
+the job's object deletes); use it only on a local `wrangler dev`.
+
+### What was verified, and where
+
+Vitest in workerd (local D1 and R2): the purge boundary (the exact millisecond and one before), an
+event past `uploads_until` kept, a restored event kept, 2,500 objects across two runs, a full page,
+late and stray variants, a lookalike prefix untouched, the audit prune boundary and batching, an
+idempotent re-run, an R2 failure, a restore racing the final write, the subrequest count of every run
+(measured with counting wrappers and asserted equal to the job's own count and ≤ 40), and the log
+lines. The same job ran under `wrangler dev` via `/cdn-cgi/handler/scheduled`. **Unverified:** the
+CPU time of a full-budget run on Cloudflare (local workerd's timings mean nothing). The budget is a
+conservative guess; measure it on staging with `wrangler tail --format json` (the `cpuTime` of the
+scheduled event) with 2,000 objects waiting, and reduce `RETENTION_LIMITS.objects` if it is near 10 ms.
+Also unverified on real R2: that `list`'s `truncated` is false on an exactly full last page, and that
+the cron fires.
+
 ## Data model (D1)
 
 The schema is `migrations/0001_init.sql`: DESIGN §6 plus the refinements listed there. The
@@ -843,6 +912,7 @@ EOI only), so the header walk (session 06) accepts them and browsers display the
 
 ## Known limits
 
+- The retention job's CPU on Workers Free (10 ms) is unmeasured; see "Retention and deletion".
 - The health version is the `package.json` version. A git SHA arrives with the deploy workflow in session 07.
 - `ENROL_LIMITER` (session 05, 10 a minute per IP), `INTENT_LIMITER` (session 06, 120 a minute per
   device) and `SESSION_LIMITER` (session 11, 60 a minute per IP) have only run in the local
