@@ -19,6 +19,24 @@ this file first, so state facts and not intentions.
 
 ---
 
+## 16 — Retention and deletion — DONE — 2026-10-23
+- PR: #TBD (branch `portal/16-retention-deletion`)
+- **Unblocks 17.** Only the staging CPU measurement is open.
+- Built:
+  - `jobs/retention.ts` `runRetention(env, now)`, called by `scheduled()` with the trigger's time: purges deleted events with `purge_after <= now` (R2 prefix `events/{id}/` in lists of ≤ 1,000 keys + batch delete, then `DELETE FROM events` and an `event.purge` audit row in one atomic batch, both guarded by "still deleted and due"; photo rows cascade) and prunes audit rows older than 90 days (500 per statement, then an `audit.prune` row). Actor `system`. No migration: the event row is deleted and the audit row keeps its ID, name and photo count.
+  - `domain/retention.ts` (pure): `dueForPurge`, `auditCutoff`, `RETENTION_LIMITS` and `RunBudget`. Per run: ≤ 40 D1/R2 calls (Free allows 50), 4 reserved for the prune, ≤ 2,000 objects deleted, ≤ 10 events, ≤ 1,500 audit rows. Unfinished events continue the next day. One failing event is logged (`retention_event_failed`, ID and error name) and doesn't stop the others or the prune; the invocation then throws so Observability shows it.
+  - `eventPrefix()` in `domain/media.ts`; `listDeletedEvents`, `deleteEventIfPurgeDue`, `insertPurgeAuditIfDue`, `pruneAudit` in `db/`; the log allowlist gains the run's counts (`purgedEvents`, `pendingEvents`, `deletedObjects`, `prunedAudit`, `failures`, `subrequests`).
+- Verified: `bun run typecheck`, `bun run test` (600 Vitest in workerd, 35 new), `bun run build`, on the Windows dev PC under `fnm exec --using=22.11.0`. Tests: the purge boundary (exact ms and 1 ms before), an event past `uploads_until` kept, a restored event kept, restore 409 when due and 404 once purged, 2,500 objects over two runs (delete sizes 1000, 1000, then 500), exactly one full page, strays/late/PENDING/REJECTED variants removed, a lookalike prefix and another event untouched, audit prune boundary/batches/own row, idempotent re-run, an R2 failure then resume, a restore racing the final write, the real count of D1 and R2 calls per run (counting wrappers) ≤ 40 and equal to the job's own count over a 30-event backlog, log lines with no names or tokens. Mutations each caught (due filter, prefix slash, prune `<=`, unguarded delete, object budget, single page). `wrangler dev --port 8790` (8787 was another session's): deleted a seeded event through the admin API, `/cdn-cgi/handler/scheduled` before the date did nothing, with `time=` +8 days it purged the event (4 objects, 5 calls, `event.purge` + `audit.prune` rows, a second trigger did nothing). **NOT verified:** CPU of a full-budget run on Cloudflare (budget is a conservative guess; measure with `wrangler tail --format json` on staging with 2,000 objects queued and lower `RETENTION_LIMITS.objects` if near 10 ms), the cron firing, real R2's `truncated` on an exactly full last page.
+- Device check: n/a
+- Deviations from DESIGN.md: DESIGN §14 gains a refinements paragraph (row deleted not marked, bounded per run). The session file's admin item ("Uploads close on" / "Purges on" in the UI) is **not done here**: the API already returns `uploadsUntil`/`purgeAfter` and refuses restore after the purge, but `src/web` is off limits to this session. Subrequests: the session file said 1,000, the run is sized for 50.
+- Wiki updated: `wiki/Portal.md` (new "Retention and deletion"), `wiki/portal/DESIGN.md` (§14), session file ticks.
+- Notes for next sessions:
+  - **14:** show `uploadsUntil` ("Uploads close on") and, for deleted events, `purgeAfter` ("Purges on"); restore is already refused after that date.
+  - **07/17:** the trigger is the existing `0 14 * * *`. On staging delete an event, wait or move its `purge_after` back with `wrangler d1 execute`, run the cron (or wait), and record the scheduled event's CPU from `wrangler tail --format json`. Tests don't need `.dev.vars`.
+  - **Local:** `/cdn-cgi/handler/scheduled?cron=0+14+*+*+*&time=<epoch ms>` under `wrangler dev` sets the job's clock.
+
+---
+
 ## 10 — Booth upload loop and operator status — DONE — 2026-10-23
 - PR: #30 (branch `portal/10-booth-upload-status`)
 - Built:
