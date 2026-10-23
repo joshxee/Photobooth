@@ -1,0 +1,48 @@
+<!doctype html>
+<!--
+  Booth post-shoot screen (tablet, 1280×800 CSS px, landscape), exported on 2026-10-23 from the
+  user's claude.ai Design canvas "Photobooth Guest Portal" (artboard BoothQR, canvas version
+  1792720292-bf54). Session 13 builds it. The QR is the canvas's decorative stand-in, not a
+  scannable code; the real one comes from the booth's `qrcode` crate. The canvas shows 4 photos;
+  the booth's default is 3 (`number_of_photos`).
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Booth screen after a session</title>
+<link href="https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;600;700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#E9EAEC;padding:48px}
+</style>
+</head>
+<body>
+<div style="width:1280px;height:800px;box-sizing:border-box;background:#0B0B0C;color:#FFFFFF;font-family:'Figtree',system-ui,sans-serif;display:flex;align-items:center;gap:80px;padding:64px 96px">
+  <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;width:440px;flex-shrink:0">
+    <div role="img" aria-label="Photo 1" style="aspect-ratio:2/3;border-radius:12px;background:#B7C4D6"></div>
+    <div role="img" aria-label="Photo 2" style="aspect-ratio:2/3;border-radius:12px;background:#D9CBBE"></div>
+    <div role="img" aria-label="Photo 3" style="aspect-ratio:2/3;border-radius:12px;background:#A9B5A2"></div>
+    <div role="img" aria-label="Photo 4" style="aspect-ratio:2/3;border-radius:12px;background:#CDB9C7"></div>
+  </div>
+  <div style="flex-grow:1;display:flex;flex-direction:column;align-items:flex-start;gap:32px">
+    <div style="display:flex;flex-direction:column;gap:12px">
+      <h1 style="margin:0;font-size:56px;line-height:1.05;font-weight:700;letter-spacing:-.02em">Scan for your photos</h1>
+      <p style="margin:0;font-size:22px;line-height:1.4;color:#B3B7BD">Opens on your phone. Save them or share them, no app needed.</p>
+    </div>
+    <div style="width:280px;height:280px;padding:20px;box-sizing:border-box;border-radius:24px;background:#FFFFFF">
+      <svg viewBox="0 0 21 21" width="240" height="240" role="img" aria-label="QR code for this session's photos" shape-rendering="crispEdges">
+        <g fill="#0B0B0C">
+          <path d="M0 0h7v7H0zM1 1v5h5V1zM2 2h3v3H2z" fill-rule="evenodd"/>
+          <path d="M14 0h7v7h-7zM15 1v5h5V1zM16 2h3v3h-3z" fill-rule="evenodd"/>
+          <path d="M0 14h7v7H0zM1 15v5h5v-5zM2 16h3v3H2z" fill-rule="evenodd"/>
+          <path d="M8 0h1v1H8zM10 1h2v1h-2zM9 3h1v2H9zM11 4h2v1h-2zM8 6h1v1H8zM10 6h1v2h-1zM12 7h1v1h-1zM0 8h2v1H0zM3 8h1v2H3zM5 9h2v1H5zM8 8h2v1H8zM11 9h3v1h-3zM15 8h1v2h-1zM17 8h2v1h-2zM20 9h1v2h-1zM1 10h1v2H1zM6 11h2v1H6zM9 10h1v3H9zM12 11h1v1h-1zM14 11h2v1h-2zM18 10h1v2h-1zM0 12h1v1H0zM4 12h2v1H4zM10 12h2v1h-2zM16 12h2v2h-2zM8 14h2v1H8zM11 14h1v2h-1zM13 13h2v1h-2zM19 13h2v1h-2zM8 16h1v2H8zM10 17h3v1h-3zM14 15h2v1h-2zM17 15h1v2h-1zM19 16h2v1h-2zM9 19h2v1H9zM12 19h1v2h-1zM14 18h3v1h-3zM18 18h1v1h-1zM15 20h2v1h-2zM19 20h2v1h-2z"/>
+        </g>
+      </svg>
+    </div>
+    <div style="display:flex;align-items:center;gap:24px;font-size:18px;color:#B3B7BD">
+      <span>Back to the start in 20 s</span>
+      <button type="button" style="height:56px;padding:0 28px;border:1.5px solid #3A3D42;border-radius:28px;background:#1C1D20;color:#FFFFFF;font:inherit;font-size:18px;font-weight:600;cursor:pointer">Done</button>
+    </div>
+  </div>
+</div>
+</body>
+</html>
