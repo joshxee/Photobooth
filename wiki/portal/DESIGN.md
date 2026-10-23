@@ -600,6 +600,11 @@ day 1 to preserve this.
 | Audit | 90 days | Daily cron |
 | D1 history | 30 days | D1 Time Travel (automatic) |
 
+Refinements (session 16): the daily job deletes the purged event's row instead of marking it (the
+`event.purge` audit row keeps its ID, name and photo count, so there is no migration), prunes audit rows
+in batches, and is bounded per run (40 D1/R2 calls, 2,000 objects, 10 events) so it fits Workers Free;
+anything unfinished continues the next day. See `wiki/Portal.md` → "Retention and deletion".
+
 Removal requests are handled with "Delete permanently" in admin, which removes the variants
 immediately, plus erasing the SD-card file. Guests see the privacy notice at the booth and in
 the gallery. NZ privacy review and the hosting-location disclosure remain the business's

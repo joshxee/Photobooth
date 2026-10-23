@@ -2,8 +2,13 @@
 // retried upload overwrites the same object, and purging an event is one prefix delete.
 import type { Variant } from "../../shared/schemas";
 
+/** Every object of an event lives under this prefix; the slash keeps `events/e1/` from matching `events/e10/`. */
+export function eventPrefix(eventId: string): string {
+  return `events/${eventId}/`;
+}
+
 export function variantKey(eventId: string, photoId: string, variant: Variant): string {
-  return `events/${eventId}/${photoId}/${variant}.jpg`;
+  return `${eventPrefix(eventId)}${photoId}/${variant}.jpg`;
 }
 
 /** The slug part of a download filename, at most this long. */

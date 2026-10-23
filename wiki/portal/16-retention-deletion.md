@@ -54,10 +54,10 @@ bunx wrangler dev --test-scheduled   # curl "http://localhost:8787/__scheduled?c
 ```
 
 ## Done when
-- [ ] Every row in DESIGN §14 that the system enforces has a test.
-- [ ] A purge of more than 1,000 objects is proven to resume across runs.
-- [ ] Any migration 0002 is additive and applied by the staging deploy.
-- [ ] A full-budget run's CPU on staging is recorded and under the Workers Free 10 ms, or the
+- [x] Every row in DESIGN §14 that the system enforces has a test.
+- [x] A purge of more than 1,000 objects is proven to resume across runs.
+- [x] No migration was needed (the event row is deleted; the audit row is the trail).
+- [ ] (open, needs staging: session 07/17) A full-budget run's CPU on staging is recorded and under the Workers Free 10 ms, or the
       budget is reduced until it is.
 
 ## Hand-off
