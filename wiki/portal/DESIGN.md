@@ -496,8 +496,9 @@ day 1 to preserve this.
    - No event selected or not enrolled: nothing is queued, and the booth works as it does today
      (SD archive).
    - **Test-mode (mock camera) shots are never queued.**
-4. **Post-shoot screen**: a **session QR** for `galleryUrl#k=…&s={sessionId}`, rendered on the
-   booth with the Rust `qrcode` crate.
+4. **Post-shoot screen**: a **session QR** for `galleryUrl#k=…&s={sessionId}&n={shots}`, rendered
+   on the booth with the Rust `qrcode` crate. (`&n`, the session's shot count, added in session 12:
+   the gallery sizes its placeholders from it.)
    - The gallery opens filtered to this session and shows placeholders until the shots are
      READY, typically within seconds.
    - A "See all event photos" link clears the filter. The session ID only narrows the view; the
@@ -554,6 +555,20 @@ day 1 to preserve this.
     if empty). Only `download=1` triggers it.
   - Media refusals are `no-store`. A list page reads 1 event row and at most 26 photo rows
     (page + lookahead + cursor boundary), a media request 2 rows.
+- **Gallery UI (session 12)**, reasons in wiki/Portal.md → "Guest gallery UI":
+  - The link may carry `&n={shots}` (1–10) after `&s`; it sizes the session view's placeholders.
+    Without it, one placeholder shows. Placeholders show for the first 2 minutes only. The SPA replaces the address with
+    `/e/{publicId}[?s=…&n=…]` before the swap answers.
+  - Only the booth session's view (opened with `#k` and `&s`) polls at 10 s; a session opened from
+    the event view polls at 30 s. Polling jitter is ±10 %.
+  - No arrive screen or human check: the link opens the gallery (decided with the owner on
+    2026-10-23; a check would need Turnstile, a third-party script and more requests, and the
+    128-bit token plus `SESSION_LIMITER` are the protection).
+  - The viewer offers Share only where the browser can share files (the Web Share API, no named
+    targets, never the link): on iPhone it is the way to save to Photos. No "save all" (§2).
+  - Photos are grouped by booth session, headed by the session's time and count; no session
+    number, venue or total count (the API has none, and a total would cost D1 reads per poll).
+  - Fonts are Geist, self-hosted (CSP).
 
 ## 12. Admin portal
 

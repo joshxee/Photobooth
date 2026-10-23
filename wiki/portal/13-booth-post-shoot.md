@@ -23,7 +23,8 @@ post-shoot copy is redesigned for live delivery.
    - If the gallery is not LIVE, there is no QR code, and the copy falls back to "Your photos
      will be in the event gallery".
 2. **QR rendering** in Rust with the `qrcode` crate: a command `portal_session_qr{session_id}`
-   returns an SVG string for `galleryUrl` with `&s={session_id}` appended to the fragment. It
+   returns an SVG string for `galleryUrl` with `&s={session_id}&n={shots}` appended to the
+     fragment (`n` = the session's shot count; session 12's gallery sizes its placeholders from it). It
    is least-privilege: it returns only the SVG, never the raw token separately.
 3. **Post-shoot screen** (`StripReview`), per the design starter:
    - The strip as today, plus a QR code large enough to scan from about 1 m (at least 300 px on
