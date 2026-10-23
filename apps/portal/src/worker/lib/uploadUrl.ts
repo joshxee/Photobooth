@@ -8,7 +8,7 @@
 // The booth treats the descriptor as opaque (method, url, headers, expiresAt), so `UploadSigner`
 // is the seam where SigV4 presigning for R2 can replace this without an app release (§9.4).
 import type { UploadDescriptor, Variant } from "../../shared/schemas";
-import { timingSafeEqual } from "../domain/tokens";
+import { hmacBase64url, timingSafeEqual } from "../domain/tokens";
 
 export const UPLOAD_URL_TTL_SECONDS = 15 * 60;
 /** UPLOAD_KEY must be at least this long (a random 32-byte value, base64 or hex encoded). */
@@ -29,13 +29,8 @@ export interface UploadSigner {
 
 export type UrlVerdict = "valid" | "invalid" | "expired";
 
-const encoder = new TextEncoder();
-
-async function hmac(key: string, message: string): Promise<string> {
-  if (key.length < MIN_KEY_LENGTH) throw new Error("UPLOAD_KEY is missing or too short");
-  const cryptoKey = await crypto.subtle.importKey("raw", encoder.encode(key), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
-  const mac = new Uint8Array(await crypto.subtle.sign("HMAC", cryptoKey, encoder.encode(message)));
-  return btoa(String.fromCharCode(...mac)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+function hmac(key: string, message: string): Promise<string> {
+  return hmacBase64url(key, message, "UPLOAD_KEY", MIN_KEY_LENGTH);
 }
 
 function message(t: UploadTarget, exp: number): string {

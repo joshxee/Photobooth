@@ -1,5 +1,7 @@
 // End-to-end smoke test of the live-delivery path (session 06): create and open an event and a
-// device on the admin host, enrol, declare a photo, PUT both variants, and expect READY.
+// device on the admin host, enrol, declare a photo, PUT both variants, and expect READY. Then the
+// guest path (session 11): publish, swap the link's token for the cookie, list the photo, fetch both
+// variants and the download, and check that rotating the link locks the old cookie out.
 //
 //   fnm exec --using=22.11.0 -- node node_modules/wrangler/bin/wrangler.js dev --var DEV_AUTH:1
 //   bun run scripts/smoke.ts --base http://localhost:8787
@@ -74,6 +76,64 @@ interface Upload {
   headers: Record<string, string>;
 }
 
+/** A guest request on the photos host: returns the raw response after checking its status. */
+async function guest(path: string, init: RequestInit & { expect: number }): Promise<Response> {
+  const target = new URL(path, base);
+  const headers = new Headers(init.headers);
+  headers.set("Host", photosHost);
+  const res = await fetch(target, { ...init, headers });
+  const label = `${init.method ?? "GET"} ${target.pathname}${target.search}`;
+  if (res.status !== init.expect) throw new Error(`${label}: expected ${init.expect}, got ${res.status} ${await res.text()}`);
+  console.log(`ok  ${res.status} ${label}`);
+  return res;
+}
+
+async function guestPath(event: { id: string }, photoId: string, thumb: Uint8Array, hd: Uint8Array): Promise<void> {
+  const published = (await admin(`/api/events/${event.id}/publish`, {}, 200)) as { publicId: string; galleryUrl: string };
+  const link = new URL(published.galleryUrl);
+  const token = link.hash.replace(/^#k=/, "");
+  const prefix = link.pathname;
+
+  await guest(`${prefix}/api/session`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ token: "not-the-token" }),
+    expect: 404,
+  });
+  const session = await guest(`${prefix}/api/session`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ token }),
+    expect: 200,
+  });
+  const setCookie = session.headers.get("Set-Cookie") ?? "";
+  if (!setCookie.includes(`Path=${prefix};`) || !setCookie.includes("HttpOnly") || !setCookie.includes("Secure")) {
+    throw new Error(`session: unexpected Set-Cookie ${setCookie}`);
+  }
+  const cookie = setCookie.split(";")[0]!;
+
+  const page = (await (await guest(`${prefix}/api/photos`, { headers: { Cookie: cookie }, expect: 200 })).json()) as {
+    photos: { id: string }[];
+  };
+  if (page.photos[0]?.id !== photoId) throw new Error(`photos: expected ${photoId} first, got ${JSON.stringify(page.photos)}`);
+
+  for (const [variant, bytes] of [["thumb", thumb], ["hd", hd]] as const) {
+    const res = await guest(`${prefix}/m/${photoId}/${variant}`, { headers: { Cookie: cookie }, expect: 200 });
+    const body = new Uint8Array(await res.arrayBuffer());
+    if ((await sha256Hex(body)) !== (await sha256Hex(bytes))) throw new Error(`${variant}: served bytes differ from the upload`);
+    if (res.headers.get("Cache-Control") !== "private, max-age=31536000, immutable") throw new Error(`${variant}: Cache-Control`);
+  }
+  const download = await guest(`${prefix}/m/${photoId}/hd?download=1`, { headers: { Cookie: cookie }, expect: 200 });
+  await download.arrayBuffer();
+  if (!/^attachment; filename="[a-z0-9-]+-smoke-1-1\.jpg"$/.test(download.headers.get("Content-Disposition") ?? "")) {
+    throw new Error(`download: Content-Disposition ${download.headers.get("Content-Disposition")}`);
+  }
+
+  await admin(`/api/events/${event.id}/rotate-link`, {}, 200);
+  await guest(`${prefix}/api/photos`, { headers: { Cookie: cookie }, expect: 404 });
+  await guest(`${prefix}/m/${photoId}/thumb`, { headers: { Cookie: cookie }, expect: 404 });
+}
+
 async function main(): Promise<void> {
   const dir = new URL("./fixtures/", import.meta.url);
   const thumb = new Uint8Array(await Bun.file(new URL("booth-thumb.jpg", dir)).arrayBuffer());
@@ -125,7 +185,9 @@ async function main(): Promise<void> {
 
   const again = (await device("/v1/device/photos", intent, 200, credential)) as { state: string };
   if (again.state !== "READY") throw new Error(`re-intent: expected READY, got ${again.state}`);
-  console.log(`smoke passed: photo ${pending.photoId} READY in event ${event.id}`);
+
+  await guestPath(event, pending.photoId, thumb, hd);
+  console.log(`smoke passed: photo ${pending.photoId} READY in event ${event.id} and served to a guest`);
 }
 
 try {
