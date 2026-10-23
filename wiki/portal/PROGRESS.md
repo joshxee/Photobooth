@@ -20,7 +20,7 @@ this file first, so state facts and not intentions.
 ---
 
 ## 12 — Gallery UI — DONE (pending design sign-off) — 2026-10-23
-- PR: #<n> (branch `portal/12-gallery-ui`)
+- PR: #32 (branch `portal/12-gallery-ui`)
 - Built:
   - `wiki/portal/design/` populated from the owner's claude.ai Design canvas (read with the Artifact tool): `gallery.html` (arrive, live gallery, viewer, session view, desktop), `post-shoot.html` (booth QR screen, for 13), `tokens.md`, and the README's gaps and decisions.
   - `src/web/gallery/`: `link.ts` (`#k`/`&s`/`&n` → clean `/e/{id}[?s=…&n=…]`), `api.ts` (swap, list, media URLs; 404 = unavailable, 429 = wait `Retry-After`), `feed.ts` (pages, the pending "N new" list, session groups, the stable 2 × 2 hero), `poller.ts` (30 s ± 10 %, 10 s for the booth session's first 2 minutes, visibility, never overlapping), `App.tsx` (one view + lightbox in `history.state`, no router), `Views.tsx` (event grid grouped by session, session view with placeholders and "See everyone's photos", footer with notice, removal mailto, address and email, the unavailable/busy/error pages), `Lightbox.tsx` (dark modal: HD, Download, Share only where files can be shared, swipe/arrows, Escape/Back, focus trap and restore, `inert` page), `gallery.css`.
