@@ -150,16 +150,25 @@ pub async fn portal_clear_event(state: State<'_, AppState>) -> CommandResult<Por
     state.portal_clear_event().await
 }
 
-/// Upload queue counts and flags; changes arrive as `portal://outbox` events.
+/// Upload queue counts and flags; changes arrive as `portal://outbox` events. It waits for
+/// the outbox's lock, which the upload loop holds across `fsync`s, and reads free space, so
+/// it runs on a blocking thread (a sync command would run on the main thread).
 #[tauri::command]
-pub fn outbox_status(state: State<'_, AppState>) -> OutboxStatus {
-    state.outbox_status()
+pub async fn outbox_status(state: State<'_, AppState>) -> CommandResult<OutboxStatus> {
+    let Ok(uploads) = state.uploads() else {
+        return Ok(state.outbox_status());
+    };
+    run_blocking(move || Ok(uploads.status())).await
 }
 
-/// The needs-attention list with reasons. IDs only, never image bytes.
+/// The needs-attention list with reasons. IDs only, never image bytes. Blocking, like
+/// `outbox_status`.
 #[tauri::command]
-pub fn outbox_items(state: State<'_, AppState>) -> Vec<OutboxEntry> {
-    state.outbox_items()
+pub async fn outbox_items(state: State<'_, AppState>) -> CommandResult<Vec<OutboxEntry>> {
+    let Ok(uploads) = state.uploads() else {
+        return Ok(state.outbox_items());
+    };
+    run_blocking(move || Ok(uploads.entries())).await
 }
 
 /// Queues a stopped upload again. Blocking file I/O, so it runs off the async workers.

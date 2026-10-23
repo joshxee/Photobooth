@@ -218,7 +218,12 @@ fn spawn_outbox_forwarder(app: &AppHandle, uploads: Arc<Uploads>) {
         let mut feed = uploads.status_feed();
         let mut last = None;
         loop {
-            let status = uploads.status();
+            // Off the async workers: it waits for the outbox's lock and reads free space.
+            let reader = uploads.clone();
+            let Ok(status) = tauri::async_runtime::spawn_blocking(move || reader.status()).await
+            else {
+                break;
+            };
             if last.as_ref() != Some(&status) {
                 let _ = handle.emit("portal://outbox", &status);
                 last = Some(status);

@@ -414,6 +414,7 @@ impl AppState {
         if let Err(err) = saved {
             // Half done is worse than not done: the operator retries with a new code.
             let _ = self.portal.unenrol().await;
+            self.enrolment_changed();
             return Err(err);
         }
         self.enrolment_changed();
