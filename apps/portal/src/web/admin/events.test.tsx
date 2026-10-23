@@ -286,7 +286,7 @@ describe("event detail", () => {
       expect(document.activeElement?.textContent).toBe("Cancel");
       await settle(() => void dialog()!.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })));
       expect(dialog()).toBeNull();
-      expect(document.activeElement).toBe(opener);
+      expect(document.activeElement === opener).toBe(true);
     });
 
     it("Tab stays inside the dialog", async () => {
@@ -331,6 +331,21 @@ describe("event detail", () => {
       expect(d.textContent).not.toContain("Booth B");
       expect(maybeButton("Close uploads anyway", d)).not.toBeNull();
       expect(mocked.calls.filter((c) => c.method === "POST")).toHaveLength(0);
+    });
+
+    it("returns focus to the Close button on Cancel, though the button was disabled and blurred while the booths were read", async () => {
+      mocked = mockFetch((c) => {
+        // What a browser does to a focused button that becomes disabled.
+        if (c.path === "/api/devices") (document.activeElement as HTMLElement).blur();
+        return c.path === "/api/devices" ? json({ devices: [device()] }) : json(open());
+      });
+      await mountApp(fakeAdminEnv().env, `/events/${ID}`);
+      const opener = button("Close uploads");
+      opener.focus();
+      await click(opener);
+      expect(document.activeElement?.textContent).toBe("Cancel");
+      await settle(() => void dialog()!.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })));
+      expect(document.activeElement === opener).toBe(true);
     });
 
     it("closes on Confirm", async () => {

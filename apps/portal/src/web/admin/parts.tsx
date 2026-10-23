@@ -9,12 +9,13 @@ const FOCUSABLE = 'button:not([disabled]), a[href], input:not([disabled]), selec
  * A modal. Focus moves in (to `[data-autofocus]` when there is one, so a destructive dialog opens
  * on Cancel), Tab stays inside, Escape closes, and focus returns to what opened it.
  */
-export function Dialog({ title, onClose, children }: { title: string; onClose(): void; children: ReactNode }) {
+export function Dialog({ title, onClose, restoreFocus, children }: { title: string; onClose(): void; restoreFocus?: HTMLElement | null; children: ReactNode }) {
   const titleId = useId();
   const box = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    const opener = document.activeElement as HTMLElement | null;
+    // A caller that disabled its button while preparing the dialog passes it in: by now focus has left it.
+    const opener = restoreFocus ?? (document.activeElement as HTMLElement | null);
     const first = box.current?.querySelector<HTMLElement>("[data-autofocus]") ?? box.current?.querySelector<HTMLElement>(FOCUSABLE);
     first?.focus();
     return () => opener?.focus?.();
@@ -53,17 +54,19 @@ export function ConfirmDialog({
   confirmation,
   busy,
   error,
+  restoreFocus,
   onConfirm,
   onCancel,
 }: {
   confirmation: Confirmation;
   busy: boolean;
   error: unknown;
+  restoreFocus?: HTMLElement | null;
   onConfirm(): void;
   onCancel(): void;
 }) {
   return (
-    <Dialog title={confirmation.title} onClose={busy ? () => {} : onCancel}>
+    <Dialog title={confirmation.title} onClose={busy ? () => {} : onCancel} restoreFocus={restoreFocus}>
       {confirmation.paragraphs.map((p) => (
         <p key={p}>{p}</p>
       ))}

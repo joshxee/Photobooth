@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import type { AdminEvent } from "../../shared/schemas";
 import { type EventActionName, api, isNotAuthorised } from "./api";
 import { useAdmin, useLoad } from "./env";
@@ -31,6 +31,8 @@ export function EventDetail({ id }: { id: string }) {
   const [busy, setBusy] = useState(false);
   const [failure, setFailure] = useState<unknown>(null);
   const [dialogFailure, setDialogFailure] = useState<unknown>(null);
+  // What had focus when an action was chosen: its button is disabled while the booths are checked.
+  const opener = useRef<HTMLElement | null>(null);
 
   if (loaded.loading) return <Loading what="event" />;
   if (!loaded.data) return loaded.error != null ? <ErrorNote error={loaded.error} /> : null;
@@ -55,6 +57,7 @@ export function EventDetail({ id }: { id: string }) {
   };
 
   const choose = async (action: EventActionName) => {
+    opener.current = document.activeElement as HTMLElement | null;
     setFailure(null);
     setDialogFailure(null);
     if (action === "close") {
@@ -163,6 +166,7 @@ export function EventDetail({ id }: { id: string }) {
         <ConfirmDialog
           confirmation={dialog}
           busy={busy}
+          restoreFocus={opener.current}
           error={dialogFailure}
           onConfirm={() => void run(pending.action)}
           onCancel={() => {
