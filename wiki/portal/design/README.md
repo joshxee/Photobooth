@@ -8,6 +8,8 @@ The output of the user's Claude design session, the target for sessions 12 (gall
   the share sheet open), 4 · Your session (the booth QR's landing view), and the desktop gallery
   with its footer.
 - `post-shoot.html`: the booth's post-shoot screen with the session QR code and the new copy.
+- `screenshots/12-*.jpg`: the built gallery (session 12) at 375 × 812 and 1280 wide, seeded
+  placeholder photos only, for design sign-off.
 - `tokens.md`: colours, type scale and spacing, beside the booth's values from
   `apps/booth/src/styles.css`.
 
@@ -31,8 +33,21 @@ screenshots are what the user signs off:
 
 ## Where the canvas and the plan differ
 
-Listed for the user's decision before session 12 builds (the answers are recorded in
-PROGRESS.md under session 12):
+Decided with the owner on 2026-10-23, before session 12 built the gallery:
+
+| Difference | Decision |
+|---|---|
+| Font | **Geist** (the booth's), self-hosted. The owner's marketing site uses Archivo (wordmark) and Asap (text); the gallery shows the knockbox mark from the site's favicon (`#28543c`), not a wordmark. |
+| Quick human check, arrive screen | **Neither**: the link opens the gallery; the event name and date head it. |
+| "Photos are kept for [N] days" | Left out (D15: no expiry). |
+| "Live · 128 photos", "128 so far", "[Venue]", "Session #24" | Left out for the MVP: "Live" without a number; sessions headed by their time and photo count. |
+| Share (named targets, Copy link) | The phone's own share sheet with the HD file, only where the browser can share files. No link sharing. |
+| "Save all 4" | Left out (§2). |
+| Dark viewer | **Kept dark.** |
+| Placeholders | Sized by `&n={shots}` in the booth's link (session 13 adds it). |
+| Occasional 2 × 2 photo | Kept: about one session in three, the same one every time. |
+
+What was listed for that decision:
 
 - **Font:** Figtree (canvas) or the booth's Geist (DESIGN §5, the session file). The CSP is
   `default-src 'self'`, so either font is self-hosted, never loaded from Google Fonts.

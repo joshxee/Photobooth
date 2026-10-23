@@ -4,15 +4,15 @@ The guest web portal: one Cloudflare Worker in `apps/portal`. The behaviour spec
 [portal/DESIGN.md](./portal/DESIGN.md) and the build plan is [portal/README.md](./portal/README.md).
 This page records *why* the code is shaped the way it is, and is extended as each session lands.
 
-**Status (session 11):** the scaffold (02), the D1 schema, data layer, domain rules and shared
+**Status (session 12):** the scaffold (02), the D1 schema, data layer, domain rules and shared
 contract (03), admin authentication (Cloudflare Access JWT, verified in code) and the admin events
 API with audit rows (04), devices: the admin devices API, enrolment and the authenticated device
 events API (05), and the live-delivery path: the upload intent, the signed per-variant PUT, the JPEG
 header walk and `processPhoto()` (06), and the guest API: the token → cookie swap, the photo list
-and media (11). There is no gallery UI yet (12). **Nothing here has run on
+and media (11), and the guest gallery SPA (12). **Nothing here has run on
 real Cloudflare or against a real Access application.** It is verified with Vitest in workerd (local
 D1 and R2, JWTs signed with a locally generated key), `wrangler dev` with `scripts/smoke.ts`,
-`wrangler d1 … --local` and `wrangler deploy --dry-run` only.
+`wrangler d1 … --local`, `wrangler deploy --dry-run` and a browser against `wrangler dev` only.
 
 ## One Worker, routed by host
 
@@ -627,6 +627,115 @@ on the real HTTPS domain (session 12 tries `photos.localhost` in a browser), the
 binding's real behaviour, `CF-Connecting-IP`, and remote D1's `rows_read` counts (the tests pin
 local SQLite's).
 
+## Guest gallery UI (session 12)
+
+`src/web/gallery/`: React 19, one view plus a lightbox. The design target is
+[portal/design/](./portal/design/) (the owner's claude.ai Design canvas, exported), graded against
+its README's criteria; the screenshots are in `portal/design/screenshots/`.
+
+### Shape: no router, no service worker
+
+- **One view, two filters:** the event (`/e/{publicId}`) or one booth session (`?s={sessionId}`).
+  The open photo lives in `history.state`, so Back closes the viewer, then leaves a session view, as
+  a guest expects. A router would add a dependency (DESIGN §5 rules them out) for two states.
+- **No service worker or offline mode** (out of scope): the browser already caches media
+  immutably (session 11), which is the part that saves requests; a worker would add a second cache
+  to get wrong on rotation.
+- **Pure modules under the views**, each tested alone: `link.ts` (parse `#k`/`&s`/`&n`, the clean
+  URL), `feed.ts` (pages, the pending list, session groups), `poller.ts` (rates, visibility),
+  `api.ts`. `App.tsx` wires them; its tests drive it with a fake clock and a fake `fetch`.
+
+### The link
+
+The SPA reads `#k`, replaces the address with `/e/{publicId}[?s=…&n=…]` *before* the swap
+resolves, then POSTs the token (`api/session`). The token never stays in the address bar, history
+or a bookmark, whatever the answer. Without `#k` it tries the cookie (`api/photos`). Any 404
+(token or cookie) shows one page, "This gallery isn't available", worded the same for every cause
+(design criterion 5; the API already makes them indistinguishable). A 429 waits `Retry-After`; a
+network failure offers "Try again". A new `#k=` in the same tab (a second booth QR) reloads.
+
+`&n={shots}` is new in session 12: the booth's shots per session (`number_of_photos`, 1–10), which
+the gallery can't learn from the API. It sizes the placeholders; session 13 adds it to the QR link
+beside `&s=`. Without it the session view shows one "On its way" tile for the first 2 minutes.
+
+### Polling and its request cost
+
+Every poll is one Worker request against the account's Workers Free 100,000 a day, shared by every
+guest, booth and admin (DESIGN §16, spike Q12), so the rates are the plan's and no faster:
+
+- **30 s ± 10 % jitter**, only while `document.visibilityState === "visible"` and the last answer
+  said `eventOpen`; one poll the moment the page is visible again. A closed event is never polled.
+  The jitter keeps a room of phones that scanned together from polling in lockstep.
+- **10 s ± 10 % for the booth session's first 2 minutes**, then 30 s. Only a session view opened
+  from the booth's link (`#k` with `&s`) gets it; a session opened from the event view is history.
+  A guest who keeps the session view open for 2 minutes costs 12 polls, then 2 a minute.
+- Never two polls at once; answers for a view the guest has left are dropped.
+- A 200-guest evening at 30 s, with a third of the guests looking at any moment for 4 hours, is
+  about 200 × ⅓ × 480 ≈ 32,000 polls: inside the spike's typical event-day estimate.
+- Polls read the first page only (no cursor) and diff by ID. More than 24 new photos between two
+  polls would leave the oldest of them out until a reload; five booths make about 15 a minute.
+
+### "N new", without moving the grid
+
+New photos from a poll wait in `feed.pending` behind a pill that floats over the grid (a sticky,
+zero-height slot, so its arrival moves nothing; `aria-live` announces it). Tapping it puts them on
+top, scrolls to the top (smoothly unless the guest prefers reduced motion) and moves focus to the
+heading. Nothing is inserted above what the guest is looking at without that tap. The session view
+is the exception: its shots fill their placeholders in place (same slot, same size), because that
+is what the view is for.
+
+### Layout that can't jump
+
+Every tile has a fixed shape before its image loads: square in the event grid (a 2 × 2 "hero" for
+about one session in three with 3 or more photos, chosen by a hash of the session ID so it's the
+same on every visit and every phone), 2:3 in the session view. Thumbnails are `loading="lazy"` with
+the API's width and height. Older pages load by cursor when a "Show older photos" button nears the
+viewport (`IntersectionObserver`); the button also works on its own (keyboard, no observer).
+
+### Viewer
+
+A modal dialog (dark, decided with the owner): the HD variant, `Download` (`hd?download=1`),
+swipe or arrow keys, Escape or Back to close, Tab kept inside, focus returned to the photo it was
+opened from, and the page behind made `inert`. **Share** appears only where `navigator.canShare`
+accepts files: on iPhone that is how a photo reaches Photos (a download goes to Files). It reads
+the HD file after the image has loaded, so the read is a cache hit, not a request, and the share
+call stays inside the tap's user activation. No named targets and no link sharing (the link is the
+whole event's access).
+
+### Fonts and the CSP
+
+Geist is copied from the booth into `src/web/ui/fonts/` (the identity the two apps share; the
+owner chose Geist over the canvas's Figtree). The CSP is `default-src 'self'`, so no web fonts from
+elsewhere and no `data:` fonts: Bun inlines fonts into the CSS as `data:` URIs, so `build.ts` moves
+them back out to hashed files (the booth's build does the same) and fails if any `data:` URI
+remains. They load with `font-display: swap`, so text never waits for them.
+
+### Accessibility checks performed
+
+- Keyboard only, in a browser against `wrangler dev`: tiles and session links in order, the viewer
+  opened from a tile with focus on its close button, arrows move, Tab cycles inside, Escape closes
+  and focus returns to the tile; the "N new" pill moves focus to the heading.
+- Labels: every tile is a link named "Photo N of M, 9:42 PM"; icon buttons have names; the session
+  view's status line and the pill are live regions.
+- Contrast (WCAG 2.x formula, `design/tokens.md`): body text 17.8:1, secondary 6.3:1 (5.9:1 on the
+  grey card), dark-viewer secondary 9.8:1; focus is a 3 px blue outline (white inside the viewer).
+- `prefers-reduced-motion`: the stylesheet turns off the pill's entrance and the placeholder
+  shimmer, and the pill's scroll is instant. Checked by reading the rules and the code; the
+  built-in browser can't emulate the media query, so it was **not run** emulated.
+- Every control is at least 44 × 44 px.
+
+### What was verified, and where
+
+`bun test` with happy-dom (the tests are listed in PROGRESS.md), and a browser at 375 × 812 against
+local `wrangler dev` with the seed plus placeholder sessions uploaded through the real device API:
+the token swap and fragment stripping, the session view's placeholders filling within one 10 s
+poll, the pill after a 30 s poll while scrolled, the viewer, the footer and the unavailable page; no
+console errors other than the expected 404. Page weight on the local server: about 77 KB compressed
+before fonts (HTML, CSS, JS, the first API page), three fonts of about 60 KB each after first
+render, then the visible thumbnails. The "first grid under 2.5 s at 10 Mbps" target is an
+**estimate** from these sizes, not a throttled measurement. **Not verified:** a real phone (13's
+once-over), iOS Share to Photos, real Cloudflare and HTTPS.
+
 ## Data model (D1)
 
 The schema is `migrations/0001_init.sql`: DESIGN §6 plus the refinements listed there. The
@@ -739,6 +848,10 @@ EOI only), so the header walk (session 06) accepts them and browsers display the
   hiding (immutable caching; see "Guest access and the gallery API").
 - `UPLOAD_KEY` has one value at a time, so rotating it voids every outstanding upload URL (the
   booth's items need the operator's retry). Rotate between events.
+- The gallery keeps showing a photo hidden or deleted after it loaded until the page reloads (and
+  its image stays in that browser's cache). Polls only add photos.
+- The gallery's polls read the newest page only: more than 24 new photos within one poll interval
+  would leave the oldest of them out until a reload.
 - `GET /api/devices` is unpaginated (schema cap 1,000); there are five tablets.
 - `ADMIN_EMAILS`, `ADMIN_SERVICE_CLIENTS`, `ACCESS_*` and `CONTACT_*` are empty vars in staging and
   production, so a deployed Worker refuses every admin request, and answers the gallery list with a
