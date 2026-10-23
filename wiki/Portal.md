@@ -678,7 +678,9 @@ refuses a restore after the purge date (409) and for a purged event (404). Showi
 and "Purges on" is the admin UI's (session 14, outside this session's allowed files).
 
 **Trigger locally:** `wrangler dev` serves `/cdn-cgi/handler/scheduled?cron=0+14+*+*+*&time=<epoch ms>`;
-`time` becomes the run's clock, so a deleted event can be purged without waiting 7 days.
+`time` becomes the run's clock, so a deleted event can be purged without waiting 7 days. That makes it
+destructive: never trigger the handler with a future `time` on staging or production (a restore could race
+the job's object deletes); use it only on a local `wrangler dev`.
 
 ### What was verified, and where
 
