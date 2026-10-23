@@ -177,8 +177,8 @@ impl PortalError {
                 ErrorCode::RateLimited | ErrorCode::Internal => Action::Retry { retry_after },
                 ErrorCode::UploadExpired => Action::ReIntent,
                 ErrorCode::HashMismatch => Action::HashMismatch,
+                ErrorCode::Unauthorized => Action::Revoked,
                 ErrorCode::InvalidRequest
-                | ErrorCode::Unauthorized
                 | ErrorCode::Forbidden
                 | ErrorCode::NotFound
                 | ErrorCode::Conflict
@@ -193,6 +193,7 @@ impl PortalError {
                 retry_after,
             } => match status {
                 408 | 429 | 500..=599 => Action::Retry { retry_after },
+                401 => Action::Revoked,
                 410 => Action::ReIntent,
                 _ => Action::NeedsAttention,
             },
@@ -225,6 +226,10 @@ pub(crate) enum Action {
     ReIntent,
     /// Retry, at most 3 times, then needs attention.
     HashMismatch,
+    /// The portal no longer accepts this device's credential (401, on the intent or a PUT):
+    /// stop the whole pass and leave the item as it was. It isn't the item's fault, and a new
+    /// enrolment uploads it unchanged (session 10; DESIGN §9.3).
+    Revoked,
     /// Stop until the operator acts.
     NeedsAttention,
 }
@@ -301,15 +306,12 @@ mod tests {
                 PortalError::code(ErrorCode::HashMismatch),
                 Action::HashMismatch,
             ),
-            (
-                PortalError::code(ErrorCode::Unauthorized),
-                Action::NeedsAttention,
-            ),
+            (PortalError::code(ErrorCode::Unauthorized), Action::Revoked),
             (
                 PortalError::code(ErrorCode::Forbidden),
                 Action::NeedsAttention,
             ),
-            (http(401), Action::NeedsAttention),
+            (http(401), Action::Revoked),
             (http(403), Action::NeedsAttention),
             (
                 PortalError::code(ErrorCode::EventClosed),

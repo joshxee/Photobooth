@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-portal-status"
+description = "Enables the portal_status command without any pre-configured scope."
+commands.allow = ["portal_status"]
+
+[[permission]]
+identifier = "deny-portal-status"
+description = "Denies the portal_status command without any pre-configured scope."
+commands.deny = ["portal_status"]

@@ -84,7 +84,7 @@ updates live. Admins manage events, devices and moderation behind Cloudflare Acc
 | D12 | **Recovery = D1 Time Travel + SD card + 7-day soft delete of events** | Fewest moving parts | Need for independent backup |
 | D13 | **Contract = zod (TypeScript) + serde (Rust), pinned by shared JSON fixtures** | Private API; no OpenAPI tooling | A third-party client appears |
 | D15 | **Uploads stop 90 days after the event ends; the photos and the gallery stay** until an admin deletes the event (7-day undo, then purged). No automatic photo expiry in the MVP. **Decided by the user on 2026-10-22** (session 03), replacing the 90-day deletion of published variants. | Events run once, and early on we'd rather be generous about when guests can retrieve photos. The 90-day mark only guards against a stale booth uploading into an old event. Storage grows about 0.9 GB a month, still free up to 10 GB and then USD 0.015 per GB-month (§16) | Storage cost matters, a privacy review asks for a fixed retention, or galleries need a lifetime |
-| D14 | **The booth makes the variants** (thumb 480 px q75, HD 2560 px q85, orientation applied, no metadata) in Rust; the Worker never decodes (spike Q10, option B). **Confirmed by the user on 2026-10-22.** | The Images binding keeps GPS and serial numbers whatever `metadata` is set to (Q6). It also needs Workers Paid for CPU (355–470 ms per photo against the Free 10 ms, Q11) and caps inputs at 20,000,000 bytes (Q3). Uploading 0.25–0.62 MB instead of 11–17 MB per shot is 28–44× less traffic on venue networks. Trade-off: guests' browsers decode the booth's JPEG rather than a Cloudflare re-encode. Uploads come only from enrolled, revocable devices, and the header walk limits what is stored (RESULTS.md, Q10) | Uploads from devices we don't own, or on-tablet encoding is too slow (unverified, estimated 0.6–1.6 s per shot) |
+| D14 | **The booth makes the variants** (thumb 480 px q75, HD 2560 px q85, orientation applied, no metadata) in Rust; the Worker never decodes (spike Q10, option B). **Confirmed by the user on 2026-10-22.** | The Images binding keeps GPS and serial numbers whatever `metadata` is set to (Q6). It also needs Workers Paid for CPU (355–470 ms per photo against the Free 10 ms, Q11) and caps inputs at 20,000,000 bytes (Q3). Uploading 0.25–0.62 MB instead of 11–17 MB per shot is 28–44× less traffic on venue networks. Trade-off: guests' browsers decode the booth's JPEG rather than a Cloudflare re-encode. Uploads come only from enrolled, revocable devices, and the header walk limits what is stored (RESULTS.md, Q10) | Uploads from devices we don't own, or on-tablet encoding is too slow (measured in session 08b: p50 0.42 s, p95 0.54 s per Sony shot on the tablet, against a 3 s gate) |
 
 ## 4. Architecture
 
@@ -125,16 +125,20 @@ benefit. Staging's synthetic traffic barely touches the free allowances.
   resources are deleted afterwards.
 - Set billing notifications as in section 15.
 
-**Domain.** The domain will most likely be a **`.co.nz`**, not yet registered. Register it
-before the first event and run its DNS on Cloudflare (the Free zone plan is enough).
-- Cloudflare Registrar does not sell `.nz` domains at the time of writing (check when buying).
-  Register with an InternetNZ-authorised registrar, then add the domain to Cloudflare and change
-  its nameservers to the two Cloudflare gives you.
-- Enable DNSSEC in Cloudflare, then add the DS record at the registrar. `.nz` supports DNSSEC.
-- Turn on registrar lock and auto-renew, and use a business-owned email as the registrant
-  contact.
-- Allow up to 24 hours for the nameserver change before the staging Access app and routes can
-  be created. Do this at least a week before the pilot event.
+**Domain.** **`knockbox.nz`**, registered on 2026-10-21 with Cloudflare Registrar (which now sells
+`.nz`). Its DNS runs on Cloudflare (the Free zone plan is enough). The step-by-step record is
+SETUP.md C.
+- It was registered in a personal Cloudflare account, because the business email (which the
+  business account logs in with) needed the domain first. Workers Custom Domains and Access
+  apps need the zone in the same account as the Worker, so the registration is moved to the
+  business account with Cloudflare Registrar's inter-account move. That move needs the domain to
+  be more than 10 days old and DNSSEC off, copies no DNS records or settings, and transfer-locks
+  the domain for 30 days afterwards.
+- Cloudflare Registrar domains always use Cloudflare nameservers; there is no nameserver change
+  at a registrar. Enable DNSSEC from **Manage Domains → Configuration** (Registrar publishes the
+  DS itself, within 1–2 days).
+- Registrar lock and auto-renew on; the registrant contact is the business email.
+- Do this at least a week before the pilot event.
 - **The design does not depend on the TLD.** Hostnames are Wrangler variables (`GALLERY_HOST`,
   `ADMIN_HOST`) and routes, and nothing in code or the booth hard-codes a domain. The booth's
   portal URL is an operator setting with a build-time default for each environment. Choosing `.com` instead changes only where you register
@@ -242,7 +246,8 @@ audit(id, at, actor, action, event_id, target_id, detail)   -- INDEX(event_id, a
   A single statement is atomic on D1, so no reservation or reconcile step is needed.
 - Admins come from the Worker variable `ADMIN_EMAILS` plus the Access policy. There is no
   admins table.
-- Migrations are additive only, applied with `wrangler d1 migrations apply`.
+- Migrations are additive only, applied with `wrangler d1 migrations apply`. Replacing an index
+  (no data or column changes, as in `0002`) is allowed.
 - Refinements made when the schema was written (session 03, `apps/portal/migrations/0001_init.sql`):
   - `retention_until` is named `uploads_until`, because it only closes uploads (D15).
   - IDs are UUIDv7 (time-ordered). Times are exactly `toISOString()` text (UTC, milliseconds),
@@ -260,6 +265,10 @@ audit(id, at, actor, action, event_id, target_id, detail)   -- INDEX(event_id, a
   - `photos.event_id` is `ON DELETE CASCADE`, so purging an event row removes its photo rows.
     `audit` has no foreign key, so it outlives the event it describes.
   - Index names: `photos_gallery`, `photos_session`, `audit_event_at`, `audit_at`.
+- Session 11 (`migrations/0002_photos_session_index.sql`): `photos_session` is
+  `(event_id, session_id, state, hidden, published_at, id)`, not `(event_id, session_id)`. With the
+  narrow index SQLite read every READY photo of the event for a session page, and the post-shoot
+  view polls that page every 10 s (D1 bills rows read; wiki/Portal.md → "Guest access").
 
 ## 7. Storage layout and lifecycle (one private bucket)
 
@@ -300,9 +309,11 @@ status per code (`apps/portal/src/shared/schemas.ts`, listed in `wiki/Portal.md`
 | `POST /v1/device/photos` | Upload intent (section 9). Idempotent on `clientPhotoId`. |
 | `PUT /v1/device/uploads/{photoId}/{variant}?exp&sig` | Upload and check one variant (section 9). Authorised by the signed URL. |
 
-Every device call sends an `X-Outbox-Depth` header, and the server records `last_seen_at`,
-`last_backlog` and `app_version`. That gives admins live visibility into each booth at no extra
-cost.
+Every authenticated device call sends `X-Outbox-Depth` and `X-App-Version` headers, and the
+server records `last_seen_at`, `last_backlog` and `app_version`, at most once a minute per device to
+save D1 writes. That gives admins live visibility into each booth at no extra cost. (Session 05
+named the app-version header, `DEVICE_HEADERS` in `src/shared/schemas.ts`. The event detail serves
+any event that isn't deleted, and reports an OPEN event past `uploads_until` as CLOSED.)
 
 **Guest** (`photos.<domain>`; cookie scoped to `Path=/e/{publicId}`):
 
@@ -360,6 +371,23 @@ there is no metadata before the (single, baseline) scan and that the object ends
 not parse the entropy-coded data, so a crafted file from a stolen, unrevoked tablet is the
 residual risk (section 13).
 
+Refinements made when the path was built (session 06; the reasons are in `wiki/Portal.md`):
+- **Intent:** an unknown event is 404 `not_found`; a deleted event refuses even an accepted photo's
+  re-intent (409 `event_closed`); a retry must repeat the whole declaration (event, both hashes and
+  byte counts, the HD size) or it is 409 `conflict`. A PENDING photo with both variants stored (its
+  event was deleted between a variant's checks and its publish, then restored) is published by the
+  next intent. `INTENT_LIMITER` allows 120 intents a minute per device.
+- **PUT:** an unknown photo and a bad signature get the same 403 `forbidden`; a revoked device is
+  401 `unauthorized`; a deleted event is 409 `event_closed`; a wrong content type or
+  `Content-Length` is 400 `invalid_request`. A READY photo answers 201 without reading the body. The
+  PUT doesn't write the device heartbeat (it has no bearer or device headers).
+- **Header walk:** APP0 must start `JFIF\0` and APP14 `Adobe`; the SOF0 must be 8-bit with a non-zero
+  size, and there must be exactly one, before SOS.
+- `width`, `height` and `variant_bytes` are written by the intent; the HD's SOF check proves the
+  stored HD matches them, so the publish UPDATE sets only `state` and `published_at`.
+- A rejected variant's object is deleted at once; the photo's other variant, if stored, stays until
+  the event is purged and is never served.
+
 ### 9.2 Why this is correct without leases, attempts or a queue
 
 - **Idempotency.** `UNIQUE(device_id, client_photo_id)` means retries never create a second
@@ -388,7 +416,8 @@ residual risk (section 13).
 | Network error, 429, 5xx, 202 | Retry with jittered exponential backoff (1 s → 5 min cap), honouring `Retry-After` |
 | Upload URL expired | Re-POST the intent (same `clientPhotoId`) for a fresh URL |
 | 422 hash mismatch | Retry at most 3 times, then needs attention |
-| 401/403 (revoked), 409 event_closed or limit, 422 invalid image | **Needs attention**: the variants are kept and shown to the operator; no automatic retry. A 422 invalid image from the booth's own encoder is a booth bug |
+| 401 (revoked device) | **Paused** (session 10): the whole loop stops, items stay queued untouched and the operator sees that the portal refused the booth; enrolling again resumes them. Per item it would have stranded the whole backlog in needs attention |
+| 403 (upload URL not valid), 409 event_closed or limit, 422 invalid image | **Needs attention**: the variants are kept and shown to the operator; no automatic retry. A 422 invalid image from the booth's own encoder is a booth bug |
 
 ### 9.4 Upload through the Worker: is it best practice, and will we have to change it?
 
@@ -456,8 +485,9 @@ day 1 to preserve this.
      record with event ID, session ID, shot, capture time, HD width and height, each variant's
      sha256 and bytes, state, attempt count and last error. The original never touches the disk;
      the SD card keeps it.
-   - Encoding runs off the capture path. Estimated 0.6–1.6 s per shot on the tablet (spike Q10,
-     unverified); the session that builds it measures it on the device.
+   - Encoding runs off the capture path. Measured on the tablet in session 08b: p50 0.42 s,
+     p95 0.54 s per shot (spike Q10 estimated 0.6–1.6 s); the Sony JPEG is about 11.5 MB
+     (spike Q8). See wiki/Booth-Upload.md.
    - Writes go to a temp file, then `fsync`, then rename, the same pattern as settings.
    - The outbox is scanned on startup and drained with 2 concurrent uploads while the app is
      running. Background-service uploading is out of scope; it is a kiosk app.
@@ -475,7 +505,9 @@ day 1 to preserve this.
    - The existing post-shoot text is open for redesign.
 5. **Operator status**: counts of queued, uploading and needs-attention items, an offline badge,
    and a needs-attention list with the reason and retry/dismiss actions. Dismiss deletes the
-   local copy only after confirmation; the SD card still has it.
+   local copy only after confirmation; the SD card still has it. (Session 10: a badge on the
+   camera picker, the operator's landing screen, never on guest screens; a revoked flag and a
+   low-storage warning; shots the encoder couldn't process are listed once, dismiss only.)
 
 ## 11. Guest gallery
 
@@ -508,6 +540,20 @@ day 1 to preserve this.
   the postal address, because removal requests need a prompt channel. Deployment fails if either
   variable is empty.
 - **Accessibility**: keyboard-operable grid and lightbox, labelled controls, WCAG 2.2 AA target.
+- **Refinements (session 11)**, reasons in wiki/Portal.md → "Guest access and the gallery API":
+  - The cookie value is `{eventId}.{accessVersion}.{exp}.{sig}`, the MAC over
+    `eventId|accessVersion|exp` as above, so its signature is checked before any D1 read.
+    `Max-Age` 30 days, not sliding.
+  - Every refusal of the session swap and of the cookie check is the same `404 not_found`
+    (`no-store`); the cookie check's refusals also clear the cookie. Exceptions that reveal nothing
+    about an event: `429 rate_limited` (`Retry-After: 60`) from `SESSION_LIMITER`, 60 a minute per
+    IP (IPv6 by /64), checked first; `400 invalid_request` for a bad list query behind a valid cookie.
+  - Suspension then publish restores the same links and cookies; only rotation revokes them.
+  - `eventOpen` = the event accepts uploads now (OPEN, not deleted, before `uploads_until`).
+  - Download filename: `<event-slug>-<sessionId>-<shot>.jpg`, slug ASCII `a-z0-9-` (≤ 40, `photo`
+    if empty). Only `download=1` triggers it.
+  - Media refusals are `no-store`. A list page reads 1 event row and at most 26 photo rows
+    (page + lookahead + cursor boundary), a media request 2 rows.
 
 ## 12. Admin portal
 
@@ -520,7 +566,9 @@ day 1 to preserve this.
     signage must be reprinted after a rotation, and the rotate confirmation says so.
 - **Photos**: grid by state (pending, ready, rejected), hide and unhide, delete permanently (for
   removal requests).
-- **Devices**: create (shows the 10-minute code once), revoke, last seen, backlog, app version.
+- **Devices**: create (shows the 10-minute code once), re-issue the code (also re-enrols an
+  enrolled tablet), revoke, last seen, backlog, app version. On enrolment the device takes the name
+  the booth sends, replacing the admin's placeholder (session 05).
   This is the event-day health view.
 - **Audit**: event changes, publish and suspend, rotation, device create and revoke, hide and
   delete, restore.
@@ -592,7 +640,7 @@ The full model, including the event-day request and D1 estimates, is in
 | R2 operations (≈ 4k Class A, ≈ 0.1–0.2 M Class B; 1 M / 10 M free) | 0.00 | 0.00 |
 | D1 (≤ 1.5 M rows read on an event day; 5 M/day free) | 0.00 | 0.00 |
 | Images | not used | not used |
-| Domain (`.co.nz`, about NZD 30/year) | ≈ 1.50 | ≈ 1.50 |
+| Domain (`knockbox.nz`, about NZD 30/year) | ≈ 1.50 | ≈ 1.50 |
 | **Total** | **≈ 1.50** | **≈ 6.50** |
 
 - **Free is a hard ceiling, not a bill.** Going over 100,000 requests/day, or over D1's daily
@@ -680,13 +728,13 @@ The full model, including the event-day request and D1 estimates, is in
 
 ## 20. Open questions
 
-1. Final domain name (expected `.co.nz`). It is needed before staging Access is set up
-   (phase 1), but not for the spike or local development.
+None open.
 
 Resolved:
+- Domain: `knockbox.nz` (2026-10-21; SETUP.md C).
 - D3: cancelled sessions do not upload.
 - D9: the share token is stored retrievably.
-- TLD: probably `.co.nz`. The design does not depend on it (section 4.1).
+- TLD: `.nz`. The design does not depend on it (section 4.1).
 - Post-shoot QR opens the guest's session; admins can also generate an event-wide QR.
 - Contact address: 34b Malvern Road, Morningside, Auckland, plus `privacy@<domain>`.
 - Environments: one dedicated business account with separate staging and production

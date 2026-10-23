@@ -89,6 +89,15 @@ export async function getPhoto(db: D1Database, id: string): Promise<PhotoRow | n
   return row ? fromStored(row) : null;
 }
 
+/** The device's photo for this clientPhotoId: a re-intent into an event that no longer takes new ones. */
+export async function getPhotoByClientId(db: D1Database, deviceId: string, clientPhotoId: string): Promise<PhotoRow | null> {
+  const row = await db
+    .prepare(`SELECT ${COLUMNS} FROM photos WHERE device_id = ? AND client_photo_id = ?`)
+    .bind(deviceId, clientPhotoId)
+    .first<StoredRow>();
+  return row ? fromStored(row) : null;
+}
+
 /** After a variant's sha256 put and header check pass. Only while PENDING. */
 export function markVariantStored(db: D1Database, id: string, variant: Variant): D1PreparedStatement {
   return db.prepare(`UPDATE photos SET ${STORED_COLUMN[variant]} = 1 WHERE id = ? AND state = 'PENDING'`).bind(id);
@@ -123,6 +132,22 @@ export function setPhotoHidden(db: D1Database, eventId: string, id: string, hidd
 /** Hard delete of the row (the caller deletes the R2 objects). Scoped by event. */
 export function deletePhoto(db: D1Database, eventId: string, id: string): D1PreparedStatement {
   return db.prepare(`DELETE FROM photos WHERE id = ? AND event_id = ?`).bind(id, eventId);
+}
+
+/**
+ * The photo a guest may fetch: this event's, READY and not hidden (DESIGN §11 Media, step 3). One
+ * primary-key read; the rows D1 read are returned for the access log.
+ */
+export async function getGalleryPhoto(
+  db: D1Database,
+  eventId: string,
+  photoId: string,
+): Promise<{ photo: Pick<PhotoRow, "id" | "session_id" | "shot"> | null; rowsRead: number }> {
+  const { results, meta } = await db
+    .prepare(`SELECT id, session_id, shot FROM photos WHERE id = ? AND event_id = ? AND state = 'READY' AND hidden = 0`)
+    .bind(photoId, eventId)
+    .all<Pick<PhotoRow, "id" | "session_id" | "shot">>();
+  return { photo: results[0] ?? null, rowsRead: meta.rows_read };
 }
 
 export type GalleryPhoto = Pick<PhotoRow, "id" | "session_id" | "shot" | "width" | "height"> & { published_at: string };

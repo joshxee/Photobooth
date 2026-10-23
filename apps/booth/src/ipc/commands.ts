@@ -8,6 +8,10 @@ import type {
   CameraInfo,
   Fault,
   FrameRegion,
+  OutboxEntry,
+  OutboxStatus,
+  PortalEvent,
+  PortalStatus,
   SessionState,
   Settings,
   SettingsPatch,
@@ -34,6 +38,22 @@ export const sessionState = () => invoke<SessionState>("session_state");
 
 export const settingsGet = () => invoke<Settings>("settings_get");
 export const settingsSet = (patch: SettingsPatch) => invoke<Settings>("settings_set", { patch });
+
+export const portalStatus = () => invoke<PortalStatus>("portal_status");
+export const portalEnrol = (enrolment: { url: string; code: string; name: string }) =>
+  invoke<PortalStatus>("portal_enrol", enrolment);
+export const portalUnenrol = () => invoke<PortalStatus>("portal_unenrol");
+export const portalEvents = () => invoke<PortalEvent[]>("portal_events");
+/** Rust re-fetches the event and refuses it unless it is OPEN. */
+export const portalSelectEvent = (id: string) => invoke<PortalStatus>("portal_select_event", { id });
+export const portalClearEvent = () => invoke<PortalStatus>("portal_clear_event");
+
+export const outboxStatus = () => invoke<OutboxStatus>("outbox_status");
+/** The needs-attention list. */
+export const outboxItems = () => invoke<OutboxEntry[]>("outbox_items");
+export const outboxRetry = (id: string) => invoke<void>("outbox_retry", { id });
+/** Deletes the booth's copy (the SD card keeps the original); the UI confirms first. */
+export const outboxDismiss = (id: string) => invoke<void>("outbox_dismiss", { id });
 
 /** Dev capability only: rejected in a release build. */
 export const testInject = (fault: Fault) => invoke<void>("test_inject", { fault });

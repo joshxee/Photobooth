@@ -4,12 +4,15 @@ The guest web portal: one Cloudflare Worker in `apps/portal`. The behaviour spec
 [portal/DESIGN.md](./portal/DESIGN.md) and the build plan is [portal/README.md](./portal/README.md).
 This page records *why* the code is shaped the way it is, and is extended as each session lands.
 
-**Status (session 04):** the scaffold (02), the D1 schema, data layer, domain rules and shared
-contract (03), plus admin authentication (Cloudflare Access JWT, verified in code) and the admin
-events API with audit rows (04). There are no device or guest API routes yet. **Nothing here has
-run on real Cloudflare or against a real Access application.** It is verified with Vitest in
-workerd (local D1, JWTs signed with a locally generated key), `wrangler dev`, `wrangler d1 … --local`
-and `wrangler deploy --dry-run` only.
+**Status (session 11):** the scaffold (02), the D1 schema, data layer, domain rules and shared
+contract (03), admin authentication (Cloudflare Access JWT, verified in code) and the admin events
+API with audit rows (04), devices: the admin devices API, enrolment and the authenticated device
+events API (05), and the live-delivery path: the upload intent, the signed per-variant PUT, the JPEG
+header walk and `processPhoto()` (06), and the guest API: the token → cookie swap, the photo list
+and media (11). There is no gallery UI yet (12). **Nothing here has run on
+real Cloudflare or against a real Access application.** It is verified with Vitest in workerd (local
+D1 and R2, JWTs signed with a locally generated key), `wrangler dev` with `scripts/smoke.ts`,
+`wrangler d1 … --local` and `wrangler deploy --dry-run` only.
 
 ## One Worker, routed by host
 
@@ -68,7 +71,7 @@ need too.
   | Code | Status | Booth behaviour (DESIGN §9.3) |
   |---|---|---|
   | `invalid_request` | 400 | Bug: needs attention |
-  | `unauthorized` | 401 | Revoked or unknown credential: needs attention |
+  | `unauthorized` | 401 | Revoked or unknown credential: needs attention. Enrolment: the code was refused |
   | `forbidden` | 403 | Needs attention |
   | `not_found` | 404 | Needs attention (guests get it for every access failure) |
   | `conflict` | 409 | Same `clientPhotoId`, different hashes or event: needs attention |
@@ -122,6 +125,11 @@ curl -H "Host: other.example"         http://localhost:8787/healthz   # 404
 
 On the Windows dev PC, Wrangler and Vitest need Node on PATH (`bunx wrangler` silently does nothing
 without it): `fnm exec --using=22.11.0 -- bun run test`.
+
+`wrangler dev` needs the `UPLOAD_KEY` secret: `cp .dev.vars.example .dev.vars` once (a local-only
+value; `.dev.vars` is git-ignored). It also needs `dist/` (`bun run build.ts`). The upload path's
+end-to-end check is `bun run scripts/smoke.ts --base http://localhost:8787` against
+`wrangler dev --var DEV_AUTH:1`.
 
 ## Tests
 
@@ -241,6 +249,384 @@ or HEAD.
 - An unknown or malformed event ID is a 404 (a malformed one can't name an event, so it isn't a
   400). Bodies over 16 KB are 413 `too_large`; invalid JSON and schema failures are 400.
 
+## Devices and enrolment (session 05)
+
+Admin routes (`routes/admin/devices.ts`, under `/api/devices` on the admin host, behind Access and
+the same-origin check):
+
+| Route | Does |
+|---|---|
+| `GET /api/devices` | Every device in creation order (`AdminDeviceList`): name, enrolled, revoked, pending code expiry, last seen, backlog, app version |
+| `POST /api/devices` `{name}` | Create; returns `{deviceId, code, expiresAt}` **once** (201) |
+| `POST /api/devices/{id}/code` | Re-issue the code: the old one stops working. 409 for a revoked device |
+| `POST /api/devices/{id}/revoke` | Revoke now; voids a pending code. 409 if already revoked |
+
+Device routes on the gallery host (`routes/device/`):
+
+| Route | Auth | Does |
+|---|---|---|
+| `POST /v1/device/enrol` `{code, name, appVersion}` | the code | `{deviceId, name, credential}` (201), the credential once |
+| `GET /v1/device/events` | Bearer | Events that accept uploads now: OPEN, not deleted, before `uploads_until`; soonest start first, at most 100 |
+| `GET /v1/device/events/{id}` | Bearer | Any event that isn't deleted, with `galleryUrl` (and its `#k=` token) only while the gallery is LIVE |
+
+- **Codes and credentials are stored only as SHA-256.** The code is in the create (or re-issue)
+  response and nowhere else, not even the audit row; the credential is in the enrol response only.
+  Checked in the local D1 after a `wrangler dev` run, and by the tests.
+- **Enrolment is one statement** (`redeemEnrolCode`, an `UPDATE … RETURNING`): the code must match,
+  be unexpired and belong to an unrevoked device, and it is cleared in the same statement, so it
+  works once even under concurrent requests. The device takes the `name` the booth sends (the
+  operator names the tablet there; the admin's name is a placeholder until then) and counts as seen.
+  The enrolment's audit row (`device.enrol`, actor `device:<id>`) is in the same batch and finds the
+  device by its new credential hash, so a refused code writes nothing.
+- **Every refused code gets the same 401** `unauthorized` with the same message: unknown,
+  malformed, expired, already used, replaced by a re-issue, or a revoked device's. All but a
+  malformed code run the same single statement, so the timing doesn't separate them either; a
+  malformed one is refused before the database, which tells a guesser nothing about which codes
+  exist. A body that isn't a valid request is a 400, which says nothing about codes. Codes are
+  normalised as people type them (case, spaces, dashes, I/L → 1, O → 0).
+- **Why 40 bits and a per-IP limit are enough.** A code is 8 Crockford characters (2^40 ≈ 1.1 ×
+  10^12), lives 10 minutes and works once, and only a handful are pending at a time (five tablets).
+  `ENROL_LIMITER` allows 10 attempts a minute per IP (`enrolRateKey`: an IPv4 address, or an IPv6
+  address's /64, since one subscriber can rotate through a whole /64), checked before the body is
+  read, and answers 429 `rate_limited` with `Retry-After: 60`. The per-IP limit stops one client
+  guessing quickly; **the real bound is the account's request ceiling**, because an attacker with
+  many addresses can spread guesses across them. Spending the whole Workers Free allowance
+  (100,000 requests a day) on guesses against five live codes gives about a 5 × 10^-7 chance a day;
+  on Workers Paid the ceiling is soft, but 10 million guesses still give only about 4.5 × 10^-5.
+  Cloudflare's docs advise against IP keys
+  because people share addresses; here sharing costs little (a venue's booths enrol once each), and
+  there is no better key before a device has a credential. The binding is approximate and counted
+  per Cloudflare location, which the arithmetic above doesn't depend on. The local simulation is
+  exercised by the tests and by hand (the 11th attempt from one IP got 429).
+- **Re-issuing a code to an enrolled device is allowed:** redeeming it replaces the credential, so a
+  wiped or reinstalled tablet enrols again as the same device (its history stays), and the old
+  credential stops working at that moment. A revoked device can't get a code: create a new device.
+- **Credentials don't expire.** A booth is unattended at events, often offline, and an expiry would
+  strand it mid-event with no one to re-enrol it. What protects a lost tablet is revocation, which
+  takes effect on the device's next request (every request looks the device up; nothing is
+  cached), and last seen, which shows a tablet that went quiet. Revocation also covers 06's signed
+  upload URLs, because the PUT checks the device.
+- **`middleware/deviceAuth.ts`:** `Authorization: Bearer <43 base64url characters>` → SHA-256 →
+  `getDeviceByTokenHash`; no match or a revoked device is 401 `unauthorized` with no detail. It sets
+  `c.get("device")` for the route. Each device router mounts it itself (`routes/gallery.ts` mounts
+  the routers), so enrolment stays open and 06's upload PUT can use its signed URL instead.
+- **The heartbeat** (last seen, `X-Outbox-Depth`, `X-App-Version`; `DEVICE_HEADERS` in
+  `src/shared/schemas.ts`) is written **at most once a minute per device**. A booth calls the API on
+  every shot and every poll, and an admin only needs minute resolution, so this caps D1 writes
+  (100,000 a day on Free) at 1,440 per booth per day. The middleware skips the write when the row it
+  already read is under a minute old, which costs nothing, and the `UPDATE` repeats the condition so
+  two concurrent requests can't both write. A stored time in the future is overwritten, so a clock
+  jump can't freeze it. The backlog is an integer clamped to 0–100000; a missing or malformed header
+  keeps the stored value (`COALESCE`), and so does a malformed app version (1–32 printable ASCII).
+  The heartbeat is written before the route runs, so a request that then fails (an unknown event)
+  still counts as a sign of life. Enrolment sets last seen too.
+- **The event detail's `uploadStatus` is the effective one:** an OPEN event past `uploads_until`
+  reads CLOSED, because its intents would be refused (D15). A CLOSED event's detail is still served,
+  so a booth can keep showing its QR; a deleted event is 404. `localDate` is the start date in the
+  event's own time zone (`localDate` in `domain/eventState.ts`).
+- A device can read any non-deleted event's gallery link if it knows the event ID (only OPEN ones
+  are listed). Devices are enrolled by an admin and revocable, and the booth must show the QR, so
+  that is accepted.
+- **Audit actions:** `device.create` (detail `{name}`), `device.code`, `device.revoke` (by the admin)
+  and `device.enrol` (by the device, detail `{name, appVersion}`), each with `target_id` = the
+  device and no event. Re-issue and revoke put `insertAuditIfDeviceActive` before the write in one
+  batch, so both apply or neither does: revoking twice gives 409 and one audit row, also when two
+  admins race.
+- All device responses are `Cache-Control: no-store`. The tests check each response against its
+  `device.*` fixture field by field (the same keys and JSON types at every depth) as well as with
+  the schema.
+
+## Upload and validation (session 06)
+
+The live-delivery path (DESIGN §9). The booth makes both variants (D14), declares them, PUTs each
+one to a URL the Worker signed, and the photo is READY once both are stored and checked:
+
+| Route | Auth | Does |
+|---|---|---|
+| `POST /v1/device/photos` (intent) | Bearer, `INTENT_LIMITER` per device | 200 with the photo's state: READY, REJECTED `{reason}`, or PENDING with `uploads` for the variants not yet stored |
+| `PUT /v1/device/uploads/{photoId}/{variant}?exp&sig` | the signed URL only | Streams the body into R2 with the declared sha256, walks its headers, then 200 STORED (the first variant) or 201 READY (the second) |
+
+Code: `routes/device/photos.ts`, `routes/device/uploads.ts`, `lib/uploadUrl.ts` (the signer),
+`domain/jpegHeaders.ts` (the header walk), `domain/processPhoto.ts` (check + publish),
+`domain/media.ts` (object keys).
+
+### Why bytes go through the Worker (DESIGN §9.4, in brief)
+
+Cloudflare documents both a Worker-binding upload and presigned R2 URLs. Presigned URLs win for big
+files, multipart, or high-volume uploads from untrusted browsers; a Worker in the path wins when the
+upload needs authorisation, validation and a synchronous answer. Ours are 0.25–0.62 MB variants from
+five owned tablets at about 0.5 photos a second at peak, so the Worker path is simpler *and* safer:
+no S3 key pair exists anywhere, integrity is checked in-path, and the booth learns READY in the same
+request. It stops fitting only with files near 100 MB, resumable uploads, browser uploads at volume,
+or ~100× the volume. The switch would be server-only, because the booth already treats the upload
+as an opaque descriptor (method, URL, an open `headers` map, `expiresAt`) and understands 202:
+
+- `UploadSigner` (`lib/uploadUrl.ts`) is the seam where SigV4 presigning replaces the HMAC signer.
+- `processPhoto()` and the header walk take no HTTP types (a test checks the source), so an R2
+  object-created notification → Queue consumer could call the same function.
+- **Why a 202 exists although the MVP never sends it:** with D14 the PUT does no processing, so it
+  always answers synchronously. The booth treats `202 {state: "PROCESSING"}` like a retryable
+  response, so an asynchronous path later needs no app release (DESIGN §9.2).
+
+### Why the Worker validates but never decodes (D14, spike Q6/Q10)
+
+The spike tried the Images binding: on real Cloudflare it **kept GPS and camera/lens serial
+numbers** whatever `metadata` was set to (local `wrangler dev` strips them, so a local test would
+have passed), it needs Workers Paid for CPU (355–470 ms per photo), and it caps inputs at 20 MB. The
+booth re-encodes instead (08b), and the Worker only proves the stored bytes are what the booth's
+encoder writes. That costs about 1 ms of CPU per request (spike Q11: sha256 put + header check p50
+1 ms, p95 1 ms), so the account stays on Workers Free. Spike wall times for the put and check from
+Auckland: HD p50 334 ms / p95 449 ms, thumb p50 278 / p95 361 ms. Streaming the body into
+`put(key, request.body, {sha256})` costs 0–1 ms CPU even for 17 MB (Q2), so nothing is buffered.
+
+**The header walk** (`checkJpegHeaders(head, tail)`) reads the first 64 KB and the last 2 bytes:
+
+- SOI; then only APP0 starting `JFIF\0`, APP14 starting `Adobe`, DQT, DHT, DRI and exactly one
+  SOF0 (8-bit, non-zero size) before SOS, and the SOS header must end inside the 64 KB. Anything else
+  fails with a named reason (`segment 0xe1 not allowed`, `SOS past 64 KB`, `no EOI`, …), which
+  becomes the photo's `reject_reason`.
+- Baseline means one scan, so nothing can hide between scans beyond the walked range (progressive
+  files carry segments between scans, and Sony's MPF previews sit after EOI).
+- The object must end in `FFD9`. Only the last 2 bytes are read, so a trailer that itself ends in
+  `FFD9` passes.
+- The rules are the booth's `check_segments` (`crates/photobooth-core/src/variants/segments.rs`)
+  minus its scan walk, which the Worker can't afford, plus one check the encoder's output always
+  passes: the APP0/APP14 identifiers (a JFXX APP0 carries a thumbnail). A pair made by the booth's own encoder is committed
+  (`scripts/fixtures/booth-{thumb,hd}.jpg`, synthetic pattern, no photo) and a test uploads it, so a
+  change on either side that breaks the other fails CI.
+- Size rules (`processPhoto`): the HD's SOF size must equal the declared `width`×`height`; the
+  thumb's long edge must be ≤ 480 px.
+- A variant that fails is **deleted from R2 at once** and the photo becomes REJECTED; it never
+  becomes READY. The photo's other variant, if already stored, stays until the event is purged; it is
+  never served. The delete runs even when the photo is already REJECTED, so a bad object written by
+  a racing PUT doesn't stay behind.
+
+**Accepted risk (DESIGN §13).** Without a re-encode on the server, the entropy-coded data reaches
+guests' browsers as the booth wrote it. A crafted scan, or a trailer that ends in `FFD9`, could aim
+at a browser decoder bug or smuggle data. Only enrolled, revocable tablets can upload (bearer for
+the intent, a signed URL per variant, and the PUT re-checks the device), browsers' JPEG decoders are
+heavily fuzzed, and media is served as `image/jpeg` with `nosniff`. Revisit if uploads ever come
+from devices we don't own.
+
+### Signed upload URLs
+
+- HMAC-SHA256 with the `UPLOAD_KEY` secret over `photoId|variant|bytes|sha256|exp`, valid 15
+  minutes. The URL carries only `exp` and `sig`; the PUT reads the declared bytes and hash from the
+  photo row and recomputes, so a URL is good for one variant of one photo with exactly those bytes.
+- The signature is checked first and in constant time, then the expiry, so a tampered `exp` is 403
+  whether or not it is in the past, and only a genuine URL can be 410. `exp` must be canonical
+  decimal, so one expiry has one signed spelling.
+- **An unknown photo gets the same 403 as a bad signature**, so a URL tells a prober nothing about
+  which photos exist. (The photo row is read before the HMAC is computed, so an unknown ID answers
+  a few microseconds sooner; with UUIDv7 IDs that oracle is worth nothing.)
+- **Replay:** a READY photo answers 201 without reading the body (a test replays the URL with other
+  bytes and checks the object wasn't rewritten); a REJECTED photo answers 422; a PENDING one can only
+  receive the declared bytes, because R2 checks the sha256. A revoked device's URLs stop working at
+  once and a deleted event's too, because the PUT re-reads both.
+- **The PUT doesn't write the heartbeat:** it carries no bearer or device headers (the booth sends
+  them on the intent, which precedes every PUT).
+- `UPLOAD_KEY` is a Wrangler secret (`secrets.required` in `wrangler.jsonc`, so `wrangler types`
+  knows it). Locally `wrangler dev` reads it from `.dev.vars` (copy `.dev.vars.example`, a
+  local-only value); the Vitest config sets a test key. A signer with a missing or short key (< 32
+  characters) throws, so a misconfigured Worker fails closed with 500. **Rotating it** makes every
+  outstanding URL a 403, which the booth treats as needs attention (the operator's retry re-intents
+  and gets a fresh URL): rotate between events, when every booth shows a zero backlog.
+
+### Idempotency, concurrency and failure (DESIGN §9.2)
+
+- **The intent** uses 03's single-statement insert (photo limit and `UNIQUE(device_id,
+  client_photo_id)`), so a retry never makes a second photo. A retry must repeat the whole
+  declaration (event, both hashes and byte counts, the HD size), or it is 409 `conflict`.
+- **Closing uploads blocks new photos only.** When the event no longer accepts uploads (CLOSED,
+  DRAFT, past `uploads_until`), a photo that was already accepted is still answered with its state
+  and fresh URLs, because re-POSTing the intent is how the booth recovers from `upload_expired`.
+  Only a new photo gets 409 `event_closed`. A **deleted** event refuses everything with
+  `event_closed`, and an unknown event is 404.
+- **The PUT** writes to a fixed key, so retries overwrite the same object with the same bytes.
+  `markVariantStored` and the conditional `publishPhotoIfComplete` run in one batch; the publish
+  changes one row for exactly one request, and every other request re-reads the photo. Two
+  concurrent PUTs of the last variant both answer 201 READY.
+- **Partial failure:** anything failing before that batch (R2 or D1 down, a crash) leaves the photo
+  PENDING, and a retry redoes the check and the batch. Infrastructure errors are 500s, which the
+  booth retries; a missing object after the put is an error, not a rejection.
+- **Event deleted between the two variants:** the publish checks the event, so nothing becomes
+  READY; the second PUT itself gets 409 `event_closed` (or, if the deletion lands after its checks,
+  200 STORED with the photo still PENDING). If the event is then restored, the next intent sees
+  both variants stored and publishes the photo.
+- **Objects left behind** (never served, because only READY photos are; the event purge's prefix
+  delete removes them): the stored sibling of a rejected variant, and a bad variant whose own check
+  failed on an infrastructure error after a concurrent request had already rejected the photo (its
+  retries get 422 before reaching R2). A photo deleted by an admin during a PUT is cleaned up: the PUT
+  deletes its object and answers 404.
+- `width`, `height` and `variant_bytes` come from the intent and the HD's SOF check proves the stored
+  HD matches them, so the publish only sets `state` and `published_at`.
+
+### PUT responses
+
+| Case | Response |
+|---|---|
+| Malformed photo ID or unknown variant | 404 `not_found` |
+| Unknown photo, bad or missing signature, a URL signed for other bytes | 403 `forbidden` |
+| Expired (genuine) URL | 410 `upload_expired`: re-POST the intent |
+| Revoked device | 401 `unauthorized` |
+| Deleted event | 409 `event_closed` |
+| READY photo | 201 READY, body not read |
+| REJECTED photo | 422 `invalid_image` |
+| Content type not `image/jpeg`, or `Content-Length` missing or not the declared bytes | 400 `invalid_request` |
+| Bytes don't match the declared sha256 (R2 error 10037; nothing is stored) | 422 `hash_mismatch` |
+| Header walk or size rule failed (object deleted, photo REJECTED) | 422 `invalid_image`, the reason in the message |
+| Stored, the other variant still missing | 200 `{state: "STORED", photoId, variant}` |
+| Stored, the photo is now READY | 201 `{state: "READY", photoId}` |
+
+### Rate limit and logging
+
+- `INTENT_LIMITER`: 120 intents a minute **per device** (keyed by the device ID after
+  authentication, never by IP), answered with 429 `rate_limited` and `Retry-After: 60`. The booth's
+  outbox drains a backlog with two upload workers, about one intent a second each on a good uplink,
+  so 120 a minute lets a backlog drain at full speed while capping a runaway or stolen tablet at
+  about 170,000 rows a day, which the per-event photo limit (2,000 by default) stops much sooner.
+  The PUT has no rate limit: a genuine upload needs a URL from a limited intent, and a forged PUT
+  costs one D1 read (the photo row) before its 403. A flood of forged PUTs is the account-wide
+  denial-of-service case DESIGN §13 leaves to the zone's WAF rate-limiting rule (SETUP C).
+- The access log line carries `deviceId` on every authenticated device request, and `eventId` and
+  `photoId` on intents and PUTs (`addLogIds` in `middleware/accessLog.ts`). The path is logged
+  without its query, so `sig` never reaches the Worker's own logs (a test checks).
+- **Cloudflare's invocation logs** (Workers Logs, `observability.enabled`) record each request's URL
+  themselves, query included, unless `observability.redact_query_string` is set, which it is in
+  `wrangler.jsonc` (inherited by staging and production). Without it every upload URL, signature
+  included, would sit in the dashboard's logs and in `wrangler tail` for the retention period.
+  **Unverified until staging (07):** that the redaction covers `wrangler tail` and the invocation log.
+
+### What was verified, and where
+
+Everything above runs locally: Vitest in workerd with real local D1 and R2 (local R2 enforces
+`sha256` with the production error, spike Q9), and `scripts/smoke.ts` against `wrangler dev`
+(create and open an event and a device, enrol, intent, PUT thumb → 200 STORED, PUT hd → 201 READY,
+re-intent → READY; the stored objects' sha256 match the fixtures). Nothing in this path depends on a
+binding that behaves differently remotely: no Images binding, and R2's `sha256` check, range reads
+and streaming behaved the same in the spike's remote runs. **Not verified on real Cloudflare:** this
+code itself (no deploy), CPU per request (the 1 ms figure is the spike's), the suffix range read
+and the full-object `size` that a ranged `get` reports (which `processPhoto` uses to skip the second
+read for objects up to 64 KB; the spike only ran the 0–64 KB read remotely), the Rate Limiting
+binding's real behaviour (approximate, per location), and concurrent PUTs on remote D1 (local D1
+serialises statements, so the concurrency tests prove the conditional UPDATE, not remote
+scheduling). Session 07 checks the path on staging.
+
+## Guest access and the gallery API (session 11)
+
+Routes on the photos host, all under the event's path `/e/{publicId}/`:
+`POST …/api/session {token}`, `GET …/api/photos?cursor&session&limit`, and
+`GET …/m/{photoId}/{thumb|hd}[?download=1]`. Code: `lib/guestCookie.ts`, `middleware/guestAuth.ts`,
+`routes/guest/`.
+
+### Fragment → cookie
+
+The share link is `/e/{publicId}#k={token}`. The token sits in the fragment, so it is never sent
+in a request line, never logged, and never leaks in a `Referer` (DESIGN §11). The SPA (session 12)
+POSTs it once to `…/api/session` and removes the fragment; from then on the browser holds a cookie
+instead. The token comparison is constant-time (`timingSafeEqual`), and the event must be LIVE and
+not deleted (`galleryVisible`, no time limit since D15). A gallery past its upload window still
+opens.
+
+### A stateless cookie checked against `access_version`
+
+The cookie `g` is `{eventId}.{accessVersion}.{exp}.{sig}`, with `sig` = HMAC-SHA256 over
+`eventId|accessVersion|exp` with `SESSION_KEY`. There is no session table (D10). Each request:
+
+1. checks the signature and expiry before any D1 read, so a forged cookie costs no rows;
+2. reads the event by `publicId` (one row, the `UNIQUE` index) and requires the cookie's event,
+   gallery LIVE, not deleted, and the same `access_version`.
+
+So **rotating the link** (which bumps `access_version`), **suspending** the gallery or **deleting**
+the event takes effect on the very next request, with no revocation list. Suspension is a pause:
+publishing again lets the same cookies and link back in; only rotation revokes them. The fields are
+in clear because none is secret (the cookie is `HttpOnly`, and the event ID gives its holder nothing
+the link didn't). The cookie lasts 30 days and doesn't slide: a guest returning after a month
+reopens the link.
+
+**Path-scoped cookies, one per event.** `Path=/e/{publicId}`, `HttpOnly`, `Secure`,
+`SameSite=Lax`, `Max-Age=2592000`. A guest at two events holds two cookies with the same name and
+different paths, and each is sent only to its own event. A cookie presented on another event's path
+fails the event check anyway (tested).
+
+### Why every refusal is the same 404
+
+Wrong or old token, unknown event, suspended, hidden or deleted gallery, a malformed body; a
+missing, forged, expired or stale cookie: all get the same `404 not_found` "Not found." with
+`no-store`. A different status or message would let someone holding a forwarded or guessed link tell
+"this event exists but is suspended" from "wrong link", or confirm that an event exists at all. The
+cookie check's refusals also clear the cookie (`Max-Age=0` on the same path), so a browser stops
+sending a dead one. The two answers that differ say nothing about any event: **429** with
+`Retry-After: 60` when the caller's own IP is over the session limit (checked before anything else),
+and **400** for a bad query on the photo list, which only a holder of a valid cookie can reach.
+
+### The list: cheap enough to poll
+
+The list is the gallery's polling target (30 s while `eventOpen`, 10 s for the post-shoot session
+view), so its cost is pinned by tests through the access log's `rowsRead` (the event row plus each
+query's `meta.rows_read`): **1 event row and at most 26 photo rows** for a page of 24 (the page, one
+row to know there is a next page, and the boundary row a cursor seek lands on). The keyset cursor
+(`published_at`, `id`) keeps pages stable while photos arrive: new ones sort before the cursor, so
+they never shift a later page.
+
+The session filter (`?session=`) is the post-shoot view's. With the original
+`photos_session (event_id, session_id)` index SQLite chose `photos_gallery` and read every READY
+photo of the event to find one session's few: on a 2,000-photo event, the 12 polls of one session
+view would read about 24,000 rows, and a busy event day could spend half of D1's free 5 M rows on
+it. Migration `0002` widens `photos_session` to `(event_id, session_id, state, hidden,
+published_at, id)`, the gallery index's shape with the session added, and a session page now reads
+about one page of rows (tested). A session ID from another event matches nothing here, so it gives
+an empty page.
+
+### Media: immutable private caching
+
+Media follows DESIGN §11's four steps (cookie; event row; photo row: this event's, READY, not
+hidden; then R2): two D1 rows per request. The row check holds on its own: the R2 key also contains
+the event ID, but a test puts a stray object under the wrong event's prefix and still gets the 404.
+`Cache-Control: private, max-age=31536000, immutable`:
+
+- **Immutable** because a key never changes content (fixed keys, D6, and a READY photo takes no
+  more uploads). The browser never revalidates, which matters more than bytes: on Workers Free every
+  refetch is a request against the account's 100,000 a day (spike Q12), and a guest scrolling back
+  through a grid of 24 thumbnails would otherwise cost 24 requests each time.
+- **Private** so no shared cache keeps a guest's photo. The Worker runs first for every request, so
+  nothing is served without the access check.
+- **The trade-off:** a photo a browser has already loaded stays in that browser's cache after the
+  link is rotated, the gallery suspended or the photo hidden. Those controls stop new views, not
+  copies a guest already has (which they could have saved anyway).
+
+A refusal is `no-store`, never cached like the media it stands in for. `?download=1` adds
+`Content-Disposition: attachment; filename="<event-slug>-<session>-<shot>.jpg"`: the slug folds
+accents and keeps only `a-z0-9-` (at most 40 characters, `photo` if nothing is left), so the header
+needs no escaping. Session and shot keep a guest's downloads distinct and in strip order. `download`
+with any other value is inline. Only `thumb` and `hd` exist; anything else is the 404.
+
+### Rate limit, secrets and config
+
+- `SESSION_LIMITER`: 60 swaps a minute per IP (an IPv6 address by its /64, `ipRateKey`). A guest
+  swaps once per link opening, but a venue's guests often share one Wi-Fi address, so the limit
+  allows a crowd scanning the QR at once. The token is 128 bits, so the limit isn't what stops
+  guessing; it bounds the D1 rows a flood can spend.
+- `SESSION_KEY` (at least 32 characters, `secrets.required` in every environment) signs the
+  cookies, separate from `UPLOAD_KEY`. Without it every guest request fails closed (500). There is
+  one key at a time, so rotating it logs every guest out (they reopen the link).
+- `CONTACT_ADDRESS` and `CONTACT_EMAIL` are in every list response (the footer's removal contact).
+  Local placeholders are in `wrangler.jsonc`; staging and production are still empty, so the list
+  answers a logged 500 (`internal_error`) there until session 07 sets them.
+- The swap accepts only `Content-Type: application/json`. A cross-site page can't send that without
+  a CORS preflight, which the Worker never answers, so it can't plant its own gallery's cookie in a
+  visitor's browser (login CSRF; harmless here, but free to stop).
+
+### What was verified, and where
+
+Vitest in workerd (local D1 and R2): every DESIGN §11 *Media* step and the §13 cross-event row have
+named tests; rotation, suspension and deletion are checked on the very next request through the real
+admin API; 17 mutations of the checks were each caught. `scripts/smoke.ts` against `wrangler dev`
+covers the guest path after READY. **Not verified on real Cloudflare:** the cookie in a real browser
+on the real HTTPS domain (session 12 tries `photos.localhost` in a browser), the Rate Limiting
+binding's real behaviour, `CF-Connecting-IP`, and remote D1's `rows_read` counts (the tests pin
+local SQLite's).
+
 ## Data model (D1)
 
 The schema is `migrations/0001_init.sql`: DESIGN §6 plus the refinements listed there. The
@@ -345,10 +731,18 @@ EOI only), so the header walk (session 06) accepts them and browsers display the
 ## Known limits
 
 - The health version is the `package.json` version. A git SHA arrives with the deploy workflow in session 07.
-- The rate-limit bindings are declared but unused, and their thresholds are placeholders.
-- `ADMIN_EMAILS`, `ADMIN_SERVICE_CLIENTS`, `ACCESS_*` and `CONTACT_*` are empty vars here, so a
-  deployed Worker refuses every admin request until session 07 sets them. The postal address in
-  DESIGN §11 is not copied into the config.
+- `ENROL_LIMITER` (session 05, 10 a minute per IP), `INTENT_LIMITER` (session 06, 120 a minute per
+  device) and `SESSION_LIMITER` (session 11, 60 a minute per IP) have only run in the local
+  simulation: their behaviour on Cloudflare (per location, approximate) is **unverified**.
+- `SESSION_KEY` has one value at a time, so rotating it logs every guest out.
+- Media already in a guest's browser cache stays viewable there after rotation, suspension or
+  hiding (immutable caching; see "Guest access and the gallery API").
+- `UPLOAD_KEY` has one value at a time, so rotating it voids every outstanding upload URL (the
+  booth's items need the operator's retry). Rotate between events.
+- `GET /api/devices` is unpaginated (schema cap 1,000); there are five tablets.
+- `ADMIN_EMAILS`, `ADMIN_SERVICE_CLIENTS`, `ACCESS_*` and `CONTACT_*` are empty vars in staging and
+  production, so a deployed Worker refuses every admin request, and answers the gallery list with a
+  500, until session 07 sets them. Only the local config has contact values.
 - Admin auth is tested only against tokens signed locally. The real Access JWT shape (`common_name`
   on service tokens, `aud` as an array) follows Cloudflare's docs and is **unverified** until
   staging (session 07).

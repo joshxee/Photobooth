@@ -24,6 +24,12 @@ describe("command wrappers", () => {
     await ipc.sessionState();
     await ipc.settingsGet();
     await ipc.settingsSet({ number_of_photos: 5, test_mode: { pattern: "checker" } });
+    await ipc.portalStatus();
+    await ipc.portalEnrol({ url: "https://photos.example.invalid", code: "7K3M9Q2Z", name: "Booth 1" });
+    await ipc.portalUnenrol();
+    await ipc.portalEvents();
+    await ipc.portalSelectEvent("019a0b6c-4f00-7a3e-9c41-5b2d8e0f1a01");
+    await ipc.portalClearEvent();
     await ipc.testInject({ kind: "slow_next_capture", ms: 2000 });
     await ipc.logsRecent(50);
 
@@ -41,9 +47,23 @@ describe("command wrappers", () => {
       "session_state",
       "settings_get",
       "settings_set",
+      "portal_status",
+      "portal_enrol",
+      "portal_unenrol",
+      "portal_events",
+      "portal_select_event",
+      "portal_clear_event",
       "test_inject",
       "logs_recent",
     ]);
+    expect(backend.callsTo("portal_enrol")[0]?.args).toEqual({
+      url: "https://photos.example.invalid",
+      code: "7K3M9Q2Z",
+      name: "Booth 1",
+    });
+    expect(backend.callsTo("portal_select_event")[0]?.args).toEqual({
+      id: "019a0b6c-4f00-7a3e-9c41-5b2d8e0f1a01",
+    });
     expect(backend.callsTo("camera_select")[0]?.args).toEqual({ id: "test" });
     expect(backend.callsTo("live_view_start")[0]?.args.channel).toBe(channel);
     expect(backend.callsTo("settings_set")[0]?.args).toEqual({

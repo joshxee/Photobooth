@@ -3,6 +3,8 @@ import { useState } from "react";
 import { settingsSet, TEST_PATTERNS, type SettingsPatch } from "../ipc";
 import { errorMessage } from "../store/bridge";
 import { useBooth } from "../store/store";
+import { PortalSettings } from "./PortalSettings";
+import { UploadQueue } from "./UploadQueue";
 
 /** Applies a patch via the backend (which validates and persists) and mirrors the result. */
 async function apply(patch: SettingsPatch): Promise<void> {
@@ -209,6 +211,9 @@ export function Settings() {
             </div>
           </fieldset>
         )}
+
+        <PortalSettings />
+        <UploadQueue />
 
         <section className="settings__summary" aria-label="Current Configuration">
           <h2>Current Configuration</h2>

@@ -2,8 +2,10 @@
 
 use std::fmt;
 
-use photobooth_core::{CameraId, CameraStatus};
+use photobooth_core::{CameraId, CameraStatus, SelectedEvent};
 use serde::{Deserialize, Serialize};
+
+use crate::portal::types::DeviceEvent;
 
 /// How the live preview reaches the screen.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
@@ -33,6 +35,94 @@ pub struct CameraInfo {
 pub struct CameraStatusEvent {
     pub camera: CameraId,
     pub status: CameraStatus,
+}
+
+/// What the operator UI knows about the portal (`portal_status` and the portal commands).
+/// It never carries the device credential.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+pub struct PortalStatus {
+    pub enrolled: bool,
+    /// The enrolled portal, or else the address the enrolment form starts with.
+    pub portal_url: String,
+    /// `host[:port]` of the enrolled portal.
+    pub portal_host: Option<String>,
+    /// The booth's name as the portal stored it.
+    pub device_name: Option<String>,
+    /// Where new photos go; only while enrolled.
+    pub selected_event: Option<SelectedEvent>,
+    /// Why the stored enrolment can't be used (a damaged file), for the operator.
+    pub problem: Option<String>,
+}
+
+/// One OPEN event for the operator's picker.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+pub struct PortalEvent {
+    pub id: String,
+    pub name: String,
+    pub venue: String,
+    pub timezone: String,
+    /// `YYYY-MM-DD`, in the event's time zone.
+    pub local_date: String,
+}
+
+impl From<DeviceEvent> for PortalEvent {
+    fn from(e: DeviceEvent) -> Self {
+        Self {
+            id: e.id,
+            name: e.name,
+            venue: e.venue,
+            timezone: e.timezone,
+            local_date: e.local_date,
+        }
+    }
+}
+
+/// The operator's view of the upload queue (`outbox_status` and the `portal://outbox` event).
+/// Counts and flags only: never image bytes or the credential.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]
+pub struct OutboxStatus {
+    /// The outbox opened. False means this booth can't queue anything (see the logs).
+    pub available: bool,
+    pub queued: usize,
+    pub uploading: usize,
+    /// Uploads stopped for the operator, files without a record, and shots that couldn't be
+    /// queued: everything in the needs-attention list.
+    pub needs_attention: usize,
+    /// The last upload attempt got no answer from the portal.
+    pub offline: bool,
+    /// The portal refused this booth's credential. Nothing uploads until it is enrolled
+    /// again; the queue is kept.
+    pub revoked: bool,
+    /// `None` when the platform can't say.
+    pub free_bytes: Option<u64>,
+    /// Free space is known and below 1 GB.
+    pub low_disk: bool,
+}
+
+/// What an entry of the needs-attention list is.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum OutboxEntryKind {
+    /// A queued shot the portal refused or that can't be read; retry or dismiss.
+    Upload,
+    /// Files without a usable record (an interrupted enqueue); dismiss only.
+    Damaged,
+    /// A shot that was never queued (the encoder failed); dismiss only, to acknowledge it.
+    NotQueued,
+}
+
+/// One row of the needs-attention list (`outbox_items`). IDs and reasons only.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+pub struct OutboxEntry {
+    pub id: String,
+    pub kind: OutboxEntryKind,
+    pub reason: String,
+    pub session_id: Option<String>,
+    pub shot: Option<u8>,
+    /// ISO 8601, UTC.
+    pub captured_at: Option<String>,
+    pub event_id: Option<String>,
+    pub can_retry: bool,
 }
 
 /// Faults and shortcuts for the developer panel (`test_inject`).

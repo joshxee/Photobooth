@@ -26,6 +26,8 @@ export const LIMITS = {
   hdMaxEdge: 2560,
   galleryPageDefault: 24,
   galleryPageMax: 100,
+  /** `X-Outbox-Depth` is clamped to 0–this before it is stored. */
+  outboxDepthMax: 100_000,
 } as const;
 
 /** The closed set of error codes. Adding one is a contract change (fixtures + booth mapping). */
@@ -106,11 +108,19 @@ export const TimeZone = z.string().max(64).refine(isTimeZone, "unknown time zone
 // Device API (photos.<domain>, Bearer credential except enrolment)
 // ---------------------------------------------------------------------------------------
 
+/**
+ * Headers every authenticated device call sends (DESIGN §8): the outbox backlog (an integer,
+ * clamped to 0–100000) and the app version (1–32 printable ASCII characters). The server records
+ * them, with the time, at most once a minute per device. A missing or malformed value is ignored.
+ */
+export const DEVICE_HEADERS = { outboxDepth: "X-Outbox-Depth", appVersion: "X-App-Version" } as const;
+
 /** POST /v1/device/enrol. The code is normalised by the route (domain/ids.ts). */
 export const EnrolRequest = z.strictObject({
   code: z.string().min(1).max(32),
   name: Name,
-  appVersion: z.string().min(1).max(32),
+  /** Printable ASCII, as `X-App-Version` (DEVICE_HEADERS). */
+  appVersion: z.string().regex(/^[\x20-\x7e]{1,32}$/),
 });
 export type EnrolRequest = z.infer<typeof EnrolRequest>;
 

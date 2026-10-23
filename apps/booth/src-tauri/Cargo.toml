@@ -19,6 +19,11 @@ bytes = "1"
 futures-util = "0.3"
 photobooth-core = { path = "../../../crates/photobooth-core" }
 tauri-plugin-photobooth-camera = { path = "../../../plugins/tauri-plugin-photobooth-camera" }
+# The portal client (DESIGN §5). No default features: reqwest's own rustls setup brings aws-lc-rs
+# (cmake and NASM to cross-compile) and a platform verifier that needs JNI set-up on Android, so
+# the client brings a rustls config on `ring` with the Mozilla roots instead (portal/client.rs).
+reqwest = { version = "0.13", default-features = false, features = ["rustls-no-provider"] }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tauri = { version = "2", features = [] }
@@ -26,6 +31,12 @@ thiserror = "2"
 tokio = { version = "1", features = ["sync", "time", "rt", "macros"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", default-features = false, features = ["fmt", "std", "registry", "ansi"] }
+webpki-roots = "1"
+
+# Free space for the outbox's low-disk warning (`statvfs`; upload/disk.rs). Already in the
+# lockfile through tokio and others.
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
 
 # The native camera and the Sony USB camera exist only on Android; their glue is compiled there
 # (and, so it is checked and tested, in unit tests everywhere).
@@ -37,4 +48,5 @@ tauri-plugin-photobooth-camera = { path = "../../../plugins/tauri-plugin-photobo
 sony-ptp = { path = "../../../crates/sony-ptp", features = ["sim"] }
 tauri-plugin-photobooth-camera = { path = "../../../plugins/tauri-plugin-photobooth-camera", features = ["core-camera", "sony-transport"] }
 tempfile = "3"
-tokio = { version = "1", features = ["sync", "time", "rt", "macros", "test-util"] }
+# `net` and `io-util` for the portal client's local mock server.
+tokio = { version = "1", features = ["sync", "time", "rt", "macros", "test-util", "net", "io-util"] }

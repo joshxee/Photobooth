@@ -52,11 +52,75 @@ export interface Settings {
   mirror_preview: boolean;
   start_trigger: "tap" | "gesture";
   test_mode: TestModeSettings;
+  /** Changed only by enrolment (portal_enrol). */
+  portal_url: string;
+  /** Changed only by event selection (portal_select_event, portal_clear_event). */
+  selected_event: SelectedEvent | null;
 }
 
-export type SettingsPatch = Partial<Omit<Settings, "test_mode">> & {
+export type SettingsPatch = Partial<
+  Omit<Settings, "test_mode" | "portal_url" | "selected_event">
+> & {
   test_mode?: Partial<TestModeSettings>;
 };
+
+/** The portal event new photos go to. */
+export interface SelectedEvent {
+  id: string;
+  name: string;
+  /** `YYYY-MM-DD`, in the event's time zone. */
+  local_date: string;
+}
+
+/** What the operator UI knows about the portal. Never the device credential. */
+export interface PortalStatus {
+  enrolled: boolean;
+  /** The enrolled portal, or the address the enrolment form starts with. */
+  portal_url: string;
+  portal_host: string | null;
+  device_name: string | null;
+  selected_event: SelectedEvent | null;
+  /** Why the stored enrolment can't be used. */
+  problem: string | null;
+}
+
+/** The upload queue, for the operator (`outbox_status`, `portal://outbox`). Counts only. */
+export interface OutboxStatus {
+  /** The outbox opened; false means this booth can't queue photos. */
+  available: boolean;
+  queued: number;
+  uploading: number;
+  /** Everything in the needs-attention list. */
+  needs_attention: number;
+  /** The last upload attempt got no answer from the portal. */
+  offline: boolean;
+  /** The portal refused this booth's credential; uploads wait for a new enrolment. */
+  revoked: boolean;
+  free_bytes: number | null;
+  /** Below 1 GB free. */
+  low_disk: boolean;
+}
+
+/** `upload`: retry or delete; `damaged`: files without a record; `not_queued`: never queued. */
+export type OutboxEntryKind = "upload" | "damaged" | "not_queued";
+
+/** One row of the needs-attention list (`outbox_items`). Never image bytes. */
+export interface OutboxEntry {
+  id: string;
+  kind: OutboxEntryKind;
+  reason: string;
+  session_id: string | null;
+  shot: number | null;
+  captured_at: string | null;
+  event_id: string | null;
+  can_retry: boolean;
+}
+
+/** An event that accepts uploads now. */
+export interface PortalEvent extends SelectedEvent {
+  venue: string;
+  timezone: string;
+}
 
 /** A rectangle in the camera frame, as fractions of its width and height (unmirrored). */
 export interface FrameRegion {

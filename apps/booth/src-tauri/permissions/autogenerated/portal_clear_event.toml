@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-portal-clear-event"
+description = "Enables the portal_clear_event command without any pre-configured scope."
+commands.allow = ["portal_clear_event"]
+
+[[permission]]
+identifier = "deny-portal-clear-event"
+description = "Denies the portal_clear_event command without any pre-configured scope."
+commands.deny = ["portal_clear_event"]

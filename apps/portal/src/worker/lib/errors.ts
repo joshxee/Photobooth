@@ -22,7 +22,8 @@ export class AppError extends Error {
   }
 }
 
-function respond(c: Context<AppEnv>, code: ErrorCode, message: string): Response {
+/** The error body for `code`, with its status. For a route that must add headers (`Retry-After`). */
+export function errorResponse(c: Context<AppEnv>, code: ErrorCode, message: string): Response {
   const body: ErrorBody = { code, message, correlationId: c.get("requestId") };
   return c.json(body, ERROR_STATUS[code]);
 }
@@ -47,15 +48,15 @@ function codeForStatus(status: number): ErrorCode {
 
 /** zod errors become 400, unknown errors 500; neither leaks the underlying message or issues. */
 export const handleError: ErrorHandler<AppEnv> = (err, c) => {
-  if (err instanceof AppError) return respond(c, err.code, err.message);
-  if (err instanceof ZodError) return respond(c, "invalid_request", "The request was not valid.");
-  if (err instanceof HTTPException) return respond(c, codeForStatus(err.status), "The request could not be processed.");
+  if (err instanceof AppError) return errorResponse(c, err.code, err.message);
+  if (err instanceof ZodError) return errorResponse(c, "invalid_request", "The request was not valid.");
+  if (err instanceof HTTPException) return errorResponse(c, codeForStatus(err.status), "The request could not be processed.");
   log.error({
     requestId: c.get("requestId"),
     outcome: "internal_error",
     errorName: err instanceof Error ? err.name : typeof err,
   });
-  return respond(c, "internal", "Something went wrong.");
+  return errorResponse(c, "internal", "Something went wrong.");
 };
 
-export const handleNotFound: NotFoundHandler<AppEnv> = (c) => respond(c, "not_found", "Not found.");
+export const handleNotFound: NotFoundHandler<AppEnv> = (c) => errorResponse(c, "not_found", "Not found.");

@@ -45,6 +45,15 @@ describe("gallery SPA", () => {
     }
   });
 
+  it("never answers for the guest API or media paths: those are JSON 404s, not the shell", async () => {
+    for (const path of ["/e/abcdefghijklmnop/api/other", "/e/abcdefghijklmnop/api/", "/e/abcdefghijklmnop/m/x", "/e/abcdefghijklmnop/m/"]) {
+      const res = await get(`${GALLERY}${path}`);
+      expect(res.status, path).toBe(404);
+      expect(res.headers.get("content-type"), path).toMatch(/^application\/json/);
+    }
+    expect(requested).toEqual([]);
+  });
+
   it("does not forward the query string (it can carry the share token) to the assets binding", async () => {
     await get(`${GALLERY}/e/abc123?t=SECRET`);
     expect(requested).toEqual(["/gallery/index.html"]);

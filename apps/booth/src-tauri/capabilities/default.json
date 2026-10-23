@@ -21,6 +21,16 @@
     "allow-session-return-home",
     "allow-session-state",
     "allow-settings-get",
-    "allow-settings-set"
+    "allow-settings-set",
+    "allow-portal-status",
+    "allow-portal-enrol",
+    "allow-portal-unenrol",
+    "allow-portal-events",
+    "allow-portal-select-event",
+    "allow-portal-clear-event",
+    "allow-outbox-status",
+    "allow-outbox-items",
+    "allow-outbox-retry",
+    "allow-outbox-dismiss"
   ]
 }

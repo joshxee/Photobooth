@@ -115,6 +115,28 @@ control contains, so a few selectors must be patterns (learned running the flows
 | A camera card | one node: `Test Camera Test mode • Fast capture • No hardware required` | `"Test Camera.*"` |
 | `{n} SHOTS` | two nodes: `3` and ` SHOTS` | `".*SHOTS"` |
 | The strip caption | one long node starting `VIRTUAL PHOTO STRIP SAVED — COPIES…` | `"VIRTUAL PHOTO STRIP SAVED.*"` |
+| An open-event card (Settings → Guest Portal) | name, venue and date in one node | `"Smith wedding.*"` |
+| The portal line on the camera picker | one node | `"Portal: .*"` |
+
+The Guest Portal section in Settings (`PortalSettings.tsx`, session 09) follows the same rules:
+text fields labelled `Portal address`, `Enrolment code`, `Booth name`; buttons `Enrol booth`,
+`Choose event` / `Change event`, `Use this event` / `Switch to this event`, `Cancel`,
+`Clear event` then `Stop sending photos`, `Unenrol booth` then `Unenrol`, and `Remove enrolment` for a damaged one. The
+confirmations are separate views with their own heading (`Use this event?`, `Switch event?`,
+`Stop sending photos to {event}?`,
+`Unenrol this booth?`), not dialogs, so a flow can wait for the heading.
+
+The upload status (session 10) is operator-only: the guest screens are unchanged.
+
+| On screen | Selector |
+|-----------|----------|
+| The upload badge on the camera picker | `role=status`, `aria-label="Upload status"`; its text starts `Uploads` (`"Uploads.*"`) and its class is `upload-badge--{ok,busy,offline,attention}` |
+| Settings → the queue section | legend `Upload Queue`; counts in one node `Queued N · Uploading N · Needs attention N` (`"Queued.*"`) |
+| An entry | `Session {id} · shot {n}` and the reason; buttons `Retry`, `Delete…` (then the heading `Delete this photo from the booth?`, buttons `Delete from booth` / `Cancel`), or `Dismiss` for a shot that wasn't queued |
+
+The badge's wording (`uploadText.ts`) picks the most urgent state; Rust supplies the facts
+(`OutboxStatus` from `outbox_status` and `portal://outbox`, kept in the store as `outbox`). The
+list is fetched with `outbox_items` whenever the status changes.
 ## Camera problems: one voice, and no photo you cannot take
 
 `cameraBanner` (in `store/store.ts`) is the single answer to "can the guest take a photo?" on the

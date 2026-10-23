@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-portal-events"
+description = "Enables the portal_events command without any pre-configured scope."
+commands.allow = ["portal_events"]
+
+[[permission]]
+identifier = "deny-portal-events"
+description = "Denies the portal_events command without any pre-configured scope."
+commands.deny = ["portal_events"]

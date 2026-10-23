@@ -1,6 +1,15 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
-import { cameras, defaultSettings, flush, installBackend, removeBackend, until } from "../test/ipc";
+import {
+  cameras,
+  defaultSettings,
+  enrolledStatus,
+  flush,
+  installBackend,
+  outboxStatus,
+  removeBackend,
+  until,
+} from "../test/ipc";
 import { errorMessage, refreshCameras, startBridge } from "./bridge";
 import {
   resetBooth,
@@ -88,6 +97,8 @@ describe("bridge", () => {
       session_state: () => ({ state: "attract" }),
       camera_list: () => cameras(),
       settings_get: () => defaultSettings(),
+      portal_status: () => enrolledStatus(),
+      outbox_status: () => outboxStatus({ queued: 1 }),
     });
 
   test("loads the initial snapshots", async () => {
@@ -97,6 +108,22 @@ describe("bridge", () => {
     expect(s.cameras).toHaveLength(3);
     expect(s.settings?.selected_camera).toBe("test");
     expect(s.session.state).toBe("attract");
+    expect(s.portal?.device_name).toBe("Booth 1");
+    expect(s.outbox?.queued).toBe(1);
+    detach();
+  });
+
+  test("forwards upload status changes, and a stale snapshot never overwrites one", async () => {
+    const fake = backend();
+    fake.on("outbox_status", async () => {
+      await fake.emit("portal://outbox", outboxStatus({ uploading: 2 }));
+      await flush();
+      return outboxStatus({ queued: 1 });
+    });
+    const detach = await startBridge();
+    expect(useBooth.getState().outbox?.uploading).toBe(2);
+    await fake.emit("portal://outbox", outboxStatus({ offline: true }));
+    await until(() => useBooth.getState().outbox?.offline === true, "outbox event");
     detach();
   });
 

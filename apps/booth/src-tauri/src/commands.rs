@@ -6,7 +6,9 @@ use photobooth_core::{CameraId, Region, SessionState, Settings, SettingsPatch};
 use tauri::ipc::{Channel, InvokeResponseBody};
 use tauri::State;
 
-use crate::dto::{CameraInfo, CommandError, Fault};
+use crate::dto::{
+    CameraInfo, CommandError, Fault, OutboxEntry, OutboxStatus, PortalEvent, PortalStatus,
+};
 use crate::state::{AppState, FrameSink};
 
 type CommandResult<T> = Result<T, CommandError>;
@@ -104,6 +106,91 @@ pub fn settings_get(state: State<'_, AppState>) -> Settings {
 #[tauri::command]
 pub fn settings_set(state: State<'_, AppState>, patch: SettingsPatch) -> CommandResult<Settings> {
     state.update_settings(patch)
+}
+
+/// Enrolment and the selected event. Never the credential.
+#[tauri::command]
+pub fn portal_status(state: State<'_, AppState>) -> PortalStatus {
+    state.portal_status()
+}
+
+#[tauri::command]
+pub async fn portal_enrol(
+    state: State<'_, AppState>,
+    url: String,
+    code: String,
+    name: String,
+) -> CommandResult<PortalStatus> {
+    state.portal_enrol(&url, &code, &name).await
+}
+
+/// Deletes the credential; the UI confirms first.
+#[tauri::command]
+pub async fn portal_unenrol(state: State<'_, AppState>) -> CommandResult<PortalStatus> {
+    state.portal_unenrol().await
+}
+
+/// The portal's OPEN events.
+#[tauri::command]
+pub async fn portal_events(state: State<'_, AppState>) -> CommandResult<Vec<PortalEvent>> {
+    state.portal_events().await
+}
+
+/// Re-fetches the event and selects it only if it is OPEN; the UI confirms first.
+#[tauri::command]
+pub async fn portal_select_event(
+    state: State<'_, AppState>,
+    id: String,
+) -> CommandResult<PortalStatus> {
+    state.portal_select_event(&id).await
+}
+
+#[tauri::command]
+pub async fn portal_clear_event(state: State<'_, AppState>) -> CommandResult<PortalStatus> {
+    state.portal_clear_event().await
+}
+
+/// Upload queue counts and flags; changes arrive as `portal://outbox` events. It waits for
+/// the outbox's lock, which the upload loop holds across `fsync`s, and reads free space, so
+/// it runs on a blocking thread (a sync command would run on the main thread).
+#[tauri::command]
+pub async fn outbox_status(state: State<'_, AppState>) -> CommandResult<OutboxStatus> {
+    let Ok(uploads) = state.uploads() else {
+        return Ok(state.outbox_status());
+    };
+    run_blocking(move || Ok(uploads.status())).await
+}
+
+/// The needs-attention list with reasons. IDs only, never image bytes. Blocking, like
+/// `outbox_status`.
+#[tauri::command]
+pub async fn outbox_items(state: State<'_, AppState>) -> CommandResult<Vec<OutboxEntry>> {
+    let Ok(uploads) = state.uploads() else {
+        return Ok(state.outbox_items());
+    };
+    run_blocking(move || Ok(uploads.entries())).await
+}
+
+/// Queues a stopped upload again. Blocking file I/O, so it runs off the async workers.
+#[tauri::command]
+pub async fn outbox_retry(state: State<'_, AppState>, id: String) -> CommandResult<()> {
+    let uploads = state.uploads()?;
+    run_blocking(move || uploads.retry(&id)).await
+}
+
+/// Deletes the booth's copy of a stopped upload; the UI confirms first.
+#[tauri::command]
+pub async fn outbox_dismiss(state: State<'_, AppState>, id: String) -> CommandResult<()> {
+    let uploads = state.uploads()?;
+    run_blocking(move || uploads.dismiss(&id)).await
+}
+
+async fn run_blocking<T: Send + 'static>(
+    work: impl FnOnce() -> CommandResult<T> + Send + 'static,
+) -> CommandResult<T> {
+    tauri::async_runtime::spawn_blocking(work)
+        .await
+        .map_err(|err| CommandError::new(format!("the upload queue task failed: {err}")))?
 }
 
 /// Developer-panel fault injection. Only reachable through the `dev` capability.
