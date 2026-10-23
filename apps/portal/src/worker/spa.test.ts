@@ -103,6 +103,29 @@ describe("admin SPA", () => {
     expect(res.headers.get("content-security-policy")).toContain("frame-ancestors 'none'");
   });
 
+  it("serves the shell for the SPA's own views, so a reload or a bookmark works", async () => {
+    for (const path of ["/events", "/events/new", "/events/019a0b7e-0000-7000-8000-000000000001", "/events/019a0b7e-0000-7000-8000-000000000001/edit", "/devices", "/audit"]) {
+      const res = await getAdmin(`${ADMIN}${path}`);
+      expect(res.status, path).toBe(200);
+      expect(await res.text()).toContain("<title>Admin</title>");
+      expect(res.headers.get("cache-control")).toBe("no-cache");
+    }
+  });
+
+  it("answers anything else, and unknown API paths, with a JSON 404 rather than the shell", async () => {
+    for (const path of ["/elsewhere", "/events/new/x", "/devices/x", "/api/nope", "/api/events/x/y/z"]) {
+      const res = await getAdmin(`${ADMIN}${path}`);
+      expect(res.status, path).toBe(404);
+      expect(res.headers.get("content-type")).toContain("application/json");
+    }
+  });
+
+  it("serves the shell on GET only", async () => {
+    const headers = { "Cf-Access-Jwt-Assertion": await signJwt(userClaims()), Origin: ADMIN, "Content-Type": "application/json" };
+    const res = await createApp().fetch(new Request(`${ADMIN}/devices`, { method: "POST", headers, body: "{}" }), { ...env, ASSETS: assets }, createExecutionContext());
+    expect(res.status).toBe(404);
+  });
+
   it("serves hashed bundles from /assets/ as immutable, and not the gallery's", async () => {
     const ok = await getAdmin(`${ADMIN}/assets/main-def456.js`);
     expect(ok.status).toBe(200);

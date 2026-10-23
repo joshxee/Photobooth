@@ -26,4 +26,7 @@ adminApp.use("/api/*", bodyLimit({ maxSize: MAX_BODY_BYTES }), noStore());
 adminApp.route("/api", eventsApi);
 adminApp.route("/api/devices", devicesApi);
 serveSpaAssets(adminApp, "admin");
-adminApp.get("/", serveSpa("admin"));
+// The SPA owns these paths (src/web/admin/nav.tsx), so a reload or bookmark loads the shell.
+// Everything else, unknown /api/ paths included, is the JSON 404.
+const SPA_VIEWS = /^\/(events(\/new|\/[0-9a-f-]{36}(\/edit)?)?|devices|audit)?\/?$/;
+adminApp.get("*", (c, next) => (SPA_VIEWS.test(c.req.path) ? serveSpa("admin")(c, next) : c.notFound()));
