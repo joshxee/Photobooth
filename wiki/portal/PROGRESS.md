@@ -20,7 +20,7 @@ this file first, so state facts and not intentions.
 ---
 
 ## 16 — Retention and deletion — DONE — 2026-10-23
-- PR: #TBD (branch `portal/16-retention-deletion`)
+- PR: #31 (branch `portal/16-retention-deletion`)
 - **Unblocks 17.** Only the staging CPU measurement is open.
 - Built:
   - `jobs/retention.ts` `runRetention(env, now)`, called by `scheduled()` with the trigger's time: purges deleted events with `purge_after <= now` (R2 prefix `events/{id}/` in lists of ≤ 1,000 keys + batch delete, then `DELETE FROM events` and an `event.purge` audit row in one atomic batch, both guarded by "still deleted and due"; photo rows cascade) and prunes audit rows older than 90 days (500 per statement, then an `audit.prune` row). Actor `system`. No migration: the event row is deleted and the audit row keeps its ID, name and photo count.
