@@ -20,7 +20,7 @@ this file first, so state facts and not intentions.
 ---
 
 ## 15 — Admin UI: moderation, media proxy and audit view — DONE — 2026-10-28
-- PR: #PRNUM (branch `portal/15-admin-ui-moderation`)
+- PR: #34 (branch `portal/15-admin-ui-moderation`)
 - **Unblocks 17** (with 07 and the staging-dependent sessions). Nothing here needs staging to be correct; the staging items are listed below.
 - Built:
   - Worker (`routes/admin/photos.ts`, `routes/admin/audit.ts`): `GET /api/events/{id}/photos?state&hidden&cursor&limit`, `POST /api/photos/{id}/hide|unhide`, `DELETE /api/photos/{id}`, `GET /api/media/{photoId}/{thumb|hd}`, `GET /api/audit?event&action&cursor&limit`. Every mutation and its audit row (`photo.hide`, `photo.unhide`, `photo.delete`) is one `db.batch`, guarded so a repeat or a failure leaves no audit row. `lib/media.ts` `jpegResponse()` is the streaming helper the guest media route and the admin proxy share. The admin `noStore` middleware keeps a `Cache-Control` a handler set. `AUDIT_ACTIONS` and `AdminPhotosQuery`/`AuditQuery` in `shared/schemas.ts`; `AuditList` gained `nextCursor`; `setPhotoHidden` only changes a differing flag; `listAdminPhotos`, `listAudit` (event, action, cursor), id cursors.
