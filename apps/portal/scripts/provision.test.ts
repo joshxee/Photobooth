@@ -30,6 +30,10 @@ describe("provisionCommands", () => {
     expect(lines.join("\n")).not.toContain("staging");
   });
 
+  it("logs out at the end, so no write login stays cached on the PC", () => {
+    for (const env of ["staging", "production"]) expect(commands(env).at(-1)).toBe("npx wrangler logout");
+  });
+
   it("never deploys, and refuses an unknown environment", () => {
     for (const env of ["staging", "production"]) expect(commands(env).join("\n")).not.toMatch(/deploy|lifecycle/);
     expect(() => provisionCommands(config, "local")).toThrow(/unknown environment/);

@@ -42,6 +42,7 @@ export function provisionCommands(config: { env: Record<string, WorkerEnv> }, en
 
   const lines = [
     `# Portal ${environment}: run in PowerShell 7 from apps/portal. Never paste any output that is a secret into a chat.`,
+    "# If `npx wrangler` does nothing (no Node on PATH), prefix each one: fnm exec --using=22.11.0 -- npx wrangler …",
     "# 1. A write login for this window only (the machine-wide CLOUDFLARE_API_TOKEN is read-only).",
     "Remove-Item Env:CLOUDFLARE_API_TOKEN -ErrorAction SilentlyContinue",
     "npx wrangler login",
@@ -60,7 +61,10 @@ export function provisionCommands(config: { env: Record<string, WorkerEnv> }, en
     }
   }
   lines.push("Remove-Variable k");
-  lines.push("# 4. Close this window (or restart it) so the read-only token is back.");
+  lines.push("# 4. Log out, so the write login isn't left cached in ~/.wrangler for any process on this PC");
+  lines.push("#    that runs Wrangler without the read-only token (agents never hold a write token).");
+  lines.push("npx wrangler logout");
+  lines.push("# 5. Close this window, so the read-only CLOUDFLARE_API_TOKEN is back in the next one.");
   return lines;
 }
 

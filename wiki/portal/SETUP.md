@@ -121,12 +121,18 @@ zone policy they don't apply.
       `CLOUDFLARE_ACCOUNT_ID`). Account: Workers Scripts Read, Workers Tail Read, D1 Read,
       Workers R2 Storage Read, Account Settings Read. Zone `knockbox.nz`: Workers Routes Read.
       While it is set, Wrangler on this PC uses it for everyone: before running a write command
-      yourself, run `Remove-Item Env:CLOUDFLARE_API_TOKEN; npx wrangler login` in that window.
+      yourself, run `Remove-Item Env:CLOUDFLARE_API_TOKEN; npx wrangler login` in that window, and `npx wrangler logout` when done (a cached login would otherwise serve any process without the token).
       Apps started before the variables were set (the Claude app, open terminals) need a
       restart to see them.
-- [ ] Generate secrets for staging with
-      `bunx wrangler secret put UPLOAD_KEY --env staging` and the same for `SESSION_KEY`, using
-      32 random bytes each in base64. Session 07 prompts you when it needs them.
+- [ ] Staging D1, R2 and secrets: run what `bun run scripts/provision.ts --env staging` prints, in
+      a new PowerShell 7 window from `apps/portal` (session 07). It removes the read-only token
+      for that window, logs in, creates `portal-staging` (D1) and `portal-media-staging` (R2),
+      and pipes a fresh random 32-byte value for `UPLOAD_KEY` and `SESSION_KEY` into both staging
+      Workers (`--env staging` and `--env staging-admin`; this also creates them empty). It **ends
+      with `npx wrangler logout`**: otherwise the write login stays cached in `~/.wrangler` and any
+      process on this PC that runs Wrangler without `CLOUDFLARE_API_TOKEN` would use it, so agents
+      would hold a write token after all. If `npx wrangler` does nothing (no Node on PATH), prefix
+      each command with `fnm exec --using=22.11.0 --`.
 
 ## F. Production (before session 18)
 
