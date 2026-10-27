@@ -16,9 +16,12 @@ export async function readBody<S extends z.ZodType>(c: Context<AppEnv>, schema: 
   return schema.parse(body);
 }
 
-/** API responses (errors included) are never cached by the browser or anything in between. */
+/**
+ * API responses (errors included) are never cached by the browser or anything in between. A
+ * handler that set its own `Cache-Control` keeps it (the admin media proxy's `private, no-store`).
+ */
 export const noStore = () =>
   createMiddleware<AppEnv>(async (c, next) => {
     await next();
-    c.header("Cache-Control", "no-store");
+    if (!c.res.headers.has("Cache-Control")) c.header("Cache-Control", "no-store");
   });

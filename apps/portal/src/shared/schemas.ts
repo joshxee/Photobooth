@@ -26,6 +26,9 @@ export const LIMITS = {
   hdMaxEdge: 2560,
   galleryPageDefault: 24,
   galleryPageMax: 100,
+  /** The admin photo grid and audit list pages (session 15); both cap at `galleryPageMax`. */
+  adminPhotosDefault: 60,
+  auditPageDefault: 50,
   /** `X-Outbox-Depth` is clamped to 0–this before it is stored. */
   outboxDepthMax: 100_000,
 } as const;
@@ -376,6 +379,43 @@ export const AdminPhotoList = z.strictObject({
 });
 export type AdminPhotoList = z.infer<typeof AdminPhotoList>;
 
+/** GET /api/events/{id}/photos. `hidden=true|false` keeps only hidden or only visible photos. */
+export const AdminPhotosQuery = z.strictObject({
+  state: PhotoState.optional(),
+  hidden: z.enum(["true", "false"]).optional(),
+  cursor: z.string().min(1).max(128).optional(),
+  limit: z.coerce.number().int().min(1).max(LIMITS.galleryPageMax).default(LIMITS.adminPhotosDefault),
+});
+export type AdminPhotosQuery = z.infer<typeof AdminPhotosQuery>;
+
+/**
+ * Every action the audit table holds (DESIGN §12), in the order the filter lists them. The Worker
+ * writes only these, a test pins that, and the Audit view labels them. `AuditEntry.action` stays
+ * a plain string so an older SPA can still show a newer action.
+ */
+export const AUDIT_ACTIONS = [
+  "event.create",
+  "event.update",
+  "event.open",
+  "event.close",
+  "event.publish",
+  "event.suspend",
+  "event.rotate_link",
+  "event.delete",
+  "event.restore",
+  "event.purge",
+  "device.create",
+  "device.code",
+  "device.enrol",
+  "device.revoke",
+  "photo.hide",
+  "photo.unhide",
+  "photo.delete",
+  "audit.prune",
+] as const;
+export const AuditAction = z.enum(AUDIT_ACTIONS);
+export type AuditAction = z.infer<typeof AuditAction>;
+
 export const AuditEntry = z.strictObject({
   id: Id,
   at: IsoDateTime,
@@ -387,5 +427,17 @@ export const AuditEntry = z.strictObject({
 });
 export type AuditEntry = z.infer<typeof AuditEntry>;
 
-export const AuditList = z.strictObject({ entries: z.array(AuditEntry).max(LIMITS.galleryPageMax) });
+/** GET /api/audit: newest first, optionally one event's or one action's. */
+export const AuditQuery = z.strictObject({
+  event: Id.optional(),
+  action: AuditAction.optional(),
+  cursor: z.string().min(1).max(128).optional(),
+  limit: z.coerce.number().int().min(1).max(LIMITS.galleryPageMax).default(LIMITS.auditPageDefault),
+});
+export type AuditQuery = z.infer<typeof AuditQuery>;
+
+export const AuditList = z.strictObject({
+  entries: z.array(AuditEntry).max(LIMITS.galleryPageMax),
+  nextCursor: z.string().min(1).max(128).nullable(),
+});
 export type AuditList = z.infer<typeof AuditList>;
