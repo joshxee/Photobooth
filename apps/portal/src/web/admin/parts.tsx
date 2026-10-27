@@ -14,6 +14,7 @@ export function Dialog({
   onClose,
   restoreFocus,
   closeOnBackdrop = true,
+  wide = false,
   children,
 }: {
   title: string;
@@ -21,6 +22,8 @@ export function Dialog({
   restoreFocus?: HTMLElement | null;
   /** False for a dialog whose content can't be shown again: a stray click mustn't lose it. */
   closeOnBackdrop?: boolean;
+  /** For the photo viewer: room for the picture. */
+  wide?: boolean;
   children: ReactNode;
 }) {
   const titleId = useId();
@@ -55,7 +58,7 @@ export function Dialog({
 
   return (
     <div className="backdrop" onMouseDown={(e) => closeOnBackdrop && e.target === e.currentTarget && onClose()}>
-      <div className="dialog" role="dialog" aria-modal="true" aria-labelledby={titleId} ref={box} onKeyDown={onKeyDown}>
+      <div className={wide ? "dialog dialog--wide" : "dialog"} role="dialog" aria-modal="true" aria-labelledby={titleId} ref={box} onKeyDown={onKeyDown}>
         <h2 id={titleId}>{title}</h2>
         {children}
       </div>

@@ -1,5 +1,5 @@
 // Test helpers for the admin SPA (bun test + happy-dom). Not imported by the app.
-import type { AdminDevice, AdminEvent } from "../../shared/schemas";
+import type { AdminDevice, AdminEvent, AdminPhoto, AuditEntry } from "../../shared/schemas";
 import type { AdminEnv } from "./env";
 
 export const NOW = Date.parse("2026-10-23T12:00:00.000Z");
@@ -38,6 +38,44 @@ export function device(over: Partial<AdminDevice> = {}): AdminDevice {
     lastSeenAt: new Date(NOW - 60_000).toISOString(),
     lastBacklog: 0,
     appVersion: "0.1.0",
+    ...over,
+  };
+}
+
+let photoSeq = 0;
+/** A READY photo of the default event; IDs count up so the newest-first order is easy to read. */
+export function photo(over: Partial<AdminPhoto> = {}): AdminPhoto {
+  const n = ++photoSeq;
+  return {
+    id: `019a0b7e-1000-7000-8000-${String(n).padStart(12, "0")}`,
+    eventId: "019a0b7e-0000-7000-8000-000000000001",
+    deviceId: "019a0b7e-0000-7000-8000-0000000000d1",
+    sessionId: "19a0b6c1-1",
+    shot: 1,
+    state: "READY",
+    rejectReason: null,
+    hidden: false,
+    width: 2560,
+    height: 1707,
+    variantBytes: { thumb: 21_000, hd: 416_000 },
+    capturedAt: "2026-10-24T06:30:00.000Z",
+    publishedAt: "2026-10-24T06:30:02.000Z",
+    createdAt: "2026-10-24T06:30:01.000Z",
+    ...over,
+  };
+}
+
+let auditSeq = 0;
+export function auditEntry(over: Partial<AuditEntry> = {}): AuditEntry {
+  const n = ++auditSeq;
+  return {
+    id: `019a0b7e-2000-7000-8000-${String(n).padStart(12, "0")}`,
+    at: "2026-10-24T06:40:00.000Z",
+    actor: "josh@knockbox.nz",
+    action: "event.create",
+    eventId: "019a0b7e-0000-7000-8000-000000000001",
+    targetId: "019a0b7e-0000-7000-8000-000000000001",
+    detail: null,
     ...over,
   };
 }
@@ -94,6 +132,7 @@ export function fakeAdminEnv(start = NOW) {
   const copied: string[] = [];
   const env: AdminEnv = {
     now: () => now,
+    zone: () => "Pacific/Auckland",
     setTimeout: (fn, ms) => {
       const id = nextId++;
       timers.set(id, { at: now + ms, fn });

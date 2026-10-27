@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { AuditView } from "./AuditView";
 import { DevicesView } from "./DevicesView";
 import { EventDetail } from "./EventDetail";
 import { EventFormView } from "./EventFormView";
 import { EventsList } from "./EventsList";
+import { PhotosView } from "./PhotosView";
 import { Mark } from "../ui/icons";
 import { type AdminEnv, AdminProvider, browserAdminEnv } from "./env";
 import { Link, type Route, useRoute } from "./nav";
@@ -12,6 +14,7 @@ const TITLES: Record<Route["name"], string> = {
   "event-new": "New event",
   event: "Event",
   "event-edit": "Edit event",
+  "event-photos": "Event photos",
   devices: "Devices",
   audit: "Audit",
   "not-found": "Not found",
@@ -27,15 +30,12 @@ function View({ route }: { route: Route }) {
       return <EventDetail id={route.id} />;
     case "event-edit":
       return <EventFormView id={route.id} />;
+    case "event-photos":
+      return <PhotosView id={route.id} />;
     case "devices":
       return <DevicesView />;
     case "audit":
-      return (
-        <section>
-          <h1>Audit</h1>
-          <p className="muted">The audit log arrives with the moderation tools. Every change made here is already recorded.</p>
-        </section>
-      );
+      return <AuditView />;
     case "not-found":
       return (
         <section>
@@ -96,7 +96,7 @@ export function App({ env = browserAdminEnv }: { env?: AdminEnv }) {
           )}
         </header>
         <main ref={main} tabIndex={-1}>
-          {denied ? <NotAuthorised /> : <View key={route.name === "event" || route.name === "event-edit" ? `${route.name}:${route.id}` : route.name} route={route} />}
+          {denied ? <NotAuthorised /> : <View key={"id" in route ? `${route.name}:${route.id}` : route.name} route={route} />}
         </main>
       </div>
     </AdminProvider>

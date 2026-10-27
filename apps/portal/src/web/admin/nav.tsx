@@ -7,6 +7,7 @@ export type Route =
   | { name: "event-new" }
   | { name: "event"; id: string }
   | { name: "event-edit"; id: string }
+  | { name: "event-photos"; id: string }
   | { name: "devices" }
   | { name: "audit" }
   | { name: "not-found" };
@@ -26,7 +27,8 @@ export function parseRoute(pathname: string): Route {
   if (second === "new") return third === undefined ? { name: "event-new" } : NOT_FOUND;
   if (!ID.test(second)) return NOT_FOUND;
   if (third === undefined) return { name: "event", id: second };
-  return third === "edit" ? { name: "event-edit", id: second } : NOT_FOUND;
+  if (third === "edit") return { name: "event-edit", id: second };
+  return third === "photos" ? { name: "event-photos", id: second } : NOT_FOUND;
 }
 
 export function routePath(route: Route): string {
@@ -39,6 +41,8 @@ export function routePath(route: Route): string {
       return `/events/${route.id}`;
     case "event-edit":
       return `/events/${route.id}/edit`;
+    case "event-photos":
+      return `/events/${route.id}/photos`;
     case "devices":
       return "/devices";
     case "audit":

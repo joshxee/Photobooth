@@ -94,6 +94,7 @@ export type Variant = z.infer<typeof Variant>;
 export const UploadStatus = z.enum(["DRAFT", "OPEN", "CLOSED"]);
 export const GalleryStatus = z.enum(["HIDDEN", "LIVE", "SUSPENDED"]);
 export const PhotoState = z.enum(["PENDING", "READY", "REJECTED"]);
+export type PhotoState = z.infer<typeof PhotoState>;
 const Name = z.string().min(1).max(100);
 const Url = z.url({ protocol: /^https?$/ }).max(1024);
 

@@ -7,6 +7,8 @@ import { type RefreshEnv, browserEnv } from "./refresh";
 
 export interface AdminEnv extends RefreshEnv {
   now(): number;
+  /** The IANA zone the audit times are shown in: the admin's own. */
+  zone(): string;
   /** Hands a generated file to the browser's download. */
   saveFile(blob: Blob, filename: string): void;
   copyText(text: string): Promise<void>;
@@ -16,6 +18,7 @@ export interface AdminEnv extends RefreshEnv {
 export const browserAdminEnv: AdminEnv = {
   ...browserEnv,
   now: () => Date.now(),
+  zone: () => Intl.DateTimeFormat().resolvedOptions().timeZone,
   saveFile(blob, filename) {
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
