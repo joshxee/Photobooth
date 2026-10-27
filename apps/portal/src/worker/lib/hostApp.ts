@@ -23,10 +23,13 @@ export function createHostApp(kind: HostKind): PortalApp {
   return app;
 }
 
-/** `GET /healthz` on both real hosts. Deliberately not registered for unknown hosts. */
+/**
+ * `GET /healthz` on both real hosts. Deliberately not registered for unknown hosts. `commit` is the
+ * deployed git SHA (`GIT_SHA`, set by the deploy workflow), null under `wrangler dev` and tests.
+ */
 export function addHealthz(app: PortalApp): void {
   app.get("/healthz", (c) => {
     c.header("Cache-Control", "no-store");
-    return c.json({ ok: true, version: VERSION });
+    return c.json({ ok: true, version: VERSION, commit: c.env.GIT_SHA || null });
   });
 }

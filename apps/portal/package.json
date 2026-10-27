@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "wrangler dev",
     "types": "wrangler types --include-runtime=false --strict-vars=false",
-    "build": "bun run build.ts && wrangler deploy --dry-run --outdir .wrangler/dry-run/default && wrangler deploy --dry-run --env staging --outdir .wrangler/dry-run/staging && wrangler deploy --dry-run --env production --outdir .wrangler/dry-run/production",
+    "build": "bun run build.ts && wrangler deploy --dry-run --outdir .wrangler/dry-run/default && wrangler deploy --dry-run --env staging --outdir .wrangler/dry-run/staging && wrangler deploy --dry-run --env staging-admin --outdir .wrangler/dry-run/staging-admin && wrangler deploy --dry-run --env production --outdir .wrangler/dry-run/production",
     "typecheck": "tsc -p tsconfig.worker.json && tsc -p tsconfig.web.json && tsc -p tsconfig.scripts.json",
     "test": "vitest run && bun test src/web scripts",
     "migrate:local": "wrangler d1 migrations apply DB --local",

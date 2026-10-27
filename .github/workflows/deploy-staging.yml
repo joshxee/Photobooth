@@ -1,0 +1,104 @@
+name: Deploy staging
+
+# The only way the portal reaches staging (AGENTS.md: agents never hold a Cloudflare write token).
+# Runs on every push to main that touches the portal, and on demand for any ref, so an agent can
+# put a branch on staging:  gh workflow run deploy-staging.yml -f ref=<branch>
+#
+# Interim layout until knockbox.nz is Active in the business account (wiki/Portal.md → "Interim
+# staging on workers.dev"): the same build is deployed twice from apps/portal/wrangler.jsonc, as
+# portal-staging (gallery + device API) and portal-staging-admin (admin, behind Worker-level Access),
+# sharing the staging D1 and R2. Then the smoke test runs end to end against both.
+
+on:
+  push:
+    branches: [main]
+    paths: ["apps/portal/**", ".github/workflows/deploy-staging.yml"]
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "Branch, tag or commit to deploy (empty: the ref the run was started from)"
+        required: false
+        type: string
+
+# One staging deploy at a time; a queued one waits rather than cancelling a deploy half-way.
+concurrency:
+  group: deploy-staging
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  PHOTOS_ORIGIN: https://portal-staging.josh-33c.workers.dev
+  ADMIN_ORIGIN: https://portal-staging-admin.josh-33c.workers.dev
+  WRANGLER_VERSION: "4.151.3"
+
+jobs:
+  staging:
+    name: Deploy and smoke (staging)
+    runs-on: ubuntu-latest
+    environment: staging
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: apps/portal
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+          persist-credentials: false
+
+      - name: Commit being deployed
+        id: commit
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+      # Vitest and Wrangler run on Node.
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: "22"
+
+      - run: bun install --frozen-lockfile
+      # Real IDs, the admin Worker's Access config, no DEV_AUTH: stops before touching Cloudflare.
+      - name: Preflight (env.staging and env.staging-admin)
+        run: bun run scripts/preflight.ts --env staging
+      - run: bun run typecheck
+      - run: bun run test
+      # Both SPAs into dist/, then a dry run of every environment.
+      - run: bun run build
+
+      # One D1 for both staging Workers, so the migrations run once.
+      - name: Apply D1 migrations
+        uses: cloudflare/wrangler-action@953926a2e2182532811c01a25e53647d93bf07c0 # v4.1.3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          workingDirectory: apps/portal
+          wranglerVersion: ${{ env.WRANGLER_VERSION }}
+          packageManager: bun
+          command: d1 migrations apply DB --env staging --remote
+
+      - name: Deploy portal-staging and portal-staging-admin
+        uses: cloudflare/wrangler-action@953926a2e2182532811c01a25e53647d93bf07c0 # v4.1.3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          workingDirectory: apps/portal
+          wranglerVersion: ${{ env.WRANGLER_VERSION }}
+          packageManager: bun
+          command: |
+            deploy --env staging --var GIT_SHA:${{ steps.commit.outputs.sha }}
+            deploy --env staging-admin --var GIT_SHA:${{ steps.commit.outputs.sha }}
+
+      # Waits for /healthz on both hosts to report this commit, checks that Access refuses the admin
+      # Worker without the service token, then device → upload → READY → gallery, the EXIF refusal
+      # with nothing left in R2 (read through the API with the deploy token's R2 read), and cleanup.
+      - name: Smoke test
+        env:
+          CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
+          CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: >-
+          bun run scripts/smoke.ts --photos "$PHOTOS_ORIGIN" --admin "$ADMIN_ORIGIN"
+          --commit "${{ steps.commit.outputs.sha }}" --bucket portal-media-staging
