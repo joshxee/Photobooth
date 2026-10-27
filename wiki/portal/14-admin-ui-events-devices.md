@@ -54,10 +54,11 @@ bunx wrangler dev --var DEV_AUTH:1   # chrome-devtools-axi on http://admin.local
 ```
 
 ## Done when
-- [ ] The full event lifecycle and device enrolment can be done in the UI alone, without curl.
-- [ ] The event QR scans to the right gallery (decoded in a test, and scanned once with a phone
-      if convenient).
-- [ ] The rotate warning and the close-uploads backlog warning are both present.
+- [x] The full event lifecycle and device enrolment can be done in the UI alone, without curl.
+      (Run in real Chrome against local `wrangler dev`; the booth side of enrolment was not run,
+      the code is created and re-issued in the UI.)
+- [x] The event QR scans to the right gallery (decoded in a test; **not** scanned with a phone).
+- [x] The rotate warning and the close-uploads backlog warning are both present.
 
 ## Hand-off
 - `wiki/Portal.md` (admin section): what the event-day health view shows and why, QR library

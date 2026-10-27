@@ -176,9 +176,10 @@ SETUP.md C.
 ```
 apps/booth/                  (existing; Rust + React; unchanged toolchain)
 apps/portal/
-  package.json               deps: hono, zod, react, react-dom
+  package.json               deps: hono, zod, react, react-dom, qrcode-generator (admin event QR)
                              dev:  wrangler, @cloudflare/workers-types, typescript, @types/react(-dom),
-                                   vitest, @cloudflare/vitest-plugin, happy-dom test helpers
+                                   vitest, @cloudflare/vitest-plugin, happy-dom test helpers,
+                                   jsqr (decodes the QR in tests)
   wrangler.jsonc             bindings, envs (staging, production), cron, assets
   migrations/0001_init.sql
   build.ts                   bun build → dist/admin, dist/gallery (two SPA entry points)
@@ -576,7 +577,9 @@ day 1 to preserve this.
   rotate link (with confirmation), counts by state, the date uploads close (`uploads_until`), delete with a 7-day undo.
 - **Event QR**: QR code for the whole event (`galleryUrl#k=…`), with no session filter.
   - Shown on screen, and downloadable as SVG (for print and signage) and PNG (for messaging).
-  - Generated in the admin SPA with one small, dependency-free QR library.
+  - Generated in the admin SPA with one small, dependency-free QR library: `qrcode-generator`
+    (session 14; it supplies the matrix, our own code draws the SVG and PNG; `jsqr` is a dev
+    dependency that decodes them in tests).
   - It is the same link the session QR uses, so rotating the link invalidates both. Printed
     signage must be reprinted after a rotation, and the rotate confirmation says so.
 - **Photos**: grid by state (pending, ready, rejected), hide and unhide, delete permanently (for

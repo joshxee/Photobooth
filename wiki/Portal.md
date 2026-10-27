@@ -809,6 +809,106 @@ scheduled event) with 2,000 objects waiting, and reduce `RETENTION_LIMITS.object
 Also unverified on real R2: that `list`'s `truncated` is false on an exactly full last page, and that
 the cron fires.
 
+## Admin UI: events, event QR and devices (session 14)
+
+`src/web/admin/`: five views (events list, event detail, create/edit form, devices, an audit
+placeholder for 15) plus Not authorised and Not found, over the same `src/web/ui/` tokens and fonts as
+the gallery. Plain and functional by design.
+
+### Shape: no router, and why the Worker serves those paths
+
+`nav.tsx` wraps the History API (`pushState`, `popstate`, a `Link` that leaves modified clicks to the
+browser). With five views a router library would be most of the bundle's size for nothing. The price is
+that deep links must work on reload: the admin host used to serve the shell only for `/`, so
+`routes/admin.ts` now serves it for exactly `/`, `/events`, `/events/new`, `/events/{id}` (+ `/edit`),
+`/devices` and `/audit` (GET only) and answers everything else, unknown `/api/` paths included, with the
+JSON 404. The SPA's own "page not found" is therefore only reachable by client-side navigation. Keep
+`SPA_VIEWS` (Worker) and `parseRoute` (SPA) in step; a test on each side pins its list.
+
+### Event times: wall clock in the event's zone
+
+The form takes `datetime-local` values and the zone from a picker (`Intl.supportedValuesOf`, New Zealand
+by default). `time.ts` converts with `Intl` only (no date library): it tries the zone's offset a day
+before and a day after the typed time and keeps the instant that reads back as exactly what was typed. A
+time the clocks skip (spring forward) is refused with a message; a repeated time (clocks back) takes the
+first occurrence. Changing only the zone on an edit moves the stored instants, because the admin sees and
+edits wall-clock times. An edit sends only the fields that changed, so the audit row's `fields` is the
+real edit; a start or end the admin didn't touch keeps its stored instant (re-deriving it from the
+wall-clock string would drop its seconds, and would turn the second 02:30 of a clocks-back night into
+the first). The server still checks the merged row (`endsAt >= startsAt`) and recomputes `uploads_until`.
+The browser's zone list uses its own names (Chrome lists `Asia/Calcutta`); a name workerd's ICU didn't
+know would be a 400 shown as "check the form" (**not seen**, but possible for exotic zones).
+
+### Actions, confirmations and what the admin is told
+
+`rules.ts` mirrors the Worker's state machine to decide which buttons exist (the Worker stays the
+authority and answers 409). Open, publish and restore go straight through. Close, suspend, rotate and
+delete ask first, and the dialog opens on Cancel:
+- **Rotate** says every link and QR stops working at once and printed signage must be reprinted.
+- **Suspend** says it is a pause (Publish brings the same link back) and that rotation is the revoke;
+  images a guest already viewed stay in their browser cache either way (session 11's note).
+- **Delete** says 7 days to restore, then permanent.
+- **Close uploads** reads the devices list at that moment and warns for each enrolled, unrevoked booth
+  with a non-zero last-reported backlog, and separately for booths whose queue we can't vouch for (never
+  reported, or silent for over 10 minutes: a booth that is offline can't report a backlog, and that is
+  exactly when it has one). A device isn't tied to an event in the data model, so this is every booth,
+  which is also the runbook's rule (DESIGN §15: close only when every booth shows zero). If the devices
+  call fails the dialog says the queues couldn't be checked. Closing is never blocked: the admin may know
+  better.
+Event detail shows "Uploads close on" (`uploadsUntil`) and, for a deleted event, "Purges on".
+
+### Event QR
+
+`qrcode-generator` 2.0.4 (MIT, no dependencies, ~50 KB unminified) supplies only the module matrix
+(byte mode, error correction Q: signage gets scuffed). The SVG (one path of horizontal runs, 4-module
+quiet zone, white background, no external references) and the PNG raster (about 1000 px, from the same
+RGBA buffer) are drawn by our own code, so what goes to a printer is the matrix and nothing else. `jsqr`
+1.4.0 is a **dev dependency** used only by tests to decode our SVG and raster back to the exact link, token
+fragment included. The QR encodes `galleryUrl` from the admin API unchanged: the whole-event link, no
+`&s=`. Rotating changes the link and the QR with it. The on-screen code is inline SVG (no image request, so
+nothing for the CSP to block); downloads are an `<a download>` on an object URL, which worked under the
+Worker's real CSP in Chrome.
+
+### Devices: the event-day health view
+
+The table shows status, last seen (relative; an enrolled booth silent for over 10 minutes is flagged),
+the last reported backlog, and the app version. It refreshes every 15 s while the tab is visible, once
+when it becomes visible again, never two at a time (`refresh.ts`); each refresh is one admin request
+against Workers Free's daily limit, hence visible-only. A failed refresh keeps the last data and says so.
+
+The enrolment code is shown once, grouped (`ABCD-EFGH`), with a 10-minute countdown that counts from when
+the code arrived (not the server's `expiresAt`, so a PC clock that is out can't show a fresh code as
+expired); it lives only in the `reveal` state of the devices view. Closing the dialog, or the deadline
+passing (the state is cleared then, not just hidden), drops it. A click on the dialog's backdrop does
+not close it (the code can't be shown again); Done and Escape do. It is never put in the URL, history state, storage or the title, and the list
+(which never contains it) refreshing can't bring it back. Re-issuing asks first for an enrolled booth (it says
+redeeming re-enrols the tablet, DESIGN §12) and for a booth whose code is still live (someone may be
+typing it in); a booth with neither gets the new code straight away. The button is disabled while the
+call is in flight, because each re-issue voids the code before it. Revoke asks first and says the booth
+is locked out at once.
+
+### Errors
+
+`api.ts` turns the closed error codes into sentences; the server's own text is shown only for
+`conflict`, which the Worker words for people. A fetch that throws, or an answer that isn't the API's
+JSON, is "can't reach the server; reload the page to sign in again": when Access's session lapses the
+browser is redirected to its login page, which looks exactly like that. A 401/403 from the Worker
+replaces the app with the Not authorised page.
+
+### What was verified, and where
+
+`bun test` (happy-dom): time zone conversion (summer/winter, the date line, a skipped and a repeated
+hour, round trips), the forms, the action rules and every confirmation, the code lifecycle, QR decoding,
+polling and visibility, the history wrapper, error mapping. In **real Chrome** (headless over CDP,
+against local `wrangler dev --var DEV_AUTH:1` after `migrate:local` + `seed`; the script is throwaway)
+the whole lifecycle ran: create in NZ time (stored `2026-12-20T01:30:00.000Z`), open, publish, the QR and
+both downloads (`…-gallery-qr.svg` and `.png` produced), the close warning with a booth reporting a
+backlog of 7, rotate (link changes), delete and restore, create a booth code (shown once, gone from the
+DOM, URL, title and storage after Done and after a refresh cycle), re-issue, revoke, deep-link reload.
+Screenshots: `wiki/portal/screenshots/14-*.jpg`. **Not verified:** a phone scan of the printed or
+on-screen QR (decoded only in tests, and the downloaded PNG file itself was not re-decoded), real
+Cloudflare Access (the dev auth path skips it), a screen reader, narrow screens (desktop first).
+
 ## Data model (D1)
 
 The schema is `migrations/0001_init.sql`: DESIGN §6 plus the refinements listed there. The
@@ -925,6 +1025,9 @@ EOI only), so the header walk (session 06) accepts them and browsers display the
 - The gallery keeps showing a photo hidden or deleted after it loaded until the page reloads (and
   its image stays in that browser's cache). Polls only add photos.
 - `GET /api/devices` is unpaginated (schema cap 1,000); there are five tablets.
+- The close-uploads backlog warning covers every enrolled booth, not only those on the event (a device
+  isn't tied to an event), and trusts each booth's last report (at most once a minute, see "Devices and
+  enrolment").
 - `ADMIN_EMAILS`, `ADMIN_SERVICE_CLIENTS`, `ACCESS_*` and `CONTACT_*` are empty vars in staging and
   production, so a deployed Worker refuses every admin request, and answers the gallery list with a
   500, until session 07 sets them. Only the local config has contact values.
