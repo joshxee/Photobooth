@@ -322,6 +322,34 @@ describe("DELETE /api/photos/{id}", () => {
     expect((await api("DELETE", `/photos/${photo.id}`)).status).toBe(200);
   });
 
+  it("sweeps an object an upload PUT stored between the first delete and the row going", async () => {
+    const event = await liveEvent();
+    const photo = await insertPhoto(event, { state: "PENDING" });
+    const original = env.MEDIA.delete.bind(env.MEDIA);
+    let calls = 0;
+    vi.spyOn(env.MEDIA, "delete").mockImplementation(async (keys) => {
+      await original(keys);
+      // The racing PUT lands right after the first delete.
+      if (++calls === 1) await env.MEDIA.put(variantKey(event.id, photo.id, "hd"), "late");
+    });
+    expect((await api("DELETE", `/photos/${photo.id}`)).status).toBe(200);
+    expect(calls).toBe(2);
+    expect(await listKeys()).toEqual([]);
+  });
+
+  it("a failed sweep after the row is gone is logged, not an error: the photo is deleted", async () => {
+    const event = await liveEvent();
+    const photo = await insertPhoto(event);
+    const original = env.MEDIA.delete.bind(env.MEDIA);
+    let calls = 0;
+    vi.spyOn(env.MEDIA, "delete").mockImplementation(async (keys) => {
+      if (++calls === 2) throw new Error("R2 unavailable");
+      await original(keys);
+    });
+    expect((await api("DELETE", `/photos/${photo.id}`)).status).toBe(200);
+    expect(await getPhoto(db, photo.id)).toBeNull();
+  });
+
   it("a second delete is a 404 with no second audit row, and it never touches another event's objects", async () => {
     const a = await liveEvent();
     const b = await liveEvent();

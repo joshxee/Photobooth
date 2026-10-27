@@ -96,7 +96,7 @@ export function App({ env = browserAdminEnv }: { env?: AdminEnv }) {
           )}
         </header>
         <main ref={main} tabIndex={-1}>
-          {denied ? <NotAuthorised /> : <View key={"id" in route ? `${route.name}:${route.id}` : route.name} route={route} />}
+          {denied ? <NotAuthorised /> : <View key={"id" in route ? `${route.name}:${route.id}` : route.name === "audit" ? `audit${location.search}` : route.name} route={route} />}
         </main>
       </div>
     </AdminProvider>

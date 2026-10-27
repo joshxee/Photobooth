@@ -10,6 +10,7 @@ import { decodeIdCursor } from "../../domain/cursor";
 import { variantKey } from "../../domain/media";
 import { auditEntry } from "../../lib/audit";
 import { AppError } from "../../lib/errors";
+import { log } from "../../lib/log";
 import { jpegResponse } from "../../lib/media";
 import { addLogIds } from "../../middleware/accessLog";
 import type { AppEnv } from "../../types";
@@ -96,7 +97,8 @@ photosApi.post("/photos/:id/unhide", setHidden(false));
  */
 photosApi.delete("/photos/:id", async (c) => {
   const photo = await loadPhoto(c);
-  await c.env.MEDIA.delete([variantKey(photo.event_id, photo.id, "thumb"), variantKey(photo.event_id, photo.id, "hd")]);
+  const keys = [variantKey(photo.event_id, photo.id, "thumb"), variantKey(photo.event_id, photo.id, "hd")];
+  await c.env.MEDIA.delete(keys);
   const db = c.env.DB;
   const entry = auditEntry(c, new Date(), {
     action: "photo.delete",
@@ -106,6 +108,14 @@ photosApi.delete("/photos/:id", async (c) => {
   });
   const [, removed] = await db.batch([insertAuditIfPhotoExists(db, entry, photo.id), deletePhoto(db, photo.event_id, photo.id)]);
   if (removed?.meta.changes !== 1) throw new AppError("not_found", "No such photo.");
+  // An upload PUT that landed between the first delete and the row going could have stored an object
+  // (a PENDING photo). From here the row is gone, so any later PUT removes its own object (session 06);
+  // this sweeps what arrived before. The photo is already deleted, so a failure is logged, not an error.
+  try {
+    await c.env.MEDIA.delete(keys);
+  } catch (err) {
+    log.error({ requestId: c.get("requestId"), outcome: "photo_delete_sweep_failed", errorName: err instanceof Error ? err.name : "unknown" });
+  }
   return c.json({ id: photo.id });
 });
 

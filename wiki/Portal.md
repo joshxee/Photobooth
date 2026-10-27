@@ -935,7 +935,11 @@ PENDING or REJECTED photo with one variant or none works), **then the row and it
 `db.batch`**. If R2 fails the answer is a 500, the row stays, nothing is audited, and the admin's retry
 finishes the job. Deleting the row first would strand objects that nothing could find by ID. The audit
 insert is guarded (`WHERE EXISTS (SELECT … FROM photos …)`), so a second delete is a 404 with no second
-audit row. A PUT that races a delete cleans up after itself (session 06).
+audit row. A PENDING photo's upload PUT can land between the first R2 delete and the row going; after the
+row is gone the route deletes the two keys once more (a failure there is logged, not an error: the photo is
+already deleted), and a PUT arriving after that finds no row and removes its own object (session 06). The
+window left is a PUT whose object write completes after both deletes but whose row check came before the
+batch: milliseconds, for a photo that was not yet READY.
 
 **What a delete does not reach:** a guest's browser cache (media is cached for a year, immutable); the
 original on the booth's SD card; and a booth that never received its READY answer and still holds the shot
@@ -975,8 +979,11 @@ If that ever bites, change the proxy to `private, max-age=60`. No Worker CPU is 
 
 `GET /api/events/{id}/photos` orders by ID, newest first. IDs are UUIDv7, so that is creation order, and
 PENDING and REJECTED photos have no `published_at` to order by. The cursor is the last ID (opaque
-base64url). It reads through `photos_gallery`'s event prefix; a test pins that a page's rows read don't
-grow with other events' photos. `hidden=true|false` and `state` narrow it. The audit list pages by
+base64url). `ORDER BY id` is not covered by `photos_gallery`, so a page reads the event's whole index
+prefix and sorts: about two rows read per photo of the event, whatever the page size (40 photos, 80 rows
+read, measured in review). At the default 2,000-photo limit that is about 4,000 rows per page, which is
+nothing against D1's free allowance for an admin's few visits; if it ever matters, add an `(event_id, id)`
+index. A test pins that a page's rows read don't grow with other events' photos. `hidden=true|false` and `state` narrow it. The audit list pages by
 `(at, id)` with the guest cursor's shape. Both fetch one row more than a page to know whether another
 exists.
 
@@ -999,7 +1006,10 @@ Previous, Next and the arrow keys, and holds Hide/Unhide and "Delete permanently
 confirmed (reversible, and the viewer says what happened); the delete confirmation opens on Cancel and names
 the consequence (gone from guests and storage now, no undo, a guest's browser may still hold a copy, erase
 the SD card too). Under a filter that no longer matches (hiding while "Visible only" is selected) the photo
-leaves the grid and the viewer moves to the next one. The list does not auto-refresh (every refresh is a
+leaves the grid and the viewer moves to the next one, unless the admin has already stepped elsewhere.
+A button that disables itself while its request runs (or at the first or last photo) would drop keyboard
+focus to the page and leave Escape and the Tab trap dead, so the dialog takes focus back to its own control
+(`Dialog`'s `refocusOn`). The list does not auto-refresh (every refresh is a
 Worker request); Refresh reloads it and the counts.
 
 ### Removal-request runbook

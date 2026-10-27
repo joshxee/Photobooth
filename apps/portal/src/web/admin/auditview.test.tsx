@@ -124,6 +124,15 @@ describe("the Audit view", () => {
     expect(document.querySelector('[role="alert"]')?.textContent).toContain("reference 11111111");
   });
 
+  it("the Audit link in the main navigation clears an event filter that came from the address", async () => {
+    mocked = server([auditEntry({ eventId: E.id }), auditEntry({ eventId: OTHER.id })]);
+    await view(`/audit?event=${OTHER.id}`);
+    expect(rows()).toHaveLength(1);
+    await click(document.querySelector('nav[aria-label="Main"] a[href="/audit"]')!);
+    expect((document.getElementById("audit-event") as HTMLSelectElement).value).toBe("");
+    expect(rows()).toHaveLength(2);
+  });
+
   it("the main navigation marks Audit as current", async () => {
     mocked = server([]);
     await view();

@@ -203,6 +203,84 @@ describe("the viewer", () => {
   });
 });
 
+describe("keyboard focus stays in the viewer", () => {
+  const inDialog = () => dialog()!.contains(document.activeElement);
+
+  it("after Hide, whose button disables itself while the request runs", async () => {
+    const p = photo();
+    mocked = mockFetch((call) => {
+      const url = new URL(call.path, "http://admin.localhost");
+      if (url.pathname === `/api/events/${EVENT_ID}`) return json(event());
+      // What a browser does to a focused button that has just disabled itself: focus drops to the page.
+      if (call.method === "POST") {
+        (document.activeElement as HTMLElement | null)?.blur();
+        return json({ ...p, hidden: true });
+      }
+      return json({ photos: [p], nextCursor: null });
+    });
+    await view();
+    await open(0);
+    button("Hide from guests").focus();
+    await click(button("Hide from guests"));
+    expect(button("Unhide")).toBeTruthy();
+    expect(inDialog()).toBe(true);
+  });
+
+  it("when Next or Previous reaches the end and disables itself", async () => {
+    mocked = server([photo({ shot: 2 }), photo({ shot: 1 })]);
+    await view();
+    await open(0);
+    await click(button("Next"));
+    expect(button("Next").disabled).toBe(true);
+    expect(inDialog()).toBe(true);
+  });
+});
+
+describe("a slow answer never lands on a newer filter", () => {
+  it("the first page of the old filter, answered last, is dropped", async () => {
+    const everything = [photo({ shot: 3 }), photo({ shot: 2 })];
+    const rejected = photo({ state: "REJECTED", rejectReason: "x", publishedAt: null });
+    let release: (r: Response) => void = () => {};
+    const slow = new Promise<Response>((resolve) => (release = resolve));
+    let photoRequests = 0;
+    mocked = mockFetch((call) => {
+      const url = new URL(call.path, "http://admin.localhost");
+      if (url.pathname === `/api/events/${EVENT_ID}`) return json(event());
+      photoRequests++;
+      // The first request (no filter) is held back; the filtered one answers at once.
+      return photoRequests === 1 ? slow : json({ photos: [rejected], nextCursor: null });
+    });
+    await view();
+    await type(document.getElementById("photo-state") as HTMLSelectElement, "REJECTED");
+    expect(tiles()).toHaveLength(1);
+    await settle(() => release(json({ photos: everything, nextCursor: null })));
+    expect(tiles().map((t) => t.dataset.photo)).toEqual([rejected.id]);
+  });
+});
+
+describe("a request that finishes after the viewer moved on", () => {
+  it("doesn't pull the viewer back: hiding under 'Visible only', then stepping on before the answer", async () => {
+    const photos = [photo({ shot: 3 }), photo({ shot: 2 }), photo({ shot: 1 })];
+    let release: (r: Response) => void = () => {};
+    mocked = mockFetch((call) => {
+      const url = new URL(call.path, "http://admin.localhost");
+      if (url.pathname === `/api/events/${EVENT_ID}`) return json(event());
+      if (call.method === "POST") return new Promise<Response>((resolve) => (release = resolve));
+      return json({ photos, nextCursor: null });
+    });
+    await view();
+    await type(document.getElementById("photo-visibility") as HTMLSelectElement, "visible");
+    await open(0);
+    await click(button("Hide from guests"));
+    await click(button("Next"));
+    await click(button("Next"));
+    await settle(() => release(json({ ...photos[0]!, hidden: true })));
+    // The hidden photo left the grid, and the viewer stayed on the photo the admin stepped to.
+    expect(tiles()).toHaveLength(2);
+    expect(dialog()!.querySelector("img")!.getAttribute("src")).toBe(`/api/media/${photos[2]!.id}/hd`);
+  });
+});
+
 describe("hide and unhide", () => {
   it("hides without a confirmation, marks the tile and the viewer, and refreshes the counts", async () => {
     const p = photo();

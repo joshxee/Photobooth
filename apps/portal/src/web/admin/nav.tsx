@@ -56,15 +56,16 @@ const CHANGE = "admin:navigate";
 
 /** Pushes a new history entry (none if it's the current path) and tells `useRoute`. */
 export function navigate(path: string): void {
-  if (path !== location.pathname) history.pushState(null, "", path);
+  if (path !== location.pathname + location.search) history.pushState(null, "", path);
   window.dispatchEvent(new Event(CHANGE));
   window.scrollTo?.(0, 0);
 }
 
+/** The route for the current address. It re-renders on a change of query string too (the Audit view reads `?event=`). */
 export function useRoute(): Route {
-  const [path, setPath] = useState(() => location.pathname);
+  const [path, setPath] = useState(() => location.pathname + location.search);
   useEffect(() => {
-    const update = () => setPath(location.pathname);
+    const update = () => setPath(location.pathname + location.search);
     window.addEventListener("popstate", update);
     window.addEventListener(CHANGE, update);
     update();
@@ -73,7 +74,7 @@ export function useRoute(): Route {
       window.removeEventListener(CHANGE, update);
     };
   }, []);
-  return parseRoute(path);
+  return parseRoute(path.split("?")[0]!);
 }
 
 /** A link that navigates in place; a modified click (new tab, new window) is left to the browser. */

@@ -50,18 +50,20 @@ export function PhotosView({ id }: { id: string }) {
   const index = selectedId === null ? -1 : items.findIndex((p) => p.id === selectedId);
   const selected = index >= 0 ? items[index]! : null;
 
+  // The viewer moves on only if it is still on the photo that left: the admin may have stepped to
+  // another photo while the request ran.
+  const leave = (photoId: string) => {
+    const next = neighbour(items.map((x) => x.id), photoId);
+    setSelectedId((current) => (current === photoId ? next : current));
+    list.update((all) => all.filter((x) => x.id !== photoId));
+  };
   const changed = (p: AdminPhoto) => {
-    if (matchesFilter(p, filter)) {
-      list.update((all) => all.map((x) => (x.id === p.id ? p : x)));
-    } else {
-      setSelectedId(neighbour(items.map((x) => x.id), p.id));
-      list.update((all) => all.filter((x) => x.id !== p.id));
-    }
+    if (matchesFilter(p, filter)) list.update((all) => all.map((x) => (x.id === p.id ? p : x)));
+    else leave(p.id);
     void loaded.reload();
   };
   const removed = (photoId: string) => {
-    setSelectedId(neighbour(items.map((x) => x.id), photoId));
-    list.update((all) => all.filter((x) => x.id !== photoId));
+    leave(photoId);
     void loaded.reload();
   };
 
@@ -263,7 +265,12 @@ function Viewer({
 
   return (
     <>
-      <Dialog title={`Photo ${position} of ${total}${hasMore ? "+" : ""}`} onClose={onClose} wide>
+      <Dialog
+        title={`Photo ${position} of ${total}${hasMore ? "+" : ""}`}
+        onClose={onClose}
+        wide
+        refocusOn={`${busy}:${onPrevious !== null}:${onNext !== null}`}
+      >
         <div onKeyDown={onKeyDown} className="viewer">
           <div className="viewer__image">
             {missing === photo.id ? (
