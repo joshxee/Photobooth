@@ -18,7 +18,10 @@ export interface WorkerEnv {
   name: string;
   workers_dev?: boolean;
   preview_urls?: boolean;
+  route?: string | Route;
   routes?: Route[];
+  observability?: { enabled?: boolean; redact_query_string?: boolean };
+  assets?: { run_worker_first?: boolean | string[] };
   triggers?: { crons: string[] };
   d1_databases: { binding: string; database_name: string; database_id: string }[];
   r2_buckets: { binding: string; bucket_name: string }[];
@@ -32,6 +35,12 @@ export interface Config extends Omit<WorkerEnv, "name" | "vars"> {
 
 const ZERO_ID = "00000000-0000-0000-0000-000000000000";
 
+/** The Worker each environment must deploy to: a renamed block could overwrite another one. */
+const NAMES: Record<string, string> = { staging: "portal-staging", "staging-admin": "portal-staging-admin", production: "portal" };
+
+const dbId = (env: WorkerEnv) => env.d1_databases.find((d) => d.binding === "DB")?.database_id;
+const bucket = (env: WorkerEnv) => env.r2_buckets.find((b) => b.binding === "MEDIA")?.bucket_name;
+
 /** The settings every deployed Worker needs, whatever its layout. */
 function common(config: Config, envName: string, problems: string[]): WorkerEnv {
   const env = config.env[envName];
@@ -40,8 +49,14 @@ function common(config: Config, envName: string, problems: string[]): WorkerEnv 
     return { name: envName, d1_databases: [], r2_buckets: [], vars: {} };
   }
   const p = (msg: string) => problems.push(`env.${envName}: ${msg}`);
-  // preview_urls is inherited from the top level when an environment doesn't set it.
+  if (env.name !== NAMES[envName]) p(`name must be "${NAMES[envName]}"`);
+  // preview_urls, observability and assets are inherited from the top level when an environment
+  // doesn't set them, and an environment's own object replaces the top level's whole.
   if ((env.preview_urls ?? config.preview_urls) !== false) p("preview_urls must be false");
+  // Upload URLs carry their signature in the query (DESIGN §13).
+  if ((env.observability ?? config.observability)?.redact_query_string !== true) p("observability.redact_query_string must be true");
+  // Every response, assets included, goes through the host check and the security headers.
+  if ((env.assets ?? config.assets)?.run_worker_first !== true) p("assets.run_worker_first must be true");
   const db = env.d1_databases.find((d) => d.binding === "DB");
   if (!db || db.database_id === ZERO_ID) p("the DB binding needs the real database_id");
   if (!env.r2_buckets.some((b) => b.binding === "MEDIA")) p("the MEDIA binding is missing");
@@ -53,6 +68,7 @@ function common(config: Config, envName: string, problems: string[]): WorkerEnv 
   for (const host of [env.vars.GALLERY_HOST ?? "", env.vars.ADMIN_HOST ?? ""]) {
     if (host === "" || host.includes("localhost") || host.includes(":")) p(`"${host}" is not a deployed hostname`);
   }
+  if (env.vars.GALLERY_HOST === env.vars.ADMIN_HOST) p("GALLERY_HOST and ADMIN_HOST must differ");
   return env;
 }
 
@@ -72,7 +88,10 @@ function stagingProblems(config: Config, problems: string[]): void {
 
   for (const [env, p] of [[gallery, pg], [admin, pa]] as const) {
     if (env.workers_dev !== true) p("workers_dev must be true (interim staging)");
-    if ((env.routes ?? []).length > 0) p("no routes until the custom-domain switch");
+    // routes and route are inherited from the top level too.
+    if ((env.routes ?? config.routes ?? []).length > 0 || (env.route ?? config.route) !== undefined) {
+      p("no routes until the custom-domain switch");
+    }
   }
   if (!onWorkersDev(gallery, gallery.vars.GALLERY_HOST)) pg("GALLERY_HOST must be this Worker's workers.dev hostname");
   // The gallery Worker has no Access in front: its admin host must never resolve, and its Access
@@ -85,9 +104,12 @@ function stagingProblems(config: Config, problems: string[]): void {
   accessConfigured(admin, pa);
   if ((admin.triggers?.crons ?? config.triggers?.crons ?? []).length > 0) pa("crons must be empty (the cron runs on portal-staging)");
 
-  const id = (env: WorkerEnv) => env.d1_databases.find((d) => d.binding === "DB")?.database_id;
-  const bucket = (env: WorkerEnv) => env.r2_buckets.find((b) => b.binding === "MEDIA")?.bucket_name;
-  if (id(gallery) !== id(admin) || bucket(gallery) !== bucket(admin)) pa("must share portal-staging's D1 and R2");
+  if (dbId(gallery) !== dbId(admin) || bucket(gallery) !== bucket(admin)) pa("must share portal-staging's D1 and R2");
+  // Staging never touches production's data.
+  const production = config.env.production;
+  if (production && (dbId(gallery) === dbId(production) || bucket(gallery) === bucket(production))) {
+    pg("must not use production's D1 or R2");
+  }
 }
 
 function productionProblems(config: Config, problems: string[]): void {

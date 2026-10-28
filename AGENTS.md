@@ -72,6 +72,9 @@ cd apps/booth && bun install --frozen-lockfile && bun run typecheck && bun test 
   workers.dev"): gallery and device API `https://portal-staging.josh-33c.workers.dev`, admin
   `https://portal-staging-admin.josh-33c.workers.dev` (Access). Put a branch there with
   `gh workflow run deploy-staging.yml -f ref=<branch>` (deploy + smoke); never `wrangler deploy` yourself.
+  Dispatch only a branch you pushed to this repo (never a fork's ref or `refs/pull/*`): the run executes that
+  ref's code with a token that can also reach production (DESIGN §4.1, "Open"). Never push to `main`, and
+  never approve or dispatch a `production` deployment.
   Read logs with the read-only token: `wrangler tail --env staging --format json` (or `--env staging-admin`).
   Call the staging admin API with the service token from the user environment:
   `-H "CF-Access-Client-Id: $CF_ACCESS_CLIENT_ID" -H "CF-Access-Client-Secret: $CF_ACCESS_CLIENT_SECRET"`,

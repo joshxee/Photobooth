@@ -19,7 +19,7 @@ this file first, so state facts and not intentions.
 
 ---
 
-## 07 — Staging environment and CI deploys (interim workers.dev) — DONE (p95 CPU caveat) — 2026-10-28
+## 07 — Staging environment and CI deploys (interim workers.dev) — DONE except p95 CPU (owner to accept the deferral to 18) — 2026-10-28
 - PR: #35 (branch `portal/07-staging-ci`)
 - **Staging is available for booth device runs (10, 13):** gallery and device API
   `https://portal-staging.josh-33c.workers.dev`, admin `https://portal-staging-admin.josh-33c.workers.dev`
@@ -35,8 +35,8 @@ this file first, so state facts and not intentions.
     `scripts/provision.ts` (prints the owner's D1/R2/secret commands, ending in `wrangler logout`),
     `scripts/smoke.ts` remote mode (two origins, service token, Access refusals, commit wait, EXIF 422 with
     an R2 API check, cleanup in `finally`).
-- Verified: `bun run typecheck`, `bun run test` (603 Vitest + 240 bun), `bun run build` (dry runs of all four
-  environments). **On real Cloudflare:** CI run 40661824982 deployed both Workers and the smoke passed; 17
+- Verified: `bun run typecheck`, `bun run test` (644 Vitest + 299 bun after merging main), `bun run build` (dry runs of
+  all four environments). **On real Cloudflare:** CI run 40661824982 deployed both Workers and the smoke passed; 17
   smoke runs in all. Access: no token → 302 to the team login, wrong secret → 401, the service token's JWT
   accepted by the Worker. `ENROL_LIMITER` → 429 after about 22 tries in a minute. No `sig=` in `wrangler tail`.
   Preview URLs off on both Workers. The hd's two R2 range reads ran remotely. CPU per route in wiki/Portal.md:
@@ -45,6 +45,27 @@ this file first, so state facts and not intentions.
   session (dialogs, downloads, `Asia/…` zones); `SESSION_LIMITER`/`INTENT_LIMITER` 429s; remote D1
   `rows_read`; concurrent PUTs on remote D1; the retention cron (first run 14:00 UTC) and its CPU; the
   daily-limit behaviour on `workers.dev`.
+- Independent review (fresh-context subagent, REVIEW.md): no blockers in the code. It re-ran the gates, checked the
+  action pins against their tags and the CI run's log, and probed `preflight.ts` with configs that should fail.
+  - Fixed:
+    - preflight now pins each environment's Worker name (a renamed staging block could have overwritten `portal`);
+    - preflight keeps staging off production's D1 and R2;
+    - it checks the *effective* `observability.redact_query_string` and `assets.run_worker_first` (an environment's
+      own object replaces the top level's), inherited `route`/`routes` in staging, and distinct gallery and admin hosts;
+    - a test now covers production inheriting `workers_dev` (the reviewer's mutation of that check survived before;
+      caught now);
+    - `smoke.ts --bucket` refuses to start without the R2 credentials instead of skipping the release-gate check
+      quietly;
+    - a cross-origin URL error prints only the origin (never a gallery token or an upload signature into public
+      Actions logs).
+  - Recorded, not fixed (an owner decision): the deploy boundary is by convention. Both GitHub environments hold the
+    same account-wide token, a dispatched staging ref runs its own code with it, agents act as the owner on GitHub
+    and `main` is unprotected. DESIGN §4.1 "Open" lists the options for session 18; AGENTS.md now says to dispatch
+    only your own branches and never push to `main` or approve production.
+  - Justified: `ADMIN_EMAILS` holds the owner's Gmail in the public config. It is the owner's chosen break-glass
+    admin and was already public in this file's SETUP entry.
+  - The reviewer saw one `photos.test.ts` timeout under full-suite load (session 06's file; passed alone and in my
+    runs).
 - Owner steps done: D1 + R2 + secrets via `provision.ts` (then `wrangler logout`, cache file checked gone);
   Worker-level Access app on `portal-staging-admin` (two emails, 8 h, Service Auth for `agent-staging`, which
   only took effect once the application was saved with it; a policy added on the Policies tab shows

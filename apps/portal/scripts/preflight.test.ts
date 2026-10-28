@@ -4,12 +4,14 @@ import { type Config, preflight } from "./preflight";
 const committed = Bun.JSONC.parse(await Bun.file(new URL("../wrangler.jsonc", import.meta.url)).text()) as Config;
 
 const DB_ID = "11111111-2222-3333-4444-555555555555";
+const PROD_DB_ID = "66666666-7777-8888-9999-aaaaaaaaaaaa";
 const AUD = "a".repeat(64);
 
 /** The committed config with real-looking IDs filled in, so each test breaks exactly one thing. */
 function ready(): Config {
   const c = structuredClone(committed);
-  for (const name of ["staging", "staging-admin", "production"]) c.env[name]!.d1_databases[0]!.database_id = DB_ID;
+  for (const name of ["staging", "staging-admin"]) c.env[name]!.d1_databases[0]!.database_id = DB_ID;
+  c.env.production!.d1_databases[0]!.database_id = PROD_DB_ID;
   c.env["staging-admin"]!.vars.ACCESS_AUD = AUD;
   const prod = c.env.production!;
   prod.routes = [
@@ -93,6 +95,60 @@ describe("preflight", () => {
       "env.production: routes must be exactly the two custom domains GALLERY_HOST and ADMIN_HOST",
       "env.production: ADMIN_SERVICE_CLIENTS must be empty in production",
     ]);
+  });
+
+  it("refuses production inheriting workers.dev from the top level", () => {
+    const c = ready();
+    c.workers_dev = true;
+    delete c.env.production!.workers_dev;
+    expect(preflight(c, "production")).toEqual(["env.production: workers_dev must be false (custom domains only)"]);
+  });
+
+  it("refuses a renamed Worker, which would overwrite another environment's", () => {
+    const c = ready();
+    c.env.staging!.name = "portal";
+    c.env.production!.name = "portal-staging";
+    expect(preflight(c, "staging")).toContain('env.staging: name must be "portal-staging"');
+    expect(preflight(c, "production")).toEqual(['env.production: name must be "portal"']);
+  });
+
+  it("keeps staging off production's D1 and R2", () => {
+    const c = ready();
+    for (const name of ["staging", "staging-admin"]) c.env[name]!.d1_databases[0]!.database_id = PROD_DB_ID;
+    expect(preflight(c, "staging")).toEqual(["env.staging: must not use production's D1 or R2"]);
+    const d = ready();
+    for (const name of ["staging", "staging-admin"]) d.env[name]!.r2_buckets[0]!.bucket_name = "portal-media";
+    expect(preflight(d, "staging")).toEqual(["env.staging: must not use production's D1 or R2"]);
+  });
+
+  it("refuses an environment that drops the query redaction or the Worker-first assets", () => {
+    const c = ready();
+    // An environment's own object replaces the top level's whole, so this loses redact_query_string.
+    c.env.production!.observability = { enabled: true };
+    c.env.production!.assets = { run_worker_first: false };
+    expect(preflight(c, "production")).toEqual([
+      "env.production: observability.redact_query_string must be true",
+      "env.production: assets.run_worker_first must be true",
+    ]);
+  });
+
+  it("refuses routes inherited into staging and a production admin host equal to the gallery's", () => {
+    const c = ready();
+    c.routes = [{ pattern: "photos.knockbox.nz", custom_domain: true }];
+    expect(preflight(c, "staging")).toEqual([
+      "env.staging: no routes until the custom-domain switch",
+      "env.staging-admin: no routes until the custom-domain switch",
+    ]);
+    const d = ready();
+    d.route = "photos.knockbox.nz/*";
+    expect(preflight(d, "staging")).toHaveLength(2);
+    const e = ready();
+    e.env.production!.vars.ADMIN_HOST = "photos.knockbox.nz";
+    e.env.production!.routes = [
+      { pattern: "photos.knockbox.nz", custom_domain: true },
+      { pattern: "photos.knockbox.nz", custom_domain: true },
+    ];
+    expect(preflight(e, "production")).toEqual(["env.production: GALLERY_HOST and ADMIN_HOST must differ"]);
   });
 
   it("refuses an unknown environment", () => {

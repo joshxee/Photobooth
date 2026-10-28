@@ -51,6 +51,11 @@ if (remote ? !values.photos || !values.admin || values.base : !values.base) {
   );
   process.exit(2);
 }
+// Asking for the R2 check and then skipping it quietly would hide a lost CI secret.
+if (values.bucket && (!process.env.CLOUDFLARE_API_TOKEN || !process.env.CLOUDFLARE_ACCOUNT_ID)) {
+  console.error("--bucket needs CLOUDFLARE_API_TOKEN (R2 read) and CLOUDFLARE_ACCOUNT_ID");
+  process.exit(2);
+}
 
 let photos: Target;
 let admin: Target;
@@ -210,7 +215,7 @@ interface Intent {
 }
 
 function sameOrigin(url: string, target: Target, what: string): void {
-  if (remote && new URL(url).origin !== target.origin.origin) throw new Error(`${what}: ${url} is not on ${target.origin.origin}`);
+  if (remote && new URL(url).origin !== target.origin.origin) throw new Error(`${what}: ${new URL(url).origin} is not ${target.origin.origin}`);
 }
 
 async function guestPath(event: { id: string }, photoId: string, thumb: Uint8Array, hd: Uint8Array): Promise<void> {
@@ -296,7 +301,7 @@ async function metadataRejected(eventId: string, credential: string, thumb: Uint
   const prefix = `events/${eventId}`;
   const ready = await r2Exists(`${prefix}/${readyPhotoId}/thumb.jpg`);
   if (ready === null) {
-    console.log("--  R2 not checked (no --bucket, CLOUDFLARE_API_TOKEN or CLOUDFLARE_ACCOUNT_ID)");
+    console.log("--  R2 not checked (no --bucket)");
     return;
   }
   // The positive control: the API sees the READY photo's objects, so a 404 below means something.

@@ -124,11 +124,24 @@ Only CI deploys; agents and this PC never hold a Cloudflare write token (AGENTS.
   GitHub environment `production` (required reviewer: the owner). Preflight, gates, migrations,
   deploy. No smoke (it would write to production's D1 and R2). The plan's single
   `deploy-portal.yml` became two files so the production job can't be reached by a branch input.
+  The *token* can: both environments hold the same account-wide `ci-deploy` token, and a
+  dispatched staging ref runs its own config and scripts with it. Agents act as the owner on
+  GitHub, so the reviewer gate isn't a boundary against them either. This is open until session
+  18 (DESIGN §4.1, "Open"); meanwhile agents dispatch only their own branches (AGENTS.md).
 - **`scripts/preflight.ts --env staging|production`** runs before anything touches Cloudflare and
-  refuses a config that would expose something: preview URLs on, a zero D1 id, `DEV_AUTH` set,
-  missing `CONTACT_*`, an incomplete Access config (team domain, a 64-hex AUD, `ADMIN_EMAILS`);
-  in production also `workers_dev` on, hosts that aren't exactly its two custom-domain routes, or
-  any service client; in staging the interim rules below.
+  refuses a config that would expose something. It checks the *effective* settings, inherited
+  from the top level where the environment sets none. It refuses:
+  - a Worker name other than the environment's own;
+  - preview URLs on;
+  - query-string redaction off, or assets not run through the Worker;
+  - a zero D1 id;
+  - `DEV_AUTH` set;
+  - missing `CONTACT_*`;
+  - equal gallery and admin hosts;
+  - an incomplete Access config (team domain, a 64-hex AUD, `ADMIN_EMAILS`);
+  - in production, also `workers_dev` on, hosts that aren't exactly its two custom-domain routes,
+    or any service client;
+  - in staging, the interim rules below, inherited routes, and production's D1 or R2.
 - **`scripts/provision.ts --env staging|production`** prints (never runs) the owner's one-time
   commands: D1 and R2 (`--location oc`), fresh random secrets piped into every Worker of the
   environment, then `wrangler logout` (SETUP E).

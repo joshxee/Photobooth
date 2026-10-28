@@ -127,6 +127,12 @@ zone policy they don't apply.
   - `production`: `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`; **required reviewer =
     joshxee**, "Allow administrators to bypass" **off** (agents use the owner's `gh` login),
     branch `main` only.
+  - **Not an enforced boundary yet** (the session 07 review):
+    - Both environments hold the same `ci-deploy` token, which can write production too.
+    - Agents act as joshxee, so they could approve the reviewer gate themselves.
+    - `main` has no branch protection.
+    - Decide before session 18 (DESIGN §4.1, "Open"): a separate production account or token,
+      protect `main`, and a non-owner identity for agents.
 - [x] `agent-readonly`, 1 year, in this PC's environment (`CLOUDFLARE_API_TOKEN`,
       `CLOUDFLARE_ACCOUNT_ID`). Account: Workers Scripts Read, Workers Tail Read, D1 Read,
       Workers R2 Storage Read, Account Settings Read. Zone `knockbox.nz`: Workers Routes Read.
