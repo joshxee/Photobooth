@@ -11,7 +11,8 @@ name: Deploy staging
 
 on:
   push:
-    branches: [main]
+    # TEMPORARY (session 07, deploy before this file is on main): remove before merging.
+    branches: [main, portal/07-staging-ci]
     paths: ["apps/portal/**", ".github/workflows/deploy-staging.yml"]
   workflow_dispatch:
     inputs:

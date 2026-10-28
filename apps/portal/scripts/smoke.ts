@@ -218,7 +218,7 @@ function sameOrigin(url: string, target: Target, what: string): void {
   if (remote && new URL(url).origin !== target.origin.origin) throw new Error(`${what}: ${new URL(url).origin} is not ${target.origin.origin}`);
 }
 
-async function guestPath(event: { id: string }, photoId: string, thumb: Uint8Array, hd: Uint8Array): Promise<void> {
+async function guestPath(event: { id: string }, photoId: string, removedId: string, thumb: Uint8Array, hd: Uint8Array): Promise<void> {
   const published = (await adminCall(`/api/events/${event.id}/publish`, {}, 200)) as { publicId: string; galleryUrl: string };
   // The admin Worker builds the QR link from its GALLERY_HOST: it must be the photos host.
   sameOrigin(published.galleryUrl, photos, "galleryUrl");
@@ -247,7 +247,8 @@ async function guestPath(event: { id: string }, photoId: string, thumb: Uint8Arr
   const page = (await (await guest(`${prefix}/api/photos`, { headers: { Cookie: cookie }, expect: 200 })).json()) as {
     photos: { id: string }[];
   };
-  if (page.photos[0]?.id !== photoId) throw new Error(`photos: expected ${photoId} first, got ${JSON.stringify(page.photos)}`);
+  const listed = page.photos.map((p) => p.id);
+  if (!listed.includes(photoId) || !listed.includes(removedId)) throw new Error(`photos: expected both photos, got ${JSON.stringify(listed)}`);
 
   for (const [variant, bytes] of [["thumb", thumb], ["hd", hd]] as const) {
     const res = await guest(`${prefix}/m/${photoId}/${variant}`, { headers: { Cookie: cookie }, expect: 200 });
@@ -262,9 +263,53 @@ async function guestPath(event: { id: string }, photoId: string, thumb: Uint8Arr
     throw new Error(`download: Content-Disposition ${download.headers.get("Content-Disposition")}`);
   }
 
+  await removal(event.id, prefix, cookie, photoId, removedId, thumb, hd);
+
   await adminCall(`/api/events/${event.id}/rotate-link`, {}, 200);
   await guest(`${prefix}/api/photos`, { headers: { Cookie: cookie }, expect: 404 });
   await guest(`${prefix}/m/${photoId}/thumb`, { headers: { Cookie: cookie }, expect: 404 });
+}
+
+/** The admin's preview of a variant through the media proxy (never cached), or the response. */
+async function adminMedia(photoId: string, variant: string, expect: number): Promise<Response> {
+  const res = await send(admin, `/api/media/${photoId}/${variant}`, { headers: accessHeaders() });
+  if (res.status !== expect) throw new Error(`GET ${admin.host}/api/media/…/${variant}: expected ${expect}, got ${res.status}`);
+  console.log(`ok  ${res.status} GET ${admin.host}/api/media/${photoId}/${variant}`);
+  return res;
+}
+
+/**
+ * The removal-request runbook's delete (wiki/Portal.md): the admin previews the photo, deletes it,
+ * and it is gone at once from the guest list, from both hosts' media routes and from R2, while the
+ * event's other photo stays.
+ */
+async function removal(eventId: string, prefix: string, cookie: string, keptId: string, removedId: string, thumb: Uint8Array, hd: Uint8Array): Promise<void> {
+  for (const [variant, bytes] of [["thumb", thumb], ["hd", hd]] as const) {
+    const res = await adminMedia(removedId, variant, 200);
+    const body = new Uint8Array(await res.arrayBuffer());
+    if ((await sha256Hex(body)) !== (await sha256Hex(bytes))) throw new Error(`admin ${variant}: served bytes differ from the upload`);
+    if (!(res.headers.get("Cache-Control") ?? "").includes("no-store")) throw new Error(`admin ${variant}: Cache-Control ${res.headers.get("Cache-Control")}`);
+  }
+  await call(admin, `/api/photos/${removedId}`, {
+    method: "DELETE",
+    headers: { Origin: adminOrigin, "Content-Type": "application/json", ...accessHeaders() },
+    body: "{}",
+    expect: 200,
+  });
+  const page = (await (await guest(`${prefix}/api/photos`, { headers: { Cookie: cookie }, expect: 200 })).json()) as { photos: { id: string }[] };
+  const listed = page.photos.map((p) => p.id);
+  if (listed.includes(removedId) || !listed.includes(keptId)) throw new Error(`after delete: expected only ${keptId}, got ${JSON.stringify(listed)}`);
+  for (const variant of ["thumb", "hd"]) {
+    await guest(`${prefix}/m/${removedId}/${variant}`, { headers: { Cookie: cookie }, expect: 404 });
+    await adminMedia(removedId, variant, 404);
+  }
+  const kept = await r2Exists(`events/${eventId}/${keptId}/hd.jpg`);
+  if (kept === null) return;
+  if (!kept) throw new Error("R2: the kept photo's hd is missing");
+  for (const variant of ["thumb", "hd"]) {
+    if (await r2Exists(`events/${eventId}/${removedId}/${variant}.jpg`)) throw new Error(`R2: the deleted photo's ${variant} is still there`);
+  }
+  console.log("ok  R2: the deleted photo's thumb and hd are gone, the other photo's are there");
 }
 
 /** A photo whose thumb carries EXIF: 422 `invalid_image`, the photo REJECTED, nothing left in R2. */
@@ -380,9 +425,15 @@ async function main(): Promise<void> {
     const again = (await device("/v1/device/photos", intent, 200, credential)) as { state: string };
     if (again.state !== "READY") throw new Error(`re-intent: expected READY, got ${again.state}`);
 
-    await guestPath(event, pending.photoId, thumb, hd);
+    // A second READY photo, for the removal-request delete.
+    const second = (await device("/v1/device/photos", { ...intent, clientPhotoId: crypto.randomUUID(), shot: 3 }, 200, credential)) as Intent;
+    await put(second.uploads.thumb, thumb, 200);
+    const secondReady = (await put(second.uploads.hd, hd, 201)) as { state: string };
+    if (secondReady.state !== "READY") throw new Error(`second photo: expected READY, got ${secondReady.state}`);
+
+    await guestPath(event, pending.photoId, second.photoId, thumb, hd);
     await metadataRejected(event.id, credential, thumb, hd, pending.photoId);
-    console.log(`smoke passed: photo ${pending.photoId} READY in event ${event.id}, served to a guest; EXIF refused`);
+    console.log(`smoke passed: photo ${pending.photoId} READY in event ${event.id}, served to a guest; a second photo deleted; EXIF refused`);
   } finally {
     // Newest first: revoke the device, then delete the event. A failed step fails the run but
     // doesn't hide the error that got here.
