@@ -83,7 +83,7 @@
       "workers_dev": true,
       "preview_urls": false,
       "d1_databases": [
-        { "binding": "DB", "database_name": "portal-staging", "database_id": "00000000-0000-0000-0000-000000000000" }
+        { "binding": "DB", "database_name": "portal-staging", "database_id": "7c271f92-eedd-4364-8843-d8a306629868" }
       ],
       "r2_buckets": [{ "binding": "MEDIA", "bucket_name": "portal-media-staging" }],
       "ratelimits": [
@@ -116,7 +116,7 @@
       // The retention cron runs on portal-staging only, so it never runs twice against the shared D1.
       "triggers": { "crons": [] },
       "d1_databases": [
-        { "binding": "DB", "database_name": "portal-staging", "database_id": "00000000-0000-0000-0000-000000000000" }
+        { "binding": "DB", "database_name": "portal-staging", "database_id": "7c271f92-eedd-4364-8843-d8a306629868" }
       ],
       "r2_buckets": [{ "binding": "MEDIA", "bucket_name": "portal-media-staging" }],
       // The same limiters and secrets as portal-staging, so both Workers are the one Worker of the

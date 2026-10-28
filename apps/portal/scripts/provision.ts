@@ -8,6 +8,7 @@
 // Names come from wrangler.jsonc, so they can't drift from what the Workers bind. There is no R2
 // lifecycle rule (DESIGN D6: objects stay until an event is deleted). The location hint `oc`
 // (Oceania) puts the data near the NZ booths and guests; it is a hint, not a residency guarantee.
+import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 
 interface WorkerEnv {
@@ -25,7 +26,7 @@ export const ENVIRONMENTS: Record<string, string[]> = {
 };
 
 /** The commands, one per line (comments start with `#`), for one deployment environment. */
-export function provisionCommands(config: { env: Record<string, WorkerEnv> }, environment: string): string[] {
+export function provisionCommands(config: { env: Record<string, WorkerEnv> }, environment: string, portalDir = "apps/portal"): string[] {
   const envNames = ENVIRONMENTS[environment];
   if (!envNames) throw new Error(`unknown environment "${environment}" (staging or production)`);
   const workers = envNames.map((name) => {
@@ -41,8 +42,10 @@ export function provisionCommands(config: { env: Record<string, WorkerEnv> }, en
   }
 
   const lines = [
-    `# Portal ${environment}: run in PowerShell 7 from apps/portal. Never paste any output that is a secret into a chat.`,
+    `# Portal ${environment}: run in PowerShell 7. Never paste any output that is a secret into a chat.`,
     "# If `npx wrangler` does nothing (no Node on PATH), prefix each one: fnm exec --using=22.11.0 -- npx wrangler …",
+    "# 0. Wrangler reads wrangler.jsonc from the current folder: anywhere else, --env finds nothing.",
+    `Set-Location "${portalDir}"`,
     "# 1. A write login for this window only (the machine-wide CLOUDFLARE_API_TOKEN is read-only).",
     "Remove-Item Env:CLOUDFLARE_API_TOKEN -ErrorAction SilentlyContinue",
     "npx wrangler login",
@@ -77,5 +80,6 @@ if (import.meta.main) {
   const config = Bun.JSONC.parse(await Bun.file(new URL("../wrangler.jsonc", import.meta.url)).text()) as {
     env: Record<string, WorkerEnv>;
   };
-  console.log(provisionCommands(config, values.env).join("\n"));
+  const portalDir = fileURLToPath(new URL(".", new URL("../wrangler.jsonc", import.meta.url))).replace(/[\\/]$/, "");
+  console.log(provisionCommands(config, values.env, portalDir).join("\n"));
 }

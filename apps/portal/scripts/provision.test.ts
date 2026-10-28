@@ -30,6 +30,10 @@ describe("provisionCommands", () => {
     expect(lines.join("\n")).not.toContain("staging");
   });
 
+  it("starts in the portal folder, where Wrangler finds wrangler.jsonc", () => {
+    expect(commands("staging")[0]).toBe('Set-Location "apps/portal"');
+  });
+
   it("logs out at the end, so no write login stays cached on the PC", () => {
     for (const env of ["staging", "production"]) expect(commands(env).at(-1)).toBe("npx wrangler logout");
   });
