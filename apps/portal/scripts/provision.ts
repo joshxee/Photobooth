@@ -8,7 +8,7 @@
 // Names come from wrangler.jsonc, so they can't drift from what the Workers bind. There is no R2
 // lifecycle rule (DESIGN D6: objects stay until an event is deleted). The location hint `oc`
 // (Oceania) puts the data near the NZ booths and guests; it is a hint, not a residency guarantee.
-import { fileURLToPath } from "node:url";
+import { resolve } from "node:path";
 import { parseArgs } from "node:util";
 
 interface WorkerEnv {
@@ -80,6 +80,6 @@ if (import.meta.main) {
   const config = Bun.JSONC.parse(await Bun.file(new URL("../wrangler.jsonc", import.meta.url)).text()) as {
     env: Record<string, WorkerEnv>;
   };
-  const portalDir = fileURLToPath(new URL(".", new URL("../wrangler.jsonc", import.meta.url))).replace(/[\\/]$/, "");
+  const portalDir = resolve(import.meta.dir, "..");
   console.log(provisionCommands(config, values.env, portalDir).join("\n"));
 }
