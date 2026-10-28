@@ -14,6 +14,8 @@ export function Dialog({
   onClose,
   restoreFocus,
   closeOnBackdrop = true,
+  wide = false,
+  refocusOn,
   children,
 }: {
   title: string;
@@ -21,6 +23,14 @@ export function Dialog({
   restoreFocus?: HTMLElement | null;
   /** False for a dialog whose content can't be shown again: a stray click mustn't lose it. */
   closeOnBackdrop?: boolean;
+  /** For the photo viewer: room for the picture. */
+  wide?: boolean;
+  /**
+   * A value that changes when a button inside may have disabled itself (busy, first or last photo).
+   * A focused button that becomes disabled drops focus to the page, which would leave Escape and the
+   * Tab trap dead, so focus then returns to the dialog's own `[data-autofocus]` control.
+   */
+  refocusOn?: unknown;
   children: ReactNode;
 }) {
   const titleId = useId();
@@ -33,6 +43,13 @@ export function Dialog({
     first?.focus();
     return () => opener?.focus?.();
   }, []);
+
+  useEffect(() => {
+    const box_ = box.current;
+    if (box_ && !box_.contains(document.activeElement)) {
+      (box_.querySelector<HTMLElement>("[data-autofocus]") ?? box_.querySelector<HTMLElement>(FOCUSABLE))?.focus();
+    }
+  }, [refocusOn]);
 
   const onKeyDown = (e: KeyboardEvent) => {
     if (e.key === "Escape") {
@@ -55,7 +72,7 @@ export function Dialog({
 
   return (
     <div className="backdrop" onMouseDown={(e) => closeOnBackdrop && e.target === e.currentTarget && onClose()}>
-      <div className="dialog" role="dialog" aria-modal="true" aria-labelledby={titleId} ref={box} onKeyDown={onKeyDown}>
+      <div className={wide ? "dialog dialog--wide" : "dialog"} role="dialog" aria-modal="true" aria-labelledby={titleId} ref={box} onKeyDown={onKeyDown}>
         <h2 id={titleId}>{title}</h2>
         {children}
       </div>
@@ -79,7 +96,7 @@ export function ConfirmDialog({
   onCancel(): void;
 }) {
   return (
-    <Dialog title={confirmation.title} onClose={busy ? () => {} : onCancel} restoreFocus={restoreFocus}>
+    <Dialog title={confirmation.title} onClose={busy ? () => {} : onCancel} restoreFocus={restoreFocus} refocusOn={busy}>
       {confirmation.paragraphs.map((p) => (
         <p key={p}>{p}</p>
       ))}

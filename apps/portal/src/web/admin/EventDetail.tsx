@@ -3,9 +3,10 @@ import type { AdminEvent } from "../../shared/schemas";
 import { type EventActionName, api, isNotAuthorised } from "./api";
 import { useAdmin, useLoad } from "./env";
 import { Link } from "./nav";
-import { Chip, ConfirmDialog, ErrorNote, Loading } from "./parts";
+import { EventHead } from "./EventHead";
+import { ConfirmDialog, ErrorNote, Loading } from "./parts";
 import { qrFilename, qrSvg } from "./qr";
-import { type BacklogReport, availableActions, backlogReport, confirmation, galleryChip, uploadChip } from "./rules";
+import { type BacklogReport, availableActions, backlogReport, confirmation } from "./rules";
 import { formatDay, formatInZone } from "./time";
 
 const LABEL: Record<EventActionName, string> = {
@@ -81,22 +82,7 @@ export function EventDetail({ id }: { id: string }) {
 
   return (
     <section>
-      <p>
-        <Link to="/">← Events</Link>
-      </p>
-      <div className="head">
-        <h1>{event.name}</h1>
-        <div className="chips">
-          {event.deletedAt ? (
-            <span className="chip chip--danger">Deleted</span>
-          ) : (
-            <>
-              <Chip chip={uploadChip(event, now)} />
-              <Chip chip={galleryChip(event)} />
-            </>
-          )}
-        </div>
-      </div>
+      <EventHead event={event} now={now} current="details" />
 
       {event.deletedAt && (
         <div className="warning">

@@ -4,12 +4,13 @@ The guest web portal: one Cloudflare Worker in `apps/portal`. The behaviour spec
 [portal/DESIGN.md](./portal/DESIGN.md) and the build plan is [portal/README.md](./portal/README.md).
 This page records *why* the code is shaped the way it is, and is extended as each session lands.
 
-**Status (sessions 12 and 16):** the scaffold (02), the D1 schema, data layer, domain rules and shared
+**Status (sessions 12, 15 and 16):** the scaffold (02), the D1 schema, data layer, domain rules and shared
 contract (03), admin authentication (Cloudflare Access JWT, verified in code) and the admin events
 API with audit rows (04), devices: the admin devices API, enrolment and the authenticated device
 events API (05), and the live-delivery path: the upload intent, the signed per-variant PUT, the JPEG
 header walk and `processPhoto()` (06), and the guest API: the token → cookie swap, the photo list
-and media (11), the guest gallery SPA (12), and the daily retention job (16). **Nothing here has run on
+and media (11), the guest gallery SPA (12), admin moderation with the media proxy and the audit view
+(15), and the daily retention job (16). **Nothing here has run on
 real Cloudflare or against a real Access application.** It is verified with Vitest in workerd (local
 D1 and R2, JWTs signed with a locally generated key), `wrangler dev` with `scripts/smoke.ts`,
 `wrangler d1 … --local`, `wrangler deploy --dry-run` and a browser against `wrangler dev` only.
@@ -909,6 +910,139 @@ Screenshots: `wiki/portal/screenshots/14-*.jpg`. **Not verified:** a phone scan 
 on-screen QR (decoded only in tests, and the downloaded PNG file itself was not re-decoded), real
 Cloudflare Access (the dev auth path skips it), a screen reader, narrow screens (desktop first).
 
+## Admin moderation, media proxy and audit view (session 15)
+
+The Photos tab of an event, a viewer with Hide, Unhide and "Delete permanently", the admin media proxy,
+and the Audit view (`routes/admin/photos.ts`, `routes/admin/audit.ts`, `src/web/admin/PhotosView.tsx`,
+`AuditView.tsx`). The routes are listed in DESIGN §12 → "Refinements (session 15)".
+
+### Why deleting one photo is immediate, and deletes the row
+
+Deleting an event waits 7 days because it is a mistake an admin can make with one click and the loss is a
+whole gallery. A single photo is deleted for one reason: someone asked for it to go (DESIGN §14). An undo
+would keep the picture in storage for a week after the person was told it was gone, so the objects go at
+once and the confirmation says there is no undo (hiding is the reversible option).
+
+The row is **deleted, not marked**. A marked row would keep the hashes, session, shot and times of what a
+removal request asks to erase, would need a migration (additive, but still one) and a `deleted` filter in
+every guest, admin and count query, and would buy nothing the audit table doesn't already give: the
+`photo.delete` audit row keeps the photo ID, session, shot, state and whether it was hidden, and that is
+all the audit needs. Session 16 made the same choice for purged events. It also frees the photo-limit
+slot, since the limit counts rows.
+
+Order of a delete: **R2 objects first** (both variants in one call; a missing key isn't an error, so a
+PENDING or REJECTED photo with one variant or none works), **then the row and its audit row in one
+`db.batch`**. If R2 fails the answer is a 500, the row stays, nothing is audited, and the admin's retry
+finishes the job. Deleting the row first would strand objects that nothing could find by ID. The audit
+insert is guarded (`WHERE EXISTS (SELECT … FROM photos …)`), so a second delete is a 404 with no second
+audit row. A PENDING photo's upload PUT can land between the first R2 delete and the row going; after the
+row is gone the route deletes the two keys once more (a failure there is logged, not an error: the photo is
+already deleted), and a PUT arriving after that finds no row and removes its own object (session 06). The
+window left is a PUT whose object write completes after both deletes but whose row check came before the
+batch: milliseconds, for a photo that was not yet READY.
+
+**What a delete does not reach:** a guest's browser cache (media is cached for a year, immutable); the
+original on the booth's SD card; and a booth that never received its READY answer and still holds the shot
+(next paragraph).
+
+**Known gap, accepted.** The booth deletes a shot as soon as it sees READY. A booth that uploaded both
+variants but lost the answer keeps the shot and retries the intent; if an admin deleted the photo in
+between, the retry makes a new row and the photo comes back. The window is the time the booth stays unable
+to hear READY, so a removal request would have to land inside it. A tombstone would close it, at the cost
+above. The runbook has a check for it (step 4).
+
+### Hide and unhide
+
+`photo.hide` and `photo.unhide` set the flag. Guests lose or regain the photo on their next request,
+because nothing server-side caches it (the list and the media route both read `hidden = 0`). The tests do
+the whole path: hide, then the guest list omits the photo and the media route (both variants) is the
+generic 404 while another photo in the same gallery still serves; unhide restores both; delete likewise.
+A repeat is a 409 and writes no audit row (the audit insert and the update are guarded by the same
+condition, so either both apply or neither does). Hiding works in any photo state and in a deleted event.
+A guest who already has the page open keeps the photo until it reloads, and a copy in their browser cache
+stays (the session 11 and 12 limits).
+
+### The media proxy: `private, no-store`
+
+`GET /api/media/{photoId}/{thumb|hd}` finds the photo's row (any state, hidden or not) for its event and
+streams the R2 object with `jpegResponse()` (`lib/media.ts`, which session 11's guest route now shares).
+The guest route caches for a year because a key never changes content; the admin proxy sets
+`Cache-Control: private, no-store`, because an admin's browser must not keep a photo that has since been
+hidden or deleted, and `private` keeps any shared cache out. The admin `noStore` middleware used to
+overwrite the header on every response, so it now leaves one a handler set. The cost: the grid refetches
+its previews on every visit. The images are `loading="lazy"`, a page is 60 photos, and an admin session is
+a handful of visits, so a busy day adds a few hundred Worker requests against Workers Free's 100,000 a day.
+If that ever bites, change the proxy to `private, max-age=60`. No Worker CPU is spent on the bytes
+(streamed, never decoded: D14).
+
+### The list and its cost
+
+`GET /api/events/{id}/photos` orders by ID, newest first. IDs are UUIDv7, so that is creation order, and
+PENDING and REJECTED photos have no `published_at` to order by. The cursor is the last ID (opaque
+base64url). `ORDER BY id` is not covered by `photos_gallery`, so a page reads the event's whole index
+prefix and sorts: about two rows read per photo of the event, whatever the page size (40 photos, 80 rows
+read, measured in review). At the default 2,000-photo limit that is about 4,000 rows per page, which is
+nothing against D1's free allowance for an admin's few visits; if it ever matters, add an `(event_id, id)`
+index. A test pins that a page's rows read don't grow with other events' photos. `hidden=true|false` and `state` narrow it. The audit list pages by
+`(at, id)` with the guest cursor's shape. Both fetch one row more than a page to know whether another
+exists.
+
+### Audit
+
+`AUDIT_ACTIONS` (`shared/schemas.ts`) is the closed set of actions. One test performs every admin mutation
+through the API, a device enrolment and the retention job, and requires the set of actions written to equal
+the set, so adding an action without a filter entry and a label fails a test (the SPA's `ACTION_LABELS` is a
+`Record` over the same list). `AuditEntry.action` stays a string so an older SPA shows a newer action by its
+raw name. The view filters by event and action on the server (the table has `audit_event_at` and
+`audit_at`), shows times in the admin's own zone, and names events and booths from the lists it already
+loads, or from what the row recorded for an event that is gone. `detail` never holds a secret (a rotation
+records the access version, not the token).
+
+### The Photos tab
+
+A grid of previews (thumb via the proxy) filtered by state and visibility, with the reject reason on
+rejected tiles, and a viewer (a `Dialog`, so focus is trapped and restored) that shows the `hd`, steps with
+Previous, Next and the arrow keys, and holds Hide/Unhide and "Delete permanently". Hide and Unhide are not
+confirmed (reversible, and the viewer says what happened); the delete confirmation opens on Cancel and names
+the consequence (gone from guests and storage now, no undo, a guest's browser may still hold a copy, erase
+the SD card too). Under a filter that no longer matches (hiding while "Visible only" is selected) the photo
+leaves the grid and the viewer moves to the next one, unless the admin has already stepped elsewhere.
+A button that disables itself while its request runs (or at the first or last photo) would drop keyboard
+focus to the page and leave Escape and the Tab trap dead, so the dialog takes focus back to its own control
+(`Dialog`'s `refocusOn`). The list does not auto-refresh (every refresh is a
+Worker request); Refresh reloads it and the counts.
+
+### Removal-request runbook
+
+1. Identify the event and the photo: the requester's session time or a screenshot. In the event's Photos
+   tab the tiles show the time and shot, and the viewer shows the session and shot.
+2. Open the photo, **Delete permanently**, confirm. The previews and the full-size file are gone from
+   storage and the gallery at once; the Audit view shows `photo.delete` with who and when.
+3. **Erase the original from the booth's SD card** (custody register; the SD card is the one place a
+   full-size original exists), and record the removal there.
+4. Check **Devices**: a booth with a backlog may still hold that shot. If its queue is not empty, let it
+   drain and look at the Photos tab again before telling the requester it is done.
+5. Tell the requester that guests who already opened the photo may still have it in their browser, and that
+   the portal cannot reach it.
+
+### What was verified, and where
+
+Vitest in workerd: every route's auth (401 with no token, 403 cross-origin), list filters, paging and event
+scoping, hide, unhide and delete taking effect for guests on the very next request (list and both variants,
+other photos unaffected), the R2 objects gone, audit rows (their content, and none on a repeat or a
+failure), a failed R2 delete keeping the row, the proxy's headers for every state and its 404s, the audit
+list's filters and paging, and the closed set of actions. Mutations each caught: no R2 delete, the proxy's
+cache header, the `noStore` override, the hide guard, the audit row. `bun test` (happy-dom): the grid,
+filters, paging, the viewer and keyboard, hide and unhide under filters, the delete confirmation and its
+failure paths, the Audit view and its words. In the **built-in browser** against local
+`wrangler dev --var DEV_AUTH:1` after `migrate:local` + `seed`: hide in the viewer, then the guest tab's
+list had lost the photo and its media answered 404 on the next request (a first 200 there was the browser's
+own cache of an earlier fetch: the documented limit); delete: the row gone, both R2 objects "key does not
+exist" with `wrangler r2 object get --local` while the neighbouring photo's were still there, and both
+actions in the Audit view. Screenshots: `wiki/portal/screenshots/15-*.jpg`. **Not verified:** real
+Cloudflare Access, R2 or D1 (nothing is deployed), the request cost of the no-store previews on a real
+event day, a screen reader, narrow screens, the booth-retry gap above against a real booth.
+
 ## Data model (D1)
 
 The schema is `migrations/0001_init.sql`: DESIGN §6 plus the refinements listed there. The
@@ -1024,6 +1158,10 @@ EOI only), so the header walk (session 06) accepts them and browsers display the
   booth's items need the operator's retry). Rotate between events.
 - The gallery keeps showing a photo hidden or deleted after it loaded until the page reloads (and
   its image stays in that browser's cache). Polls only add photos.
+- A photo deleted by an admin can come back if its booth never saw READY and retries the intent
+  (single-photo delete removes the row; see "Admin moderation"). The runbook checks the booth's backlog.
+- The admin photo previews are `no-store`, so every grid visit refetches them (Worker requests on
+  Workers Free); the photo list does not auto-refresh.
 - `GET /api/devices` is unpaginated (schema cap 1,000); there are five tablets.
 - The close-uploads backlog warning covers every enrolled booth, not only those on the event (a device
   isn't tied to an event), and trusts each booth's last report (at most once a minute, see "Devices and

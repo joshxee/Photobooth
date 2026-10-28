@@ -45,9 +45,9 @@ cd apps/portal && bun run typecheck && bun run test && bun run build
 ```
 
 ## Done when
-- [ ] The removal-request flow works end to end, and the R2 objects are verified gone.
-- [ ] Hidden photos are never visible or fetchable by guests (tested).
-- [ ] The audit list shows every admin action from sessions 04, 05 and 15.
+- [x] The removal-request flow works end to end, and the R2 objects are verified gone.
+- [x] Hidden photos are never visible or fetchable by guests (tested).
+- [x] The audit list shows every admin action from sessions 04, 05 and 15.
 
 ## Hand-off
 - `wiki/Portal.md`: why single-photo deletion is immediate when event deletion has a 7-day

@@ -20,17 +20,67 @@ export function insertAudit(db: D1Database, a: AuditEntry): D1PreparedStatement 
 }
 
 /**
- * Newest first, optionally for one event. Two fixed statements rather than `? IS NULL OR …`,
- * so each uses its index (`audit_event_at` or `audit_at`); see listGalleryPage.
+ * Newest first, optionally for one event and/or one action; `cursor` is the position of the last
+ * row of the previous page. The SQL is assembled from fixed fragments (values are always bound)
+ * rather than `? IS NULL OR …`, so the event filter uses `audit_event_at` and the unfiltered list
+ * `audit_at` (see listGalleryPage). The caller asks for one row more than a page to know whether
+ * there is another.
  */
-export async function listAudit(db: D1Database, args: { eventId?: string; limit: number }): Promise<AuditEntry[]> {
-  const columns = "SELECT id, at, actor, action, event_id, target_id, detail FROM audit";
-  const statement =
-    args.eventId === undefined
-      ? db.prepare(`${columns} ORDER BY at DESC, id DESC LIMIT ?`).bind(args.limit)
-      : db.prepare(`${columns} WHERE event_id = ? ORDER BY at DESC, id DESC LIMIT ?`).bind(args.eventId, args.limit);
-  const { results } = await statement.all<StoredEntry>();
+export async function listAudit(
+  db: D1Database,
+  args: { eventId?: string; action?: string; cursor?: { at: string; id: string }; limit: number },
+): Promise<AuditEntry[]> {
+  const where: string[] = [];
+  const params: (string | number)[] = [];
+  if (args.eventId !== undefined) {
+    where.push("event_id = ?");
+    params.push(args.eventId);
+  }
+  if (args.action !== undefined) {
+    where.push("action = ?");
+    params.push(args.action);
+  }
+  if (args.cursor) {
+    where.push("(at, id) < (?, ?)");
+    params.push(args.cursor.at, args.cursor.id);
+  }
+  params.push(args.limit);
+  const { results } = await db
+    .prepare(
+      `SELECT id, at, actor, action, event_id, target_id, detail FROM audit
+       ${where.length > 0 ? `WHERE ${where.join(" AND ")}` : ""} ORDER BY at DESC, id DESC LIMIT ?`,
+    )
+    .bind(...params)
+    .all<StoredEntry>();
   return results.map((r) => ({ ...r, detail: r.detail === null ? null : (JSON.parse(r.detail) as Record<string, unknown>) }));
+}
+
+/**
+ * The audit row for a photo write that only applies to a photo that exists (delete). Put it
+ * **before** the write in the same `db.batch`, so a delete that finds no row (already gone) leaves
+ * no audit row behind.
+ */
+export function insertAuditIfPhotoExists(db: D1Database, a: AuditEntry, photoId: string): D1PreparedStatement {
+  return db
+    .prepare(
+      `INSERT INTO audit (id, at, actor, action, event_id, target_id, detail)
+       SELECT ?, ?, ?, ?, ?, ?, ? WHERE EXISTS (SELECT 1 FROM photos WHERE id = ?)`,
+    )
+    .bind(a.id, a.at, a.actor, a.action, a.event_id, a.target_id, a.detail === null ? null : JSON.stringify(a.detail), photoId);
+}
+
+/**
+ * The audit row for hiding (`hiddenNow` false) or unhiding (true) a photo: it applies only while
+ * the photo is in that state. Put it **before** `setPhotoHidden` in the same `db.batch`, so either
+ * both apply or neither does, and a repeat leaves no audit row.
+ */
+export function insertAuditIfPhotoHidden(db: D1Database, a: AuditEntry, photoId: string, hiddenNow: boolean): D1PreparedStatement {
+  return db
+    .prepare(
+      `INSERT INTO audit (id, at, actor, action, event_id, target_id, detail)
+       SELECT ?, ?, ?, ?, ?, ?, ? WHERE EXISTS (SELECT 1 FROM photos WHERE id = ? AND hidden = ?)`,
+    )
+    .bind(a.id, a.at, a.actor, a.action, a.event_id, a.target_id, a.detail === null ? null : JSON.stringify(a.detail), photoId, hiddenNow ? 1 : 0);
 }
 
 /**

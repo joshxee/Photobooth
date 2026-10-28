@@ -388,3 +388,118 @@ td.num {
   border-radius: 8px;
   user-select: all;
 }
+
+/* Event tabs, filters, photo grid and viewer (session 15) */
+.tabbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 16px;
+  border-bottom: 1px solid var(--hairline);
+}
+.tabs {
+  display: flex;
+  gap: 4px;
+}
+.tabs a {
+  padding: 10px 16px;
+  margin-bottom: -1px;
+  border-bottom: 3px solid transparent;
+  color: var(--ink);
+  text-decoration: none;
+}
+.tabs a[aria-current="page"] {
+  border-bottom-color: var(--ink);
+  font-weight: 600;
+}
+.filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px 16px;
+}
+.filters .field {
+  min-width: 220px;
+}
+h2:focus {
+  outline: none;
+}
+.photo-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: 12px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.tile {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 100%;
+  padding: 8px;
+  border: 1px solid var(--hairline);
+  border-radius: 12px;
+  background: var(--bg);
+  color: var(--ink);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.tile--hidden .tile__image {
+  opacity: 0.45;
+}
+.tile__image {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  aspect-ratio: 4 / 3;
+  overflow: hidden;
+  border-radius: 8px;
+  background: var(--placeholder);
+}
+.tile__image img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+.tile__caption {
+  font-size: 13px;
+  color: var(--ink-2);
+}
+.dialog--wide {
+  max-width: 960px;
+}
+.viewer {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.viewer__image {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  /* A fixed height, so the buttons below don't move when the picture arrives. */
+  height: 45vh;
+  background: var(--placeholder);
+  border-radius: 8px;
+  overflow: hidden;
+}
+.viewer__image img {
+  display: block;
+  max-width: 100%;
+  max-height: 45vh;
+  object-fit: contain;
+}
+.viewer__image p {
+  padding: 16px;
+}
+.facts--compact {
+  flex: none;
+  padding: 10px 14px;
+  gap: 2px 20px;
+}
+.tile .chip {
+  white-space: normal;
+}

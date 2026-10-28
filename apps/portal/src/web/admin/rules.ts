@@ -1,8 +1,9 @@
 // What the admin may do to an event, and what it must be told first (DESIGN §12, §15). The
 // availability rules mirror the Worker's state machine (worker/domain/eventState.ts) so the UI
 // offers only what the API will accept; the Worker stays the authority and answers 409 otherwise.
-import type { AdminDevice, AdminEvent } from "../../shared/schemas";
+import type { AdminDevice, AdminEvent, AdminPhoto } from "../../shared/schemas";
 import type { EventActionName } from "./api";
+import { photoLabel } from "./photos";
 import { relativeTime } from "./time";
 
 export interface Chip {
@@ -136,4 +137,23 @@ function closeConfirmation(e: AdminEvent, backlog: BacklogReport | null, nowMs: 
   }
   if (warnings.length === 0) return { ...base, confirmLabel: "Close uploads" };
   return { ...base, warning: warnings.join(" "), items, confirmLabel: "Close uploads anyway" };
+}
+
+/**
+ * The confirmation for "Delete permanently" (DESIGN §14: a removal request). It says what the
+ * portal does, what it can't do, and what is left for the operator: guests' browser caches and the
+ * original on the booth's SD card.
+ */
+export function photoDeleteConfirmation(p: AdminPhoto, e: AdminEvent): Confirmation {
+  return {
+    title: "Delete this photo permanently?",
+    paragraphs: [
+      "It is removed from the gallery and from storage now, both the preview and the full-size file. This can't be undone, and unlike deleting an event there is no 7-day undo.",
+      "A guest who already opened it may still have a copy in their browser until their browser clears it. Hiding the photo instead is reversible.",
+    ],
+    warning: "Also erase the original from the booth's SD card, or it can still be recovered from there.",
+    items: [`${e.name}: ${photoLabel(p)}`],
+    confirmLabel: "Delete permanently",
+    danger: true,
+  };
 }

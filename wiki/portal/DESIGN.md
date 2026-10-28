@@ -329,7 +329,8 @@ any event that isn't deleted, and reports an OPEN event past `uploads_until` as 
 `Origin` and a JSON content type):
 
 - Events: list, create, update, open, close, publish, suspend, rotate link, delete (7-day undo), restore.
-- Photos: list by state, hide, unhide, delete (immediate hard delete); media proxy.
+- Photos: list by state, hide, unhide, delete (immediate hard delete, the row is deleted, not marked);
+  media proxy.
 - Devices: create (returns the enrolment code), revoke, list with last seen, backlog and version.
 - Audit list.
 
@@ -590,6 +591,24 @@ day 1 to preserve this.
   This is the event-day health view.
 - **Audit**: event changes, publish and suspend, rotation, device create and revoke, hide and
   delete, restore.
+- **Refinements (session 15)**, reasons in wiki/Portal.md → "Admin moderation, media proxy and audit view":
+  - Routes (all behind the admin stack): `GET /api/events/{id}/photos?state&hidden&cursor&limit`,
+    `POST /api/photos/{id}/hide` and `/unhide`, `DELETE /api/photos/{id}`,
+    `GET /api/media/{photoId}/{thumb|hd}` and `GET /api/audit?event&action&cursor&limit`.
+  - **Single-photo delete removes the row.** It deletes both R2 objects first (either may be missing),
+    then the row and its `photo.delete` audit row in one batch; the audit row keeps the photo ID, its
+    session, shot, state and whether it was hidden. A marked-deleted row would keep a tombstone of what
+    a removal request asks to erase, and would need a migration and a filter in every query; the audit
+    row already keeps the ID. The 7-day undo is for events only (§14). The cost: a booth that never
+    got its READY answer could re-intent the deleted photo (see "known limits").
+  - Hide and unhide are audited (`photo.hide`, `photo.unhide`) and repeat as 409 with no audit row;
+    they work in any photo state and any event state, a deleted event included.
+  - The media proxy serves any state, hidden photos included, with `Cache-Control: private, no-store`;
+    a gallery photo is cached for a year, an admin view is never kept.
+  - The Audit list's actions are a closed set (`AUDIT_ACTIONS` in `shared/schemas.ts`), and
+    `AuditList` gained `nextCursor`. The photo list orders by ID (UUIDv7, so by creation), because
+    PENDING and REJECTED photos have no `published_at`.
+  - The admin SPA gains `/events/{id}/photos` (served by the Worker like the other views).
 
 ## 13. Security controls
 
@@ -624,7 +643,7 @@ in batches, and is bounded per run (40 D1/R2 calls, 2,000 objects, 10 events) so
 anything unfinished continues the next day. See `wiki/Portal.md` → "Retention and deletion".
 
 Removal requests are handled with "Delete permanently" in admin, which removes the variants
-immediately, plus erasing the SD-card file. Guests see the privacy notice at the booth and in
+immediately (and the photo's row; there is no undo, unlike an event), plus erasing the SD-card file. Guests see the privacy notice at the booth and in
 the gallery. NZ privacy review and the hosting-location disclosure remain the business's
 responsibility; Cloudflare location hints are not a residency guarantee.
 

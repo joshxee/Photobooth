@@ -104,7 +104,7 @@ describe("admin SPA", () => {
   });
 
   it("serves the shell for the SPA's own views, so a reload or a bookmark works", async () => {
-    for (const path of ["/events", "/events/new", "/events/019a0b7e-0000-7000-8000-000000000001", "/events/019a0b7e-0000-7000-8000-000000000001/edit", "/devices", "/audit"]) {
+    for (const path of ["/events", "/events/new", "/events/019a0b7e-0000-7000-8000-000000000001", "/events/019a0b7e-0000-7000-8000-000000000001/edit", "/events/019a0b7e-0000-7000-8000-000000000001/photos", "/devices", "/audit"]) {
       const res = await getAdmin(`${ADMIN}${path}`);
       expect(res.status, path).toBe(200);
       expect(await res.text()).toContain("<title>Admin</title>");
@@ -113,7 +113,7 @@ describe("admin SPA", () => {
   });
 
   it("answers anything else, and unknown API paths, with a JSON 404 rather than the shell", async () => {
-    for (const path of ["/elsewhere", "/events/new/x", "/devices/x", "/api/nope", "/api/events/x/y/z"]) {
+    for (const path of ["/elsewhere", "/events/new/x", "/events/019a0b7e-0000-7000-8000-000000000001/photos/x", "/devices/x", "/api/nope", "/api/events/x/y/z"]) {
       const res = await getAdmin(`${ADMIN}${path}`);
       expect(res.status, path).toBe(404);
       expect(res.headers.get("content-type")).toContain("application/json");
