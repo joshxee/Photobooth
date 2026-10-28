@@ -7,7 +7,7 @@ let mocked: ReturnType<typeof mockFetch> | null = null;
 /** What `fetch(…, { redirect: "manual" })` returns for a redirect: an opaque response, status 0. */
 function accessRedirect(): Response {
   const res = new Response(null, { status: 204 });
-  Object.defineProperty(res, "type", { value: "opaqueredirect" });
+  Object.defineProperties(res, { type: { value: "opaqueredirect" }, status: { value: 0 }, ok: { value: false } });
   return res;
 }
 afterEach(() => mocked?.restore());
@@ -73,13 +73,33 @@ describe("request wrapper", () => {
   });
 
   // An ad blocker refusing /api/events (uBlock Origin did, on staging) looked like an outage.
-  it("reads a refused request as blocked when the server itself answers", async () => {
+  it("reads a GET refused twice as blocked when the server itself answers", async () => {
     mocked = mockFetch((c) => {
       if (c.path === "/healthz") return json({ ok: true, version: "0.1.0", commit: null });
       throw new TypeError("Failed to fetch");
     });
     expect(await api.listEvents().catch((e: unknown) => e)).toMatchObject({ code: "blocked", status: 0 });
-    expect(mocked.calls.map((c) => c.path)).toEqual(["/api/events", "/healthz"]);
+    expect(mocked.calls.map((c) => c.path)).toEqual(["/api/events", "/healthz", "/api/events"]);
+    expect(mocked.calls[1]!.redirect).toBe("manual");
+  });
+
+  it("retries a GET once after a blip, and returns its data if the retry gets through", async () => {
+    let attempts = 0;
+    mocked = mockFetch((c) => {
+      if (c.path === "/healthz") return json({ ok: true, version: "0.1.0", commit: null });
+      if (attempts++ === 0) throw new TypeError("Failed to fetch");
+      return json({ events: [] });
+    });
+    expect(await api.listEvents()).toEqual({ events: [] });
+  });
+
+  it("never resends a mutation: a refused POST is reported at once", async () => {
+    mocked = mockFetch((c) => {
+      if (c.path === "/healthz") return json({ ok: true, version: "0.1.0", commit: null });
+      throw new TypeError("Failed to fetch");
+    });
+    expect(await api.revokeDevice("dev-1").catch((e: unknown) => e)).toMatchObject({ code: "blocked" });
+    expect(mocked.calls.map((c) => `${c.method} ${c.path}`)).toEqual(["POST /api/devices/dev-1/revoke", "GET /healthz"]);
   });
 
   it("reads a refused request as signed out when the server's answer is Access's redirect", async () => {
@@ -139,7 +159,7 @@ describe("describeError", () => {
 
   it("tells a blocked request, a lapsed sign-in and a network failure apart", () => {
     expect(describeError(new ApiError(0, "blocked", "", null))).toBe(
-      "This request was blocked in your browser. If you use an ad or tracker blocker, allow this site.",
+      "This request didn't get through. If you use an ad or tracker blocker, allow this site; otherwise try again.",
     );
     expect(describeError(new ApiError(0, "signed_out", "", null))).toContain("Reload the page to sign in again");
     expect(describeError(new ApiError(0, "network", "", null))).toContain("Check your connection");

@@ -23,9 +23,9 @@ export type EventActionName = "open" | "close" | "publish" | "suspend" | "rotate
 
 /**
  * A failed call. Three never reach the API: `signed_out` (Access answered with its login redirect,
- * so the session lapsed), `blocked` (the browser refused the request although the server answers,
- * typically an ad or tracker blocker whose filter list matches an `/api/event…` path), and `network`
- * (the server can't be reached, or answered with something other than the API's JSON).
+ * so the session lapsed), `blocked` (the request failed while the server answers, typically an ad or
+ * tracker blocker whose filter list matches an `/api/event…` path; a GET only after failing twice),
+ * and `network` (the server can't be reached, or a 2xx answer wasn't the API's JSON).
  */
 export class ApiError extends Error {
   constructor(
@@ -42,9 +42,11 @@ export class ApiError extends Error {
 type ClientFailure = "network" | "signed_out" | "blocked";
 
 /**
- * Why a request never got an answer. `/healthz` is on no filter list and is behind Access like every
- * path: if it answers, the request itself was blocked in the browser; if Access redirects it, the
- * session lapsed.
+ * Why a request never got an answer. `/healthz` is on no filter list we know of and is behind Access
+ * like every path: if it answers, the request itself was refused in the browser (or the connection
+ * blipped: the caller retries a GET before calling it blocked); if Access redirects it, the session
+ * lapsed. `redirect: "manual"` rather than Access's `X-Requested-With` 401: a 401 would read as
+ * "not authorised" (isNotAuthorised), not "sign in again".
  */
 async function whyUnanswered(): Promise<ClientFailure> {
   try {
@@ -57,9 +59,8 @@ async function whyUnanswered(): Promise<ClientFailure> {
 }
 
 async function request<T>(method: "GET" | "POST" | "PATCH" | "DELETE", path: string, body?: unknown): Promise<T> {
-  let res: Response;
-  try {
-    res = await fetch(path, {
+  const send = () =>
+    fetch(path, {
       method,
       credentials: "same-origin",
       // Access's login redirect is cross-origin: followed, it fails as CORS and looks like a network error.
@@ -67,8 +68,19 @@ async function request<T>(method: "GET" | "POST" | "PATCH" | "DELETE", path: str
       headers: method === "GET" ? undefined : { "Content-Type": "application/json" },
       body: method === "GET" ? undefined : JSON.stringify(body ?? {}),
     });
+  let res: Response;
+  try {
+    res = await send();
   } catch {
-    throw new ApiError(0, await whyUnanswered(), "", null);
+    const why = await whyUnanswered();
+    // A dropped connection that is back by the probe looks the same as a blocker: a GET is safe to
+    // send once more, and only a second refusal is called blocked. A mutation is never resent.
+    if (why !== "blocked" || method !== "GET") throw new ApiError(0, why, "", null);
+    try {
+      res = await send();
+    } catch {
+      throw new ApiError(0, "blocked", "", null);
+    }
   }
   if (res.type === "opaqueredirect") throw new ApiError(0, "signed_out", "", null);
   let parsed: unknown;
@@ -138,7 +150,7 @@ export function describeError(e: unknown): string {
     case "signed_out":
       return "Your sign-in has ended. Reload the page to sign in again.";
     case "blocked":
-      return "This request was blocked in your browser. If you use an ad or tracker blocker, allow this site.";
+      return "This request didn't get through. If you use an ad or tracker blocker, allow this site; otherwise try again.";
     case "unauthorized":
       return "You are not signed in. Reload the page to sign in again.";
     case "forbidden":

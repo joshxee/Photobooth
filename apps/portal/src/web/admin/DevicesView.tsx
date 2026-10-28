@@ -1,6 +1,6 @@
 import { type FormEvent, useEffect, useRef, useState } from "react";
 import type { AdminDevice } from "../../shared/schemas";
-import { api, isNotAuthorised } from "./api";
+import { ApiError, api, describeError, isNotAuthorised } from "./api";
 import { useAdmin, useLoad } from "./env";
 import { ConfirmDialog, Dialog, ErrorNote, Loading } from "./parts";
 import { startRefresh } from "./refresh";
@@ -131,7 +131,7 @@ export function DevicesView() {
         <h1>Devices</h1>
         <p className="muted" role="status">
           {devices.error != null && updatedAt !== null
-            ? `Couldn't refresh. Showing data from ${relativeTime(new Date(updatedAt).toISOString(), now)}.`
+            ? `Couldn't refresh. Showing data from ${relativeTime(new Date(updatedAt).toISOString(), now)}.${refreshHint(devices.error)}`
             : updatedAt !== null
               ? "Refreshes every 15 seconds while this page is open."
               : ""}
@@ -332,4 +332,12 @@ function CodeDialog({ reveal, onExpire, onClose }: { reveal: Reveal; onExpire():
       </div>
     </Dialog>
   );
+}
+
+/**
+ * Why a refresh failed, when the admin can fix it: this view stays open for hours on event day, so
+ * it is where an Access session lapses.
+ */
+function refreshHint(error: unknown): string {
+  return error instanceof ApiError && (error.code === "signed_out" || error.code === "blocked") ? ` ${describeError(error)}` : "";
 }

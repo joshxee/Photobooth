@@ -1041,15 +1041,22 @@ Not authorised page. Three failures never reach the API, and the admin is told w
 - **Signed out.** When the Access session lapses, Access answers with a 302 to its login page on
   another origin. Followed, that fails as CORS and looks like a network error, so requests use
   `redirect: "manual"` and an `opaqueredirect` reads as "Your sign-in has ended. Reload the page".
-- **Blocked.** Content blockers' filter lists match paths like `/api/event…`. On staging, uBlock
-  Origin blocked the admin's `GET /api/events`, and the Events list said "can't reach the server"
-  while everything else worked. When a request throws, `api.ts` probes `/healthz`, which is behind
-  Access like every path and on no list. If it answers, the request was refused in the browser:
-  "This request was blocked in your browser. If you use an ad or tracker blocker, allow this site."
-  If it redirects, the session lapsed. If it throws too, "Can't reach the server". The paths keep
-  their names: the admins can allow-list the admin host. The guest gallery can't rely on that,
-  and session 17 checks it with uBlock Origin's default lists.
-- **Network.** Nothing answers, or the answer isn't the API's JSON (a proxy's page).
+  Not Access's documented SPA option (`X-Requested-With: XMLHttpRequest`, which makes it answer
+  401): a 401 would show the Not authorised page instead of "sign in again". The Devices view, open
+  for hours on event day, adds the sentence to its "Couldn't refresh" line.
+- **Blocked.** Content blockers' filter lists can match paths like `/api/event…`. On staging, uBlock
+  Origin blocked the admin's `GET /api/events` (which filter matched wasn't recorded; uBlock's logger
+  shows it), and the Events list said "can't reach the server" while everything else worked. When a
+  request throws, `api.ts` probes `/healthz`, which is behind Access like every path and on no list we
+  know of. If it answers, the request was refused in the browser, or the connection blipped and is
+  back. A GET is then sent once more, and only a second failure (or a failed mutation, never resent)
+  reads "This request didn't get through. If you use an ad or tracker blocker, allow this site;
+  otherwise try again." If the probe redirects, the session lapsed; if it throws too, "Can't reach
+  the server". An extension that *redirects* a request instead of blocking it would read as signed
+  out; that case is rare enough to leave. The paths keep their names: the admins can allow-list the
+  admin host. The guest gallery can't rely on that, and session 17 checks it with uBlock Origin's
+  default lists.
+- **Network.** Nothing answers, or a 2xx answer isn't the API's JSON (a proxy's page).
 
 ### What was verified, and where
 

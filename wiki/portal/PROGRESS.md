@@ -24,12 +24,20 @@ this file first, so state facts and not intentions.
 - Found by the owner's browser check of staging after #35 merged. The Events list said "Can't reach the
   server" because **uBlock Origin blocked `GET /api/events`** (a generic filter-list match on `/api/event…`).
   With the site allowed, the Events list loads and Access works with a person's login. It was not an auth bug.
-- Built: `src/web/admin/api.ts` sends `redirect: "manual"` (Access's login redirect becomes `signed_out`,
-  instead of a CORS failure). When a request throws, it probes `/healthz`: if that answers, the request was
-  `blocked` ("…If you use an ad or tracker blocker, allow this site."); if it redirects, `signed_out`;
-  otherwise `network`. `mockFetch` records `redirect`. API paths unchanged.
-- Verified: `bun run typecheck`, `bun run test` (644 Vitest + 303 bun; 5 new tests in `api.test.ts`; removing
-  the probe's `blocked` answer or `redirect: "manual"` each fails a test), `bun run build`. This branch was
+- Built: `src/web/admin/api.ts` sends `redirect: "manual"`, so Access's login redirect becomes `signed_out`
+  instead of a CORS failure. When a request throws, it probes `/healthz`:
+  - if that answers, the request was `blocked` ("This request didn't get through. If you use an ad or tracker
+    blocker, allow this site; otherwise try again."), but a GET is first sent once more, in case the connection
+    only blipped; a mutation is never resent;
+  - if the probe redirects, `signed_out`;
+  - otherwise `network`.
+
+  The Devices view's "Couldn't refresh" line now says when the sign-in has ended or the request was blocked
+  (it stays open for hours on event day). `mockFetch` records `redirect`. API paths are unchanged.
+- Verified: `bun run typecheck`, `bun run test` (644 Vitest + 306 bun), `bun run build`. Tests:
+  - 6 new in `api.test.ts` and 1 in `devices.test.tsx`;
+  - mutations caught: the probe's `blocked` answer, `redirect: "manual"` on the request and on the probe, the
+    GET retry, and the Devices hint. This branch was
   deployed to staging (`deploy-staging.yml` dispatch, run 40675222372, smoke green).
   **Verified on staging by the owner on 2026-10-28, through a real Access login (a person's JWT, not the
   service token):**
@@ -38,8 +46,18 @@ this file first, so state facts and not intentions.
     the Access cookie, session 15's open check);
   - deleting the smoke event and revoking the smoke device worked.
 
-  **Not confirmed:** the new "blocked" sentence with uBlock still on. `redirect: "manual"` giving
+  **Not confirmed:** the "didn't get through" sentence with uBlock still on. `redirect: "manual"` giving
   `opaqueredirect` for a cross-origin 302 follows the Fetch standard; the happy-dom tests fake it.
+- Independent review (fresh-context subagent): no blockers.
+  - Fixed:
+    - a dropped connection that recovered by the time of the probe read as "blocked", so a GET is now retried
+      once and the sentence says "otherwise try again";
+    - the Devices view hid why its refresh failed;
+    - the probe's `redirect` wasn't pinned by a test;
+    - the faked opaqueredirect now has status 0 and `ok: false`;
+    - doc wording: "no list we know of", and `network` covers only a non-JSON 2xx.
+  - Recorded in the wiki: why not Access's `X-Requested-With` 401, and that an extension redirect would read as
+    signed out.
 - Deviations from DESIGN.md: none.
 - Wiki updated: `wiki/Portal.md` (Admin UI → Errors), `wiki/portal/17-hardening-gates.md` (a content-blocker
   check of the guest gallery).
