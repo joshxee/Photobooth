@@ -88,9 +88,11 @@ this file first, so state facts and not intentions.
     temporary push trigger (this session used one and removed it).
   - Strict service-token mode is on for this Zero Trust org: a wrong secret gets 401, a token no Service Auth
     policy admits gets 403, and Allow policies never admit a service token.
-  - **15's staging checks** (Photos tab and viewer through a real Access session, `private, no-store` on
-    `/api/media/*`, the removal-request runbook on real R2) wait for this PR: 15's code reaches staging with
-    the first push to `main` after it merges (the workflow deploys `main`).
+  - **15's staging checks:** the merged branch was deployed to staging (CI run 40664268926, `d331ee2`) and the
+    smoke now runs the removal-request delete every deploy. That covers the admin media proxy with the service
+    token (200, byte-identical, `no-store`), the delete, the guest 404s and both R2 objects gone. **Still open:**
+    the Photos tab's `<img>` previews in a real browser through the Access cookie (needs the owner).
+    `smoke.ts --keep` leaves a synthetic event for that.
 
 ---
 

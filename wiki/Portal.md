@@ -224,6 +224,11 @@ On the real Workers (commits `a584176` and `8d89aef`), from this PC and from the
   consistently (Workers limits → CPU time); no `exceededCpu` outcome was seen in 200+ requests.
   The spike's 1 ms was a bare PUT; the real routes add HMAC, auth, D1, zod and logging. Session 18
   should watch **Invocation Statuses** during the pilot and move to Workers Paid on any 1102.
+- Session 15's moderation on staging (CI run 40664268926, commit `d331ee2`, the merged branch): the smoke
+  uploads a second READY photo, reads both variants through the admin media proxy with the service
+  token (200, byte-identical, `no-store`), deletes it (`DELETE /api/photos/{id}`, the removal-request
+  runbook's step 2), then sees it gone from the guest list and 404 on both hosts' media routes, and the
+  R2 API shows both its objects gone while the other photo's remain. Every staging deploy repeats this.
 - `ENROL_LIMITER` on Cloudflare: 55 bad codes in about a minute from one IP gave 22 × 401, then
   429 `rate_limited` with `Retry-After: 60`. The binding is per location and approximate, so it let
   through about twice the nominal 10 before refusing.
@@ -235,7 +240,9 @@ On the real Workers (commits `a584176` and `8d89aef`), from this PC and from the
   `/api/events` with 404 (it never serves admin).
 
 **Not verified on staging:** a person's Access JWT (only the service token's; open the admin UI in a
-browser to check the email path, the dialogs and downloads, and `Asia/…` zones from session 14);
+browser to check the email path, the dialogs and downloads, the Photos tab's `<img>` previews through
+the Access cookie, and `Asia/…` zones from sessions 14 and 15; `smoke.ts --keep` leaves a synthetic
+event to look at);
 `SESSION_LIMITER` and `INTENT_LIMITER` reaching 429 (same binding as `ENROL_LIMITER`); remote D1
 `rows_read`; concurrent PUTs on remote D1; the retention
 cron's CPU and that it fires (it first runs at 14:00 UTC; read it with `wrangler tail --env

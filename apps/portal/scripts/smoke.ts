@@ -34,6 +34,8 @@ const { values } = parseArgs({
     admin: { type: "string" },
     commit: { type: "string" },
     bucket: { type: "string" },
+    // Leaves the event and the device in place (synthetic), to look at in the admin UI.
+    keep: { type: "boolean" },
   },
 });
 
@@ -47,7 +49,7 @@ const remote = values.photos !== undefined || values.admin !== undefined;
 if (remote ? !values.photos || !values.admin || values.base : !values.base) {
   console.error(
     "usage: bun run scripts/smoke.ts --base http://localhost:8787 [--photos-host h] [--admin-host h]\n" +
-      "       bun run scripts/smoke.ts --photos <origin> --admin <origin> [--commit <sha>] [--bucket <name>]",
+      "       bun run scripts/smoke.ts --photos <origin> --admin <origin> [--commit <sha>] [--bucket <name>] [--keep]",
   );
   process.exit(2);
 }
@@ -437,6 +439,10 @@ async function main(): Promise<void> {
   } finally {
     // Newest first: revoke the device, then delete the event. A failed step fails the run but
     // doesn't hide the error that got here.
+    if (values.keep) {
+      console.log("--  kept the event and the device (--keep): delete the event and revoke the device in the admin UI when done");
+      cleanup.length = 0;
+    }
     for (const step of cleanup.reverse()) {
       try {
         await step();
