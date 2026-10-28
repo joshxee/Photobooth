@@ -137,7 +137,7 @@
         "ADMIN_SERVICE_CLIENTS": "95cbf1b7c7795c914e02b7b77543c3a8.access",
         "ACCESS_TEAM_DOMAIN": "knockbox.cloudflareaccess.com",
         // The AUD tag of the Worker-level Access application on portal-staging-admin (SETUP D).
-        "ACCESS_AUD": "",
+        "ACCESS_AUD": "cda0c595f8c7d4feedb0fdade699cb9e74547e870ed7d35baa04c27ad01f207d",
         "CONTACT_ADDRESS": "34b Malvern Road, Morningside, Auckland",
         "CONTACT_EMAIL": "privacy@knockbox.nz",
         "DEV_AUTH": "",
