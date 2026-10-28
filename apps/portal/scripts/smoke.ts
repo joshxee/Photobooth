@@ -312,16 +312,18 @@ async function main(): Promise<void> {
   const thumb = new Uint8Array(await Bun.file(new URL("booth-thumb.jpg", dir)).arrayBuffer());
   const hd = new Uint8Array(await Bun.file(new URL("booth-hd.jpg", dir)).arrayBuffer());
 
+  // The deploy first: until a newly enabled workers.dev hostname is live, Cloudflare answers it
+  // with a bare 404, which isn't Access refusing.
+  if (values.commit) {
+    await waitForCommit(photos, {}, values.commit);
+    await waitForCommit(admin, accessHeaders(), values.commit);
+  }
   if (remote) {
     await expectAccessRefuses("without a token", {});
     await expectAccessRefuses("with a wrong secret", {
       "CF-Access-Client-Id": accessHeaders()["CF-Access-Client-Id"]!,
       "CF-Access-Client-Secret": "not-the-secret",
     });
-  }
-  if (values.commit) {
-    await waitForCommit(photos, {}, values.commit);
-    await waitForCommit(admin, accessHeaders(), values.commit);
   }
 
   const now = Date.now();
