@@ -19,6 +19,30 @@ this file first, so state facts and not intentions.
 
 ---
 
+## 07b — Admin: blocked requests told apart from network failures — DONE — 2026-10-28
+- PR: #<n> (branch `portal/07b-admin-blocked-requests`)
+- Found by the owner's browser check of staging after #35 merged. The Events list said "Can't reach the
+  server" because **uBlock Origin blocked `GET /api/events`** (a generic filter-list match on `/api/event…`).
+  With the site allowed, the Events list loads and Access works with a person's login. It was not an auth bug.
+- Built: `src/web/admin/api.ts` sends `redirect: "manual"` (Access's login redirect becomes `signed_out`,
+  instead of a CORS failure). When a request throws, it probes `/healthz`: if that answers, the request was
+  `blocked` ("…If you use an ad or tracker blocker, allow this site."); if it redirects, `signed_out`;
+  otherwise `network`. `mockFetch` records `redirect`. API paths unchanged.
+- Verified: `bun run typecheck`, `bun run test` (644 Vitest + 303 bun; 5 new tests in `api.test.ts`; removing
+  the probe's `blocked` answer or `redirect: "manual"` each fails a test), `bun run build`. Not yet run in a real
+  browser with uBlock (the owner re-checks on staging after the deploy from `main`). `redirect: "manual"`
+  giving `opaqueredirect` for a cross-origin 302 is the Fetch standard's behaviour in browsers; happy-dom
+  tests fake it.
+- Deviations from DESIGN.md: none.
+- Wiki updated: `wiki/Portal.md` (Admin UI → Errors), `wiki/portal/17-hardening-gates.md` (a content-blocker
+  check of the guest gallery).
+- Notes for next sessions:
+  - **17:** check the **guest** gallery with uBlock Origin's default lists (EasyList + EasyPrivacy): guests
+    won't allow-list us (item added to the session file).
+  - The owner's Photos-tab check (thumbnail and full size through the Access cookie) is still pending.
+
+---
+
 ## 07 — Staging environment and CI deploys (interim workers.dev) — DONE except p95 CPU (owner to accept the deferral to 18) — 2026-10-28
 - PR: #35 (branch `portal/07-staging-ci`)
 - **Staging is available for booth device runs (10, 13):** gallery and device API

@@ -1033,10 +1033,21 @@ is locked out at once.
 ### Errors
 
 `api.ts` turns the closed error codes into sentences; the server's own text is shown only for
-`conflict`, which the Worker words for people. A fetch that throws, or an answer that isn't the API's
-JSON, is "can't reach the server; reload the page to sign in again": when Access's session lapses the
-browser is redirected to its login page, which looks exactly like that. A 401/403 from the Worker
-replaces the app with the Not authorised page.
+`conflict`, which the Worker words for people. A 401/403 from the Worker replaces the app with the
+Not authorised page. Three failures never reach the API, and the admin is told which (07b):
+
+- **Signed out.** When the Access session lapses, Access answers with a 302 to its login page on
+  another origin. Followed, that fails as CORS and looks like a network error, so requests use
+  `redirect: "manual"` and an `opaqueredirect` reads as "Your sign-in has ended. Reload the page".
+- **Blocked.** Content blockers' filter lists match paths like `/api/event…`. On staging, uBlock
+  Origin blocked the admin's `GET /api/events`, and the Events list said "can't reach the server"
+  while everything else worked. When a request throws, `api.ts` probes `/healthz`, which is behind
+  Access like every path and on no list. If it answers, the request was refused in the browser:
+  "This request was blocked in your browser. If you use an ad or tracker blocker, allow this site."
+  If it redirects, the session lapsed. If it throws too, "Can't reach the server". The paths keep
+  their names: the admins can allow-list the admin host. The guest gallery can't rely on that,
+  and session 17 checks it with uBlock Origin's default lists.
+- **Network.** Nothing answers, or the answer isn't the API's JSON (a proxy's page).
 
 ### What was verified, and where
 

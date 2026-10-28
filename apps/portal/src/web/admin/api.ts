@@ -22,18 +22,37 @@ import type {
 export type EventActionName = "open" | "close" | "publish" | "suspend" | "rotate-link" | "delete" | "restore";
 
 /**
- * A failed call. `network` covers a fetch that threw and an answer that wasn't the API's JSON:
- * when Access's session lapses the browser is redirected to its login page, which looks the same.
+ * A failed call. Three never reach the API: `signed_out` (Access answered with its login redirect,
+ * so the session lapsed), `blocked` (the browser refused the request although the server answers,
+ * typically an ad or tracker blocker whose filter list matches an `/api/event…` path), and `network`
+ * (the server can't be reached, or answered with something other than the API's JSON).
  */
 export class ApiError extends Error {
   constructor(
     readonly status: number,
-    readonly code: ErrorCode | "network",
+    readonly code: ErrorCode | ClientFailure,
     message: string,
     readonly correlationId: string | null,
   ) {
     super(message);
     this.name = "ApiError";
+  }
+}
+
+type ClientFailure = "network" | "signed_out" | "blocked";
+
+/**
+ * Why a request never got an answer. `/healthz` is on no filter list and is behind Access like every
+ * path: if it answers, the request itself was blocked in the browser; if Access redirects it, the
+ * session lapsed.
+ */
+async function whyUnanswered(): Promise<ClientFailure> {
+  try {
+    const probe = await fetch("/healthz", { credentials: "same-origin", redirect: "manual" });
+    if (probe.type === "opaqueredirect") return "signed_out";
+    return probe.ok ? "blocked" : "network";
+  } catch {
+    return "network";
   }
 }
 
@@ -43,12 +62,15 @@ async function request<T>(method: "GET" | "POST" | "PATCH" | "DELETE", path: str
     res = await fetch(path, {
       method,
       credentials: "same-origin",
+      // Access's login redirect is cross-origin: followed, it fails as CORS and looks like a network error.
+      redirect: "manual",
       headers: method === "GET" ? undefined : { "Content-Type": "application/json" },
       body: method === "GET" ? undefined : JSON.stringify(body ?? {}),
     });
   } catch {
-    throw new ApiError(0, "network", "", null);
+    throw new ApiError(0, await whyUnanswered(), "", null);
   }
+  if (res.type === "opaqueredirect") throw new ApiError(0, "signed_out", "", null);
   let parsed: unknown;
   try {
     parsed = await res.json();
@@ -112,7 +134,11 @@ export function describeError(e: unknown): string {
   if (!(e instanceof ApiError)) return "Something went wrong.";
   switch (e.code) {
     case "network":
-      return "Can't reach the server. Check your connection; if it keeps happening, reload the page to sign in again.";
+      return "Can't reach the server. Check your connection and try again.";
+    case "signed_out":
+      return "Your sign-in has ended. Reload the page to sign in again.";
+    case "blocked":
+      return "This request was blocked in your browser. If you use an ad or tracker blocker, allow this site.";
     case "unauthorized":
       return "You are not signed in. Reload the page to sign in again.";
     case "forbidden":
