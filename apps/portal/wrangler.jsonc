@@ -63,18 +63,27 @@
     "CONTACT_EMAIL": "privacy@example.invalid",
     // Local development only: `wrangler dev --var DEV_AUTH:1` injects a fixed admin actor, and only
     // on a *.localhost host (middleware/adminAuth.ts). Never set it in staging or production.
-    "DEV_AUTH": ""
+    "DEV_AUTH": "",
+    // The deployed commit, reported by /healthz. The deploy workflows set it with `--var GIT_SHA:<sha>`.
+    "GIT_SHA": ""
   },
 
   "env": {
+    // STAGING, INTERIM (until knockbox.nz is Active in this account; wiki/Portal.md → "Interim
+    // staging on workers.dev"): two Workers built from the same code, sharing one D1 and one R2,
+    // because a Worker has one workers.dev hostname and the Worker routes on Host.
+    //   portal-staging        gallery + device API at portal-staging.josh-33c.workers.dev; no Access
+    //                         (booths aren't browsers); its ADMIN_HOST never resolves.
+    //   portal-staging-admin  admin UI + API at portal-staging-admin.josh-33c.workers.dev, behind
+    //                         Worker-level Cloudflare Access (SETUP D), which covers that hostname.
+    // workers_dev is on for these two only; production stays custom-domain-only (§4.1).
+    // Deployed only by .github/workflows/deploy-staging.yml.
     "staging": {
       "name": "portal-staging",
-      "routes": [
-        { "pattern": "photos-staging.example.invalid", "custom_domain": true },
-        { "pattern": "admin-staging.example.invalid", "custom_domain": true }
-      ],
+      "workers_dev": true,
+      "preview_urls": false,
       "d1_databases": [
-        { "binding": "DB", "database_name": "portal-staging", "database_id": "00000000-0000-0000-0000-000000000000" }
+        { "binding": "DB", "database_name": "portal-staging", "database_id": "7c271f92-eedd-4364-8843-d8a306629868" }
       ],
       "r2_buckets": [{ "binding": "MEDIA", "bucket_name": "portal-media-staging" }],
       "ratelimits": [
@@ -84,16 +93,55 @@
       ],
       "secrets": { "required": ["UPLOAD_KEY", "SESSION_KEY"] },
       "vars": {
-        "GALLERY_HOST": "photos-staging.example.invalid",
-        "ADMIN_HOST": "admin-staging.example.invalid",
+        "GALLERY_HOST": "portal-staging.josh-33c.workers.dev",
+        // Never resolves (.invalid), so this Worker, which has no Access in front, never serves admin.
+        // Its Access vars are empty as well: adminAuth would refuse everything even if it did.
+        "ADMIN_HOST": "admin.portal-staging.invalid",
         "ADMIN_EMAILS": "",
         "ADMIN_SERVICE_CLIENTS": "",
         "ACCESS_TEAM_DOMAIN": "",
         "ACCESS_AUD": "",
-        "CONTACT_ADDRESS": "",
-        "CONTACT_EMAIL": "",
+        "CONTACT_ADDRESS": "34b Malvern Road, Morningside, Auckland",
+        "CONTACT_EMAIL": "privacy@knockbox.nz",
         // Always empty here: DEV_AUTH is for `wrangler dev` only (and works only on *.localhost).
-        "DEV_AUTH": ""
+        "DEV_AUTH": "",
+        // Set by the deploy workflow (`--var GIT_SHA:<sha>`), reported by /healthz.
+        "GIT_SHA": ""
+      }
+    },
+    "staging-admin": {
+      "name": "portal-staging-admin",
+      "workers_dev": true,
+      "preview_urls": false,
+      // The retention cron runs on portal-staging only, so it never runs twice against the shared D1.
+      "triggers": { "crons": [] },
+      "d1_databases": [
+        { "binding": "DB", "database_name": "portal-staging", "database_id": "7c271f92-eedd-4364-8843-d8a306629868" }
+      ],
+      "r2_buckets": [{ "binding": "MEDIA", "bucket_name": "portal-media-staging" }],
+      // The same limiters and secrets as portal-staging, so both Workers are the one Worker of the
+      // design with different hosts (and typed alike). The admin app uses neither today.
+      "ratelimits": [
+        { "name": "ENROL_LIMITER", "namespace_id": "2001", "simple": { "limit": 10, "period": 60 } },
+        { "name": "SESSION_LIMITER", "namespace_id": "2002", "simple": { "limit": 60, "period": 60 } },
+        { "name": "INTENT_LIMITER", "namespace_id": "2003", "simple": { "limit": 120, "period": 60 } }
+      ],
+      "secrets": { "required": ["UPLOAD_KEY", "SESSION_KEY"] },
+      "vars": {
+        // The gallery Worker's hostname, so event QR links point at it. This Worker never receives
+        // that Host (workers.dev routes it to portal-staging), and Access covers it whole anyway.
+        "GALLERY_HOST": "portal-staging.josh-33c.workers.dev",
+        "ADMIN_HOST": "portal-staging-admin.josh-33c.workers.dev",
+        "ADMIN_EMAILS": "josh@knockbox.nz,jbxcleland@gmail.com",
+        // The `agent-staging` Access service token's client ID (not a secret; staging only).
+        "ADMIN_SERVICE_CLIENTS": "95cbf1b7c7795c914e02b7b77543c3a8.access",
+        "ACCESS_TEAM_DOMAIN": "knockbox.cloudflareaccess.com",
+        // The AUD tag of the Worker-level Access application on portal-staging-admin (SETUP D).
+        "ACCESS_AUD": "cda0c595f8c7d4feedb0fdade699cb9e74547e870ed7d35baa04c27ad01f207d",
+        "CONTACT_ADDRESS": "34b Malvern Road, Morningside, Auckland",
+        "CONTACT_EMAIL": "privacy@knockbox.nz",
+        "DEV_AUTH": "",
+        "GIT_SHA": ""
       }
     },
     "production": {
@@ -122,7 +170,8 @@
         "CONTACT_ADDRESS": "",
         "CONTACT_EMAIL": "",
         // Always empty here: DEV_AUTH is for `wrangler dev` only (and works only on *.localhost).
-        "DEV_AUTH": ""
+        "DEV_AUTH": "",
+        "GIT_SHA": ""
       }
     }
   }

@@ -30,7 +30,7 @@ describe("host routing", () => {
   it("serves /healthz on the gallery host", async () => {
     const res = await get(`${GALLERY}/healthz`);
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ ok: true, version: expect.any(String) });
+    expect(await res.json()).toEqual({ ok: true, version: expect.any(String), commit: null });
   });
 
   it("serves /healthz on the admin host, only with the Access JWT", async () => {
@@ -38,7 +38,7 @@ describe("host routing", () => {
     expect((await get(`${ADMIN}/healthz`)).status).toBe(401);
     const res = await get(`${ADMIN}/healthz`, { headers: { "Cf-Access-Jwt-Assertion": await signJwt(userClaims()) } });
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ ok: true, version: expect.any(String) });
+    expect(await res.json()).toEqual({ ok: true, version: expect.any(String), commit: null });
   });
 
   it("returns 404 for an unknown host, even for /healthz", async () => {

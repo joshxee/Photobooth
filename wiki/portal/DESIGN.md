@@ -121,6 +121,22 @@ benefit. Staging's synthetic traffic barely touches the free allowances.
   - Agents deploy staging by triggering the `deploy-staging` workflow.
   - Locally they use a **read-only** token (Workers observability, D1 read, R2 read) for logs
     and inspection.
+  - **Open, decide before session 18 (found in the session 07 review):** the separation between
+    staging and production deploys is by convention, not enforced.
+    - Both GitHub environments hold the same account-wide `ci-deploy` token.
+    - `staging` has no branch rule, so a dispatched ref runs its own `wrangler.jsonc` and scripts
+      with a token that can also write production's Worker and D1 and read its R2.
+      `scripts/preflight.ts` pins the Worker names and keeps staging off production's resources,
+      but it runs from that same ref.
+    - The production reviewer is the owner's GitHub identity, which agents use through `gh`, and
+      `main` is unprotected.
+    - Options:
+      - a separate Cloudflare account for production with its own token (the only real
+        isolation, since Workers and D1 permissions can't be scoped below the account);
+      - otherwise, a production-only token, branch protection on `main`, and agents on a GitHub
+        identity that can't approve the `production` environment.
+    - Until then, agents follow the AGENTS.md rules: dispatch only refs they pushed, never push
+      to `main`, never approve a deployment.
 - The current personal account is used only for the throwaway spike (session 01). Its
   resources are deleted afterwards.
 - Set billing notifications as in section 15.
@@ -148,22 +164,45 @@ SETUP.md C.
 
 | | Production | Staging |
 |---|---|---|
-| Guest + device host | `photos.<domain>` | `photos-staging.<domain>` |
-| Admin host | `admin.<domain>` (Access app) | `admin-staging.<domain>` (separate Access app) |
-| Worker | `portal` | `portal-staging` |
+| Guest + device host | `photos.<domain>` | `photos-staging.<domain>` (interim: `portal-staging.<subdomain>.workers.dev`) |
+| Admin host | `admin.<domain>` (Access app) | `admin-staging.<domain>` (separate Access app; interim: `portal-staging-admin.<subdomain>.workers.dev`) |
+| Worker | `portal` | `portal-staging` (interim: plus `portal-staging-admin`) |
 | D1 / R2 | `portal` / `portal-media` | `portal-staging` / `portal-media-staging` |
 | Secrets | `UPLOAD_KEY`, `SESSION_KEY` (unique per env) | separate values |
-| Deploy | CI, on your approval | CI, automatically on `main` or on demand for a branch |
+| Deploy | CI (`deploy-production.yml`, from `main`), on your approval | CI (`deploy-staging.yml`), automatically on `main` or on demand for a branch |
 
 - Staging uses synthetic photos only, and booths enrol against staging with a build-time
   setting.
 - `admin-staging` is behind its own Access app. `photos-staging` cannot sit behind Access,
   because booths are not browsers. It holds only synthetic photos, and its galleries still need
   the share token.
-- `workers.dev` and preview URLs are disabled in both environments.
-- Until the domain exists, local development uses `wrangler dev`. Staging can't use Access
-  without a zone. (The spike instead deployed a throwaway Worker to the personal account's
-  `workers.dev`, then deleted it.)
+- `workers.dev` and preview URLs are disabled in production, and in staging once it moves to
+  its custom domains (below).
+- **Interim staging on `workers.dev` (deviation, staging only, session 07).** The zone can't be
+  Active in the business account before the Registrar move (from 2026-11-01), so staging runs
+  on `workers.dev` until then. A Worker has one `workers.dev` hostname and this Worker routes on
+  `Host`, so the same build is deployed as two Workers from one `wrangler.jsonc`, sharing the
+  staging D1 and R2:
+  - `portal-staging` (`env.staging`): the gallery and device API. Its `ADMIN_HOST` is a `.invalid`
+    name that never resolves and its Access vars are empty, so it never serves admin. It runs the
+    retention cron.
+  - `portal-staging-admin` (`env.staging-admin`): the admin UI and API, behind a **Worker-level
+    Access application**, which covers the Worker's `workers.dev` hostname, previews and any later
+    route. Its `ACCESS_AUD` is that application's. No cron, so the job never runs twice.
+  - Both have `workers_dev: true` and `preview_urls: false`; `scripts/preflight.ts` refuses a
+    staging deploy otherwise, and refuses a production one with `workers_dev` on or any host that
+    isn't its own custom domain.
+
+  *Why it is safe.* The admin Worker is whole behind Access, and the Worker still verifies the
+  Access JWT itself (AUD, issuer, allow-list), so a request that reached it some other way would
+  get 401. The gallery Worker serves nothing that isn't already behind the device bearer, a
+  signed upload URL or the guest share token, the same as `photos-staging` would, and staging
+  holds only synthetic photos. *What is lost* until the switch: the zone WAF rate-limiting rule
+  (SETUP C), which needs a zone (the Rate Limiting bindings still apply), and a staging hostname
+  shaped like production's. The switch back is a checklist in `wiki/Portal.md` ("Interim staging
+  on workers.dev").
+- Until the domain exists, local development uses `wrangler dev`. (The spike deployed a throwaway
+  Worker to the personal account's `workers.dev`, then deleted it.)
 - **No per-PR Previews in MVP.** Workers Previews would give each branch its own Worker, but
   this Worker routes on two hostnames, and Previews do not run cron triggers. Revisit if agents
   need a parallel environment for each branch.

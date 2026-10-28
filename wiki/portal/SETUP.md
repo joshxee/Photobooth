@@ -80,8 +80,10 @@ login email lives on the domain):
       §16). Session 17 checks it.
 - Fail-closed at the daily limit is a per-route toggle (Cloudflare docs, Workers limits:
   fail open bypasses the Worker, fail closed returns error 1027). The portal uses Custom
-  Domains, which have no origin to fall back to; session 07 checks the setting once the Worker
-  exists.
+  Domains, which have no origin to fall back to. Session 07 (interim, `workers.dev`): there are no
+  routes, so there is no toggle to set; with no origin behind them, a Worker over the limit can
+  only fail (error 1027). **Unverified** (not exercised: it would take the account's whole daily
+  allowance). Check the toggle again when the Custom Domains exist.
 
 ## D. Zero Trust and Access (before session 07)
 
@@ -89,9 +91,17 @@ login email lives on the domain):
 - [x] Login method: the **Cloudflare** identity provider, restricted to account members (the
       default for new teams). It uses each admin's Cloudflare login and 2FA, which is stronger
       than a one-time PIN, so there is no OTP.
+- [x] Interim staging (session 07, until the move; wiki/Portal.md → "Interim staging on
+      workers.dev"): a **Worker-level** Access app on `portal-staging-admin`. **Workers & Pages →
+      portal-staging-admin → Access → Protect this Worker behind Access → All traffic → Apply**,
+      then in **Zero Trust → Access controls → Applications** the Allow policy limited to the two
+      admin emails with an 8-hour session, plus a *Service Auth* policy for `agent-staging`. Its
+      AUD tag is `ACCESS_AUD` in `env.staging-admin` (not a secret). It covers the Worker's
+      `workers.dev` hostname, which a hostname app couldn't without a zone.
 - [ ] After the move (an Access app needs an active zone): an Access app for
       `admin-staging.knockbox.nz`, with a policy allowing the two admin emails and an 8-hour
-      session. Record the **AUD tag**.
+      session. Record the **AUD tag**. Then follow the switch checklist in wiki/Portal.md and
+      delete the interim Worker-level app with its Worker.
 - [ ] An Access app for `admin.knockbox.nz`, with the same policy and its own AUD tag.
 - [x] **Service token** `agent-staging` (**Zero Trust → Access controls → Service credentials →
       Service Tokens**), 1 year. The client ID and secret are in the password manager, this
@@ -117,16 +127,28 @@ zone policy they don't apply.
   - `production`: `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`; **required reviewer =
     joshxee**, "Allow administrators to bypass" **off** (agents use the owner's `gh` login),
     branch `main` only.
+  - **Not an enforced boundary yet** (the session 07 review):
+    - Both environments hold the same `ci-deploy` token, which can write production too.
+    - Agents act as joshxee, so they could approve the reviewer gate themselves.
+    - `main` has no branch protection.
+    - Decide before session 18 (DESIGN §4.1, "Open"): a separate production account or token,
+      protect `main`, and a non-owner identity for agents.
 - [x] `agent-readonly`, 1 year, in this PC's environment (`CLOUDFLARE_API_TOKEN`,
       `CLOUDFLARE_ACCOUNT_ID`). Account: Workers Scripts Read, Workers Tail Read, D1 Read,
       Workers R2 Storage Read, Account Settings Read. Zone `knockbox.nz`: Workers Routes Read.
       While it is set, Wrangler on this PC uses it for everyone: before running a write command
-      yourself, run `Remove-Item Env:CLOUDFLARE_API_TOKEN; npx wrangler login` in that window.
+      yourself, run `Remove-Item Env:CLOUDFLARE_API_TOKEN; npx wrangler login` in that window, and `npx wrangler logout` when done (a cached login would otherwise serve any process without the token).
       Apps started before the variables were set (the Claude app, open terminals) need a
       restart to see them.
-- [ ] Generate secrets for staging with
-      `bunx wrangler secret put UPLOAD_KEY --env staging` and the same for `SESSION_KEY`, using
-      32 random bytes each in base64. Session 07 prompts you when it needs them.
+- [x] Staging D1, R2 and secrets (done 2026-10-28): run what `bun run scripts/provision.ts --env staging` prints, in
+      a new PowerShell 7 window from `apps/portal` (session 07). It removes the read-only token
+      for that window, logs in, creates `portal-staging` (D1) and `portal-media-staging` (R2),
+      and pipes a fresh random 32-byte value for `UPLOAD_KEY` and `SESSION_KEY` into both staging
+      Workers (`--env staging` and `--env staging-admin`; this also creates them empty). It **ends
+      with `npx wrangler logout`**: otherwise the write login stays cached in `~/.wrangler` and any
+      process on this PC that runs Wrangler without `CLOUDFLARE_API_TOKEN` would use it, so agents
+      would hold a write token after all. If `npx wrangler` does nothing (no Node on PATH), prefix
+      each command with `fnm exec --using=22.11.0 --`.
 
 ## F. Production (before session 18)
 

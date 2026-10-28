@@ -19,6 +19,83 @@ this file first, so state facts and not intentions.
 
 ---
 
+## 07 — Staging environment and CI deploys (interim workers.dev) — DONE except p95 CPU (owner to accept the deferral to 18) — 2026-10-28
+- PR: #35 (branch `portal/07-staging-ci`)
+- **Staging is available for booth device runs (10, 13):** gallery and device API
+  `https://portal-staging.josh-33c.workers.dev`, admin `https://portal-staging-admin.josh-33c.workers.dev`
+  (Access). The booth's staging portal URL is the first one; enrol with a code from the admin UI.
+- Built:
+  - `wrangler.jsonc`: `env.staging` (`portal-staging`) and `env["staging-admin"]` (`portal-staging-admin`),
+    one build deployed twice and sharing D1 `portal-staging` and R2 `portal-media-staging`; `GIT_SHA` var;
+    `/healthz` returns `commit`. Production untouched apart from `GIT_SHA`.
+  - `.github/workflows/deploy-staging.yml` (push to `main`, or `gh workflow run deploy-staging.yml -f ref=…`
+    once on `main`): preflight → gates → D1 migrations → both deploys → smoke. `deploy-production.yml`:
+    dispatch from `main` only, behind the `production` reviewer; **never run**.
+  - `scripts/preflight.ts` (refuses an unsafe staging/production config before Cloudflare is touched),
+    `scripts/provision.ts` (prints the owner's D1/R2/secret commands, ending in `wrangler logout`),
+    `scripts/smoke.ts` remote mode (two origins, service token, Access refusals, commit wait, EXIF 422 with
+    an R2 API check, cleanup in `finally`).
+- Verified: `bun run typecheck`, `bun run test` (644 Vitest + 299 bun after merging main), `bun run build` (dry runs of
+  all four environments). **On real Cloudflare:** CI run 40661824982 deployed both Workers and the smoke passed; 17
+  smoke runs in all. Access: no token → 302 to the team login, wrong secret → 401, the service token's JWT
+  accepted by the Worker. `ENROL_LIMITER` → 429 after about 22 tries in a minute. No `sig=` in `wrangler tail`.
+  Preview URLs off on both Workers. The hd's two R2 range reads ran remotely. CPU per route in wiki/Portal.md:
+  warm 2–6 ms, the first request on a new isolate 10–18 ms (so p95 isn't "well under 10 ms", see the session
+  file); no `exceededCpu`. **NOT verified:** a person's Access JWT and the admin UI through a real Access
+  session (dialogs, downloads, `Asia/…` zones); `SESSION_LIMITER`/`INTENT_LIMITER` 429s; remote D1
+  `rows_read`; concurrent PUTs on remote D1; the retention cron (first run 14:00 UTC) and its CPU; the
+  daily-limit behaviour on `workers.dev`.
+- Independent review (fresh-context subagent, REVIEW.md): no blockers in the code. It re-ran the gates, checked the
+  action pins against their tags and the CI run's log, and probed `preflight.ts` with configs that should fail.
+  - Fixed:
+    - preflight now pins each environment's Worker name (a renamed staging block could have overwritten `portal`);
+    - preflight keeps staging off production's D1 and R2;
+    - it checks the *effective* `observability.redact_query_string` and `assets.run_worker_first` (an environment's
+      own object replaces the top level's), inherited `route`/`routes` in staging, and distinct gallery and admin hosts;
+    - a test now covers production inheriting `workers_dev` (the reviewer's mutation of that check survived before;
+      caught now);
+    - `smoke.ts --bucket` refuses to start without the R2 credentials instead of skipping the release-gate check
+      quietly;
+    - a cross-origin URL error prints only the origin (never a gallery token or an upload signature into public
+      Actions logs).
+  - Recorded, not fixed (an owner decision): the deploy boundary is by convention. Both GitHub environments hold the
+    same account-wide token, a dispatched staging ref runs its own code with it, agents act as the owner on GitHub
+    and `main` is unprotected. DESIGN §4.1 "Open" lists the options for session 18; AGENTS.md now says to dispatch
+    only your own branches and never push to `main` or approve production.
+  - Justified: `ADMIN_EMAILS` holds the owner's Gmail in the public config. It is the owner's chosen break-glass
+    admin and was already public in this file's SETUP entry.
+  - The reviewer saw one `photos.test.ts` timeout under full-suite load (session 06's file; passed alone and in my
+    runs).
+- Owner steps done: D1 + R2 + secrets via `provision.ts` (then `wrangler logout`, cache file checked gone);
+  Worker-level Access app on `portal-staging-admin` (two emails, 8 h, Service Auth for `agent-staging`, which
+  only took effect once the application was saved with it; a policy added on the Policies tab shows
+  "Used by applications: --" until then); approved the first deploy.
+- Deviations from DESIGN.md: §4.1 interim staging on `workers.dev` as two Workers, Worker-level Access, no
+  zone WAF rule until the switch; the switch checklist is in wiki/Portal.md. Two workflow files instead of
+  `deploy-portal.yml`. The CI token can't create R2, so the owner provisions (SETUP E).
+- Wiki updated: `wiki/Portal.md` (Deploys, Interim staging + switch checklist, What was verified on staging,
+  known limits), `wiki/portal/DESIGN.md` §4.1, `wiki/portal/SETUP.md` (C daily limit, D Worker-level app,
+  E provisioning), `AGENTS.md` (staging URLs, deploy, tail, service token), the session file.
+- Notes for next sessions:
+  - **10/13 (device runs):** point the booth at the gallery URL above. Keep staging idle on event days (it
+    shares the account's 100k requests/day).
+  - **Switch to custom domains** after the Registrar move: follow wiki/Portal.md → "Switching to the custom
+    domains" (routes, `workers_dev: false`, retire `portal-staging-admin` and its Access app, new `ACCESS_AUD`,
+    re-enrol booths, WAF rule).
+  - **18:** watch Invocation Statuses for 1102 during the pilot (cold-isolate CPU 10–18 ms); a production
+    smoke is still undecided.
+  - `deploy-staging.yml` can only be dispatched once it is on `main`; until then a branch deploy needs a
+    temporary push trigger (this session used one and removed it).
+  - Strict service-token mode is on for this Zero Trust org: a wrong secret gets 401, a token no Service Auth
+    policy admits gets 403, and Allow policies never admit a service token.
+  - **15's staging checks:** the merged branch was deployed to staging (CI run 40664268926, `d331ee2`) and the
+    smoke now runs the removal-request delete every deploy. That covers the admin media proxy with the service
+    token (200, byte-identical, `no-store`), the delete, the guest 404s and both R2 objects gone. **Still open:**
+    the Photos tab's `<img>` previews in a real browser through the Access cookie (needs the owner).
+    `smoke.ts --keep` leaves a synthetic event for that.
+
+---
+
 ## 15 — Admin UI: moderation, media proxy and audit view — DONE — 2026-10-28
 - PR: #34 (branch `portal/15-admin-ui-moderation`)
 - **Unblocks 17** (with 07 and the staging-dependent sessions). Nothing here needs staging to be correct; the staging items are listed below.
