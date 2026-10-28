@@ -29,17 +29,23 @@ this file first, so state facts and not intentions.
   `blocked` ("…If you use an ad or tracker blocker, allow this site."); if it redirects, `signed_out`;
   otherwise `network`. `mockFetch` records `redirect`. API paths unchanged.
 - Verified: `bun run typecheck`, `bun run test` (644 Vitest + 303 bun; 5 new tests in `api.test.ts`; removing
-  the probe's `blocked` answer or `redirect: "manual"` each fails a test), `bun run build`. Not yet run in a real
-  browser with uBlock (the owner re-checks on staging after the deploy from `main`). `redirect: "manual"`
-  giving `opaqueredirect` for a cross-origin 302 is the Fetch standard's behaviour in browsers; happy-dom
-  tests fake it.
+  the probe's `blocked` answer or `redirect: "manual"` each fails a test), `bun run build`. This branch was
+  deployed to staging (`deploy-staging.yml` dispatch, run 40675222372, smoke green).
+  **Verified on staging by the owner on 2026-10-28, through a real Access login (a person's JWT, not the
+  service token):**
+  - the Events list loads (with uBlock allowed for the site);
+  - the Photos tab shows the thumbnail, and the viewer shows the full-size image (the `<img>` previews through
+    the Access cookie, session 15's open check);
+  - deleting the smoke event and revoking the smoke device worked.
+
+  **Not confirmed:** the new "blocked" sentence with uBlock still on. `redirect: "manual"` giving
+  `opaqueredirect` for a cross-origin 302 follows the Fetch standard; the happy-dom tests fake it.
 - Deviations from DESIGN.md: none.
 - Wiki updated: `wiki/Portal.md` (Admin UI → Errors), `wiki/portal/17-hardening-gates.md` (a content-blocker
   check of the guest gallery).
 - Notes for next sessions:
   - **17:** check the **guest** gallery with uBlock Origin's default lists (EasyList + EasyPrivacy): guests
     won't allow-list us (item added to the session file).
-  - The owner's Photos-tab check (thumbnail and full size through the Access cookie) is still pending.
 
 ---
 
@@ -115,7 +121,7 @@ this file first, so state facts and not intentions.
   - **15's staging checks:** the merged branch was deployed to staging (CI run 40664268926, `d331ee2`) and the
     smoke now runs the removal-request delete every deploy. That covers the admin media proxy with the service
     token (200, byte-identical, `no-store`), the delete, the guest 404s and both R2 objects gone. **Still open:**
-    the Photos tab's `<img>` previews in a real browser through the Access cookie (needs the owner).
+    the Photos tab's `<img>` previews in a real browser through the Access cookie (needs the owner; done, see 07b).
     `smoke.ts --keep` leaves a synthetic event for that.
 
 ---
