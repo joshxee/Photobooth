@@ -8,6 +8,7 @@ import { Id, Variant } from "../../../shared/schemas";
 import { getGalleryPhoto } from "../../db/photos";
 import { downloadFilename, variantKey } from "../../domain/media";
 import { AppError } from "../../lib/errors";
+import { jpegResponse } from "../../lib/media";
 import { addLogIds, addRowsRead } from "../../middleware/accessLog";
 import { guestAuth } from "../../middleware/guestAuth";
 import type { AppEnv } from "../../types";
@@ -42,13 +43,9 @@ guestMediaApi.get("/:photoId/:variant", async (c) => {
 
   const object = await c.env.MEDIA.get(variantKey(event.id, photo.id, variant.data));
   if (!object) throw new AppError("not_found", "Not found.");
-  const headers = new Headers({
-    "Content-Type": "image/jpeg",
-    "Content-Length": String(object.size),
-    "Cache-Control": MEDIA_CACHE,
-  });
+  const headers: Record<string, string> = { "Cache-Control": MEDIA_CACHE };
   if (c.req.query("download") === "1") {
-    headers.set("Content-Disposition", `attachment; filename="${downloadFilename(event.name, photo.session_id, photo.shot)}"`);
+    headers["Content-Disposition"] = `attachment; filename="${downloadFilename(event.name, photo.session_id, photo.shot)}"`;
   }
-  return new Response(object.body, { status: 200, headers });
+  return jpegResponse(object, headers);
 });

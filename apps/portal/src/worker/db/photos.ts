@@ -1,6 +1,6 @@
 // `photos` table (DESIGN §6, §9.1, §9.2, §11).
 import type { CursorPosition } from "../domain/cursor";
-import { encodeCursor } from "../domain/cursor";
+import { encodeCursor, encodeIdCursor } from "../domain/cursor";
 
 export type PhotoState = "PENDING" | "READY" | "REJECTED";
 export type Variant = "thumb" | "hd";
@@ -124,9 +124,14 @@ export function rejectPhoto(db: D1Database, id: string, reason: string): D1Prepa
     .bind(reason, id);
 }
 
-/** Scoped by event: a photo ID from another event changes nothing. */
+/**
+ * Scoped by event: a photo ID from another event changes nothing. It changes a row only if the flag
+ * differs, so `meta.changes` tells a caller whether it hid (or unhid) the photo or found it done.
+ */
 export function setPhotoHidden(db: D1Database, eventId: string, id: string, hidden: boolean): D1PreparedStatement {
-  return db.prepare(`UPDATE photos SET hidden = ? WHERE id = ? AND event_id = ?`).bind(hidden ? 1 : 0, id, eventId);
+  return db
+    .prepare(`UPDATE photos SET hidden = ?1 WHERE id = ?2 AND event_id = ?3 AND hidden <> ?1`)
+    .bind(hidden ? 1 : 0, id, eventId);
 }
 
 /** Hard delete of the row (the caller deletes the R2 objects). Scoped by event. */
@@ -188,6 +193,40 @@ export async function listGalleryPage(
   const photos = results.slice(0, args.limit);
   const last = photos.at(-1);
   const nextCursor = results.length > args.limit && last ? encodeCursor({ publishedAt: last.published_at, id: last.id }) : null;
+  return { photos, nextCursor, rowsRead: meta.rows_read };
+}
+
+/**
+ * One page of an event's photos for the admin grid, newest first, any state. `hidden` keeps only
+ * hidden or only visible photos. Fetches one extra row to know whether there is a next page. The
+ * SQL is assembled from fixed fragments (values are always bound), like `listGalleryPage`.
+ */
+export async function listAdminPhotos(
+  db: D1Database,
+  args: { eventId: string; state?: PhotoState; hidden?: boolean; cursor: string | null; limit: number },
+): Promise<{ photos: PhotoRow[]; nextCursor: string | null; rowsRead: number }> {
+  const where = ["event_id = ?"];
+  const params: (string | number)[] = [args.eventId];
+  if (args.state !== undefined) {
+    where.push("state = ?");
+    params.push(args.state);
+  }
+  if (args.hidden !== undefined) {
+    where.push("hidden = ?");
+    params.push(args.hidden ? 1 : 0);
+  }
+  if (args.cursor !== null) {
+    where.push("id < ?");
+    params.push(args.cursor);
+  }
+  params.push(args.limit + 1);
+  const { results, meta } = await db
+    .prepare(`SELECT ${COLUMNS} FROM photos WHERE ${where.join(" AND ")} ORDER BY id DESC LIMIT ?`)
+    .bind(...params)
+    .all<StoredRow>();
+  const photos = results.slice(0, args.limit).map(fromStored);
+  const last = photos.at(-1);
+  const nextCursor = results.length > args.limit && last ? encodeIdCursor(last.id) : null;
   return { photos, nextCursor, rowsRead: meta.rows_read };
 }
 

@@ -18,6 +18,8 @@ describe("parseRoute / routePath", () => {
     ["/events/new", { name: "event-new" }],
     [`/events/${ID}`, { name: "event", id: ID }],
     [`/events/${ID}/edit`, { name: "event-edit", id: ID }],
+    [`/events/${ID}/photos`, { name: "event-photos", id: ID }],
+    [`/events/${ID}/photos`, { name: "event-photos", id: ID }],
     ["/devices", { name: "devices" }],
     ["/audit", { name: "audit" }],
   ];
@@ -30,7 +32,7 @@ describe("parseRoute / routePath", () => {
   });
 
   it("anything else, including a malformed event ID, is not-found", () => {
-    for (const path of ["/nope", "/events/123", "/events/not-an-id/edit", `/events/${ID}/x`, `/events/${ID}/edit/x`, "/devices/x"]) {
+    for (const path of ["/nope", "/events/123", "/events/not-an-id/edit", `/events/${ID}/x`, `/events/${ID}/edit/x`, `/events/${ID}/photos/x`, "/devices/x"]) {
       expect(parseRoute(path)).toEqual({ name: "not-found" });
     }
   });

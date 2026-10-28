@@ -33,3 +33,23 @@ export function decodeCursor(cursor: string): CursorPosition | null {
   if (Number.isNaN(date.getTime()) || date.toISOString() !== publishedAt) return null;
   return { publishedAt, id };
 }
+
+/**
+ * The admin photo list orders by ID alone (newest first): IDs are UUIDv7, so they sort by creation
+ * time, and PENDING and REJECTED photos have no `published_at` to order by. The cursor is the last
+ * ID, base64url-encoded so clients treat it as opaque.
+ */
+export function encodeIdCursor(id: string): string {
+  return btoa(id).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+
+/** The ID, or null for anything that isn't a cursor this code made (the route returns 400). */
+export function decodeIdCursor(cursor: string): string | null {
+  if (cursor.length === 0 || cursor.length > MAX_CURSOR_LENGTH || !/^[A-Za-z0-9_-]+$/.test(cursor)) return null;
+  try {
+    const id = atob(cursor.replace(/-/g, "+").replace(/_/g, "/"));
+    return UUID.test(id) ? id : null;
+  } catch {
+    return null;
+  }
+}

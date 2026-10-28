@@ -6,10 +6,16 @@ import type {
   AdminDeviceList,
   AdminEvent,
   AdminEventList,
+  AdminPhoto,
+  AdminPhotoList,
+  AuditAction,
+  AuditList,
   DeviceCodeResponse,
   ErrorCode,
   EventCreateRequest,
   EventUpdateRequest,
+  PhotoState,
+  Variant,
 } from "../../shared/schemas";
 
 /** The action routes, `POST /api/events/{id}/{action}`. */
@@ -31,7 +37,7 @@ export class ApiError extends Error {
   }
 }
 
-async function request<T>(method: "GET" | "POST" | "PATCH", path: string, body?: unknown): Promise<T> {
+async function request<T>(method: "GET" | "POST" | "PATCH" | "DELETE", path: string, body?: unknown): Promise<T> {
   let res: Response;
   try {
     res = await fetch(path, {
@@ -67,7 +73,34 @@ export const api = {
   createDevice: (name: string) => request<DeviceCodeResponse>("POST", "/api/devices", { name }),
   reissueCode: (id: string) => request<DeviceCodeResponse>("POST", `/api/devices/${id}/code`, {}),
   revokeDevice: (id: string) => request<AdminDevice>("POST", `/api/devices/${id}/revoke`, {}),
+  listPhotos: (eventId: string, q: PhotoQuery) => request<AdminPhotoList>("GET", `/api/events/${eventId}/photos${queryString(q)}`),
+  hidePhoto: (id: string) => request<AdminPhoto>("POST", `/api/photos/${id}/hide`, {}),
+  unhidePhoto: (id: string) => request<AdminPhoto>("POST", `/api/photos/${id}/unhide`, {}),
+  deletePhoto: (id: string) => request<{ id: string }>("DELETE", `/api/photos/${id}`, {}),
+  listAudit: (q: AuditQuery) => request<AuditList>("GET", `/api/audit${queryString(q)}`),
 };
+
+export interface PhotoQuery {
+  state?: PhotoState;
+  hidden?: boolean;
+  cursor?: string | null;
+}
+export interface AuditQuery {
+  event?: string;
+  action?: AuditAction;
+  cursor?: string | null;
+}
+
+/** `?a=1&b=2` for the values that are set; "" when none is. */
+function queryString(q: object): string {
+  const params = new URLSearchParams();
+  for (const [key, value] of Object.entries(q) as [string, unknown][]) if (value !== undefined && value !== null) params.set(key, String(value));
+  const text = params.toString();
+  return text ? `?${text}` : "";
+}
+
+/** The admin's own copy of a photo's variant (any state, never cached). A plain URL: the browser sends the Access cookie. */
+export const mediaUrl = (photoId: string, variant: Variant) => `/api/media/${photoId}/${variant}`;
 
 /** Access normally answers before the Worker does; a 401 or 403 from the Worker means the identity isn't allowed. */
 export function isNotAuthorised(e: unknown): boolean {

@@ -80,6 +80,12 @@ export function formatInZone(iso: string, timeZone: string): string {
   return `${f.day} ${MONTHS[f.month - 1]} ${f.year}, ${pad(f.hour)}:${pad(f.minute)}`;
 }
 
+/** `14:30` in the zone. */
+export function formatClock(iso: string, timeZone: string): string {
+  const f = fieldsAt(Date.parse(iso), timeZone);
+  return `${pad(f.hour)}:${pad(f.minute)}`;
+}
+
 /** `20 Dec 2026` in the zone. */
 export function formatDay(iso: string, timeZone: string): string {
   const f = fieldsAt(Date.parse(iso), timeZone);

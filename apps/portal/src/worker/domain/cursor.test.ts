@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { decodeCursor, encodeCursor } from "./cursor";
+import { decodeCursor, decodeIdCursor, encodeCursor, encodeIdCursor } from "./cursor";
 
 const position = { publishedAt: "2026-10-22T09:30:00.123Z", id: "019a0b6c-1d2e-7f00-8a00-0123456789ab" };
 
@@ -25,6 +25,25 @@ describe("cursor", () => {
     ["too long", "A".repeat(200)],
   ])("rejects %s", (_name, cursor) => {
     expect(decodeCursor(cursor)).toBeNull();
+  });
+});
+
+describe("id cursor", () => {
+  it("round-trips an ID, URL-safe and opaque", () => {
+    const cursor = encodeIdCursor(position.id);
+    expect(cursor).toMatch(/^[A-Za-z0-9_-]+$/);
+    expect(cursor).not.toContain(position.id);
+    expect(decodeIdCursor(cursor)).toBe(position.id);
+  });
+
+  it.each([
+    ["empty", ""],
+    ["not base64url", "!!!"],
+    ["not an ID", encodeRaw("hello")],
+    ["a guest cursor", encodeCursor(position)],
+    ["too long", "A".repeat(200)],
+  ])("rejects %s", (_name, cursor) => {
+    expect(decodeIdCursor(cursor)).toBeNull();
   });
 });
 
