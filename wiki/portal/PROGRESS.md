@@ -20,7 +20,7 @@ this file first, so state facts and not intentions.
 ---
 
 ## 07b — Admin: blocked requests told apart from network failures — DONE — 2026-10-28
-- PR: #<n> (branch `portal/07b-admin-blocked-requests`)
+- PR: #36 (branch `portal/07b-admin-blocked-requests`)
 - Found by the owner's browser check of staging after #35 merged. The Events list said "Can't reach the
   server" because **uBlock Origin blocked `GET /api/events`** (a generic filter-list match on `/api/event…`).
   With the site allowed, the Events list loads and Access works with a person's login. It was not an auth bug.
