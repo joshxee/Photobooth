@@ -20,7 +20,7 @@ this file first, so state facts and not intentions.
 ---
 
 ## 07 — Staging environment and CI deploys (interim workers.dev) — DONE (p95 CPU caveat) — 2026-10-28
-- PR: #<n> (branch `portal/07-staging-ci`)
+- PR: #35 (branch `portal/07-staging-ci`)
 - **Staging is available for booth device runs (10, 13):** gallery and device API
   `https://portal-staging.josh-33c.workers.dev`, admin `https://portal-staging-admin.josh-33c.workers.dev`
   (Access). The booth's staging portal URL is the first one; enrol with a code from the admin UI.
