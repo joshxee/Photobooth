@@ -68,6 +68,15 @@ cd apps/booth && bun install --frozen-lockfile && bun run typecheck && bun test 
   and prints the gallery links and a local-only device credential. Inspect it with `wrangler dev` → `/cdn-cgi/local/explorer`
   or `wrangler d1 execute DB --local --command "…"`. The API contract is `apps/portal/src/shared/schemas.ts` plus
   `apps/portal/contract/` (fixtures and manifest); see `wiki/Portal.md`.
+- **Portal staging** (interim, on workers.dev until the domain move; `wiki/Portal.md` → "Interim staging on
+  workers.dev"): gallery and device API `https://portal-staging.josh-33c.workers.dev`, admin
+  `https://portal-staging-admin.josh-33c.workers.dev` (Access). Put a branch there with
+  `gh workflow run deploy-staging.yml -f ref=<branch>` (deploy + smoke); never `wrangler deploy` yourself.
+  Read logs with the read-only token: `wrangler tail --env staging --format json` (or `--env staging-admin`).
+  Call the staging admin API with the service token from the user environment:
+  `-H "CF-Access-Client-Id: $CF_ACCESS_CLIENT_ID" -H "CF-Access-Client-Secret: $CF_ACCESS_CLIENT_SECRET"`,
+  plus the same `Origin` (the admin origin) and JSON headers as locally for mutations. A full remote smoke:
+  `bun run scripts/smoke.ts --photos <gallery origin> --admin <admin origin> --bucket portal-media-staging`.
 
 ## Definition of done
 

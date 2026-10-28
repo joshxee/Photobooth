@@ -73,12 +73,20 @@ curl https://admin-staging.<domain>/api/events            # without Access → A
 ```
 
 ## Done when
-- [ ] Staging deploys from CI only, and the smoke run is green, including the APP1 rejection
-      on real R2.
+Done on the interim `workers.dev` staging (DESIGN §4.1 deviation). The workflow is
+`deploy-staging.yml`, not `deploy-portal.yml`, with production in `deploy-production.yml`.
+
+- [x] Staging deploys from CI only, and the smoke run is green, including the APP1 rejection
+      on real R2 (run 40661824982).
 - [ ] p95 CPU for the intent and PUT routes on staging is recorded and well under 10 ms.
-- [ ] The admin host is unreachable without Access, and the alternate hostname is disabled
-      (release gate 1, partly).
-- [ ] The production job exists but has never run. Provisioning commands are printed for
+      **Recorded, not met at p95:** warm requests are 3–6 ms, but the first request on a new
+      isolate is 10 ms (intent, thumb) to 18 ms (hd), and with 12 samples that cold request is
+      the p95. No `exceededCpu` seen. Left to session 18 (wiki/Portal.md → "What was verified on
+      staging").
+- [x] The admin host is unreachable without Access, and the alternate hostname is disabled
+      (release gate 1, partly): the admin Worker is whole behind Worker-level Access; preview
+      URLs are off on both Workers; the gallery Worker never serves admin.
+- [x] The production job exists but has never run. Provisioning commands are printed for
       SETUP F.
 
 ## Hand-off
