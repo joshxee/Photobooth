@@ -19,6 +19,31 @@ this file first, so state facts and not intentions.
 
 ---
 
+## 13 — Booth post-shoot screen with session QR — DONE — 2026-10-30
+- PR: #37 (branch `portal/13-booth-post-shoot`)
+- Built:
+  - `apps/booth/src-tauri/src/portal/gallery.rs`: `GalleryUrl` (redacted `Debug`, no `Display`, kept only if it is a `/e/` link on the enrolled origin), `session_link` (`&s={session}&n={shots}` appended to the fragment once), `qr_svg` (`qrcode` crate matrix, EC L, own SVG with the quiet zone and a `viewBox`), `PostShoot` (the gallery link and the last session handed over, memory only), `SessionShare` (`qr` / `event_gallery` / `none`).
+  - `PortalService::gallery(id)` (401/404 forget the link, network/5xx/429 keep the last answer) and `open_event` returning the link with the event; `AppState::gallery_refresher` (start-up, every 5 min, on enrol/unenrol/clear), command `portal_session_qr{session_id}` (default capability).
+  - Core: the completion hook runs just before `StripReview` is published and can ask for a longer review (`OnSessionComplete` returns `Option<u8>`); `StripReview` carries `auto_return_total`; setting `qr_display_seconds` (default 20, 10–60). The app asks for it only when the session gets a QR code.
+  - UI: `StripReview` with the three states (Frontend.md table), `useSessionShare`, Settings → **QR Code Display Time**.
+- Verified: `cargo fmt --all -- --check`; clippy `-D warnings` for `photobooth-core` and `photobooth`; `cargo test -p photobooth-core` (164) and `cargo test -p photobooth` (135); `apps/booth` typecheck, `bun test` (171), build. Named tests: `the_svg_reads_back_as_the_session_link_and_scales_to_its_box` (rqrr decodes the SVG), `the_session_is_appended_once_even_if_the_link_already_has_one`, `fragment_edge_cases_still_give_one_well_formed_fragment`, `only_a_gallery_link_on_the_enrolled_origin_is_kept`, `a_session_shows_its_qr_code_while_the_gallery_is_live` (real encoder and HTTP client against the mock portal: QR decoded to the exact link, gallery hidden → `event_gallery` and the strip time, no token or link in any log line or IPC payload), `without_the_portal_the_review_is_unchanged`, `the_test_camera_never_gets_a_qr_code`, `the_hook_can_keep_the_review_up_longer_but_never_shorter`; UI: QR present, gallery not LIVE, not enrolled/no event (today's copy), pending, a failing call.
+- Device check: **critical. Automated: passed** on the Xiaomi Pad 6 against **staging** (real TLS) with **the Sony A7 III**, on 2026-10-30 (details in `wiki/Booth-Upload.md` → "Device results (session 13)"; unblurred screenshots in the session notes folder, `13-evidence`):
+  - the QR code decoded from a plain `screencap` (OpenCV) to exactly `…/e/{publicId}#k={token}&s={session}&n=3`; opened in Claude's built-in browser at 375 × 812, the session view shows all 3 shots;
+  - **shot-to-READY** (`capturedAt` → `publishedAt`, admin API), 9 shots: **5.4–12.7 s**, all under 15 s;
+  - **READY-to-visible** with the session view already open ("0 of 3 ready" placeholders): **6.7–10.7 s** (one 10 s ± 10 % poll);
+  - not LIVE (gallery suspended, app restarted): "Your photos will be in the event gallery.", 12 s review, no QR; Test Camera: the original copy;
+  - the token and the link: 0 hits in 162,504 logcat lines and in the app's data directory.
+  Found on the tablet and fixed: the 56 px headline wrapped in the Pad 6's 1152 CSS px viewport (DPR 2.5).
+  **Human once-over: ticked by the owner on 2026-10-30**: "once-over done, all good" (scan from about 1 m with their own phone, shots arrived, one downloaded, copy checked, on the staging event "Session 13 once-over" with the Sony). Not reported: the phone model and OS, and how long the shots took to arrive. The copy stands as built, including the original "after the event" notice when there is no portal.
+- Deviations from DESIGN.md: §10 item 4 records the states, the memory-only cache and the QR display time. `portal_session_qr` returns a tagged `SessionShare` (the SVG inside `qr`), not a bare SVG string, so the screen can tell "not LIVE" from "no portal".
+- Independent review (fresh-context subagent, REVIEW.md + design criteria): no blockers; it re-ran every check and 5 mutations (3 caught). Fixed: a refresh racing an event change could overwrite the new event's link (now checked under the write's lock, `set_gallery_if`, tested); a session the encoder thread never took was still recorded for a QR code; no test pinned the "previous session's QR code never stays up" guard (added; the mutation now fails); the gallery link check now mirrors the gallery's `/e/{publicId}` parser, and the QR fragment is exactly `k`, `s` and `n` (an encoded `%73=` key can't shadow `s`); `portal_session_qr` ignores and doesn't log anything that isn't a session ID; the unused `review--qr` class now sizes the headline; the PR number. Justified, not changed: the pending state hides the whole column, pill included, until Rust answers (a local command, milliseconds; showing the pill alone would make it jump when the copy arrives). Grades: whole B+, guest-first A-, craft A-, calm failure A.
+- Wiki updated: `wiki/Booth-Upload.md` ("The post-shoot QR code", "Device results (session 13)", the unverified list), `wiki/Frontend.md` ("The post-shoot screen", QR sizing from the tablet), `wiki/Tauri-App.md` (capability review), `wiki/portal/DESIGN.md` §10 item 4. Screenshots (strip photos and QR codes blurred): `wiki/portal/design/screenshots/13-1…4`.
+- Notes for next sessions:
+  - **10 (staging tablet run):** the tablet is enrolled on staging as "Pad 6 session 13" with the event "Session 13 once-over" selected. Staging enrolment through `adb shell input` works (Tab between the form's fields; a tap after the keyboard opens lands in the wrong field).
+  - **17:** gate 5 met on staging over home Wi-Fi with the Sony; the first shot of a session is the slowest (12.7 s), because upload starts when the session ends.
+
+---
+
 ## 07b — Admin: blocked requests told apart from network failures — DONE — 2026-10-28
 - PR: #36 (branch `portal/07b-admin-blocked-requests`)
 - Found by the owner's browser check of staging after #35 merged. The Events list said "Can't reach the

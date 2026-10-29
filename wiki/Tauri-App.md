@@ -116,6 +116,12 @@ is what stops pieces from different threads interleaving (found by a concurrency
   accepts only a contract ID and re-checks the event with the portal, and enrolment and
   unenrolment are refused or confirmed rather than silently replacing a credential. See
   [Booth-Upload.md](./Booth-Upload.md) for the credential's storage.
+- `portal_session_qr{session_id}` (session 13) is in `default.json`: the guest's post-shoot
+  screen calls it. Least-privilege review: it answers only for the session the outbox took
+  last (any other ID gets `none`), and returns `{mode: "qr", svg}`, `{mode: "event_gallery"}`
+  or `{mode: "none"}`. The gallery link and its share token never cross IPC as text, only as
+  the QR code's modules; a test serializes the result and checks for the token. See
+  [Booth-Upload.md](./Booth-Upload.md) → "The post-shoot QR code".
 - The upload queue commands (`outbox_status`, `outbox_items`, `outbox_retry{id}`,
   `outbox_dismiss{id}`, session 10) are in `default.json` for the same reason: the operator's
   Settings screen and the camera picker need them in a release build, in the one window.

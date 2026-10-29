@@ -545,6 +545,13 @@ day 1 to preserve this.
    - A "See all event photos" link clears the filter. The session ID only narrows the view; the
      cookie grants the whole event, the same as the event QR.
    - The existing post-shoot text is open for redesign.
+   - (Session 13.) The QR code shows only while the gallery is LIVE and the booth knows its
+     link; otherwise the screen says "Your photos will be in the event gallery". Without the
+     portal (not enrolled, no event, test camera) it is unchanged. The link is cached in memory
+     only (on selection, every 5 minutes, on enrolment or event changes), must be on the
+     enrolled portal's origin, and reaches the WebView only as an SVG. A review with a QR code
+     lasts the **QR Code Display Time** (default 20 s) if that is longer than the strip
+     display time. Details: `wiki/Booth-Upload.md` → "The post-shoot QR code".
 5. **Operator status**: counts of queued, uploading and needs-attention items, an offline badge,
    and a needs-attention list with the reason and retry/dismiss actions. Dismiss deletes the
    local copy only after confirmation; the SD card still has it. (Session 10: a badge on the

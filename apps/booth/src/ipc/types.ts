@@ -33,7 +33,14 @@ export type SessionState =
   | { state: "countdown"; shot: number; total: number; remaining: number }
   | { state: "capturing"; shot: number; total: number }
   | { state: "flash"; shot: number; total: number; session_id: string }
-  | { state: "strip_review"; session_id: string; photos: number[]; auto_return_in: number }
+  | {
+      state: "strip_review";
+      session_id: string;
+      photos: number[];
+      auto_return_in: number;
+      /** The review's whole length: the strip display time, or the QR display time. */
+      auto_return_total: number;
+    }
   | { state: "error"; message: string; recoverable: boolean };
 
 export interface TestModeSettings {
@@ -47,6 +54,8 @@ export interface Settings {
   number_of_photos: number;
   countdown_seconds: number;
   strip_display_seconds: number;
+  /** How long a review with the portal's QR code stays up at least. */
+  qr_display_seconds: number;
   headline: string;
   event_date: string;
   mirror_preview: boolean;
@@ -63,6 +72,17 @@ export type SettingsPatch = Partial<
 > & {
   test_mode?: Partial<TestModeSettings>;
 };
+
+/**
+ * What the post-shoot screen offers the guest (`portal_session_qr`). Rust decides; the SVG is
+ * the session's QR code, and the link inside it never reaches the WebView as text.
+ */
+export type SessionShare =
+  | { mode: "qr"; svg: string }
+  /** On their way to the event, but no link to show (the gallery isn't LIVE yet). */
+  | { mode: "event_gallery" }
+  /** Not sent to a portal: the screen is as it was before the portal. */
+  | { mode: "none" };
 
 /** The portal event new photos go to. */
 export interface SelectedEvent {

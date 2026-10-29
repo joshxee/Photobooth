@@ -57,10 +57,13 @@ pub enum SessionState {
         session_id: String,
     },
     /// `photos` lists the shot numbers available at `booth://photo/<session_id>/<shot>`.
+    /// The review lasts `auto_return_total` seconds: the strip display time, or longer when
+    /// the completion hook asks for it (the portal's QR code).
     StripReview {
         session_id: String,
         photos: Vec<u8>,
         auto_return_in: u8,
+        auto_return_total: u8,
     },
     Error {
         message: String,
@@ -102,14 +105,18 @@ pub struct CompletedSession {
     pub shots: Vec<CompletedShot>,
 }
 
-/// Receives each completed session. Called on the session task the moment `StripReview` is
+/// Receives each completed session. Called on the session task just before `StripReview` is
 /// published, so implementations must return quickly and do their work (encoding, writing
-/// to the outbox) elsewhere.
+/// to the outbox) elsewhere, and whatever they record for the session is there when the UI
+/// first sees the review.
 ///
 /// Never called for a cancelled or failed session, nor for the test camera
 /// ([`CameraId::TEST`]): those shots must never be uploaded (DESIGN D3, §10).
 pub trait OnSessionComplete: Send + Sync {
-    fn on_session_complete(&self, session: CompletedSession);
+    /// Returns how long the review should stay up at least, in seconds, when the app shows the
+    /// guest something that needs longer than the strip (the portal's QR code). `None`, or
+    /// less than the strip display time, keeps the strip display time.
+    fn on_session_complete(&self, session: CompletedSession) -> Option<u8>;
 }
 
 /// Real-time durations; tests keep the defaults and let the paused clock fast-forward.
@@ -300,7 +307,7 @@ enum Phase {
     Countdown { shot: u8, remaining: u8 },
     Capturing { shot: u8 },
     Flash { shot: u8 },
-    StripReview { remaining: u8 },
+    StripReview { remaining: u8, total: u8 },
     Error { message: String, recoverable: bool },
 }
 
@@ -469,20 +476,22 @@ impl Actor {
                     };
                     self.deadline = Some(Instant::now() + self.timings.tick);
                 } else {
+                    let strip_seconds = run.strip_seconds;
+                    let asked = self.hand_over_completed_session().unwrap_or(0);
+                    let total = strip_seconds.max(asked);
                     self.phase = Phase::StripReview {
-                        remaining: run.strip_seconds,
+                        remaining: total,
+                        total,
                     };
                     self.deadline = Some(Instant::now() + self.timings.tick);
-                    self.publish();
-                    self.hand_over_completed_session();
-                    return;
                 }
                 self.publish();
             }
-            Phase::StripReview { remaining } => {
+            Phase::StripReview { remaining, total } => {
                 if remaining > 1 {
                     self.phase = Phase::StripReview {
                         remaining: remaining - 1,
+                        total,
                     };
                     self.deadline = Some(Instant::now() + self.timings.tick);
                     self.publish();
@@ -618,23 +627,21 @@ impl Actor {
     }
 
     /// Gives the completed session's shots to the app's hook, unless they came from the test
-    /// camera. Cancelled and failed sessions never get here: only the last flash leads to
-    /// `StripReview`.
-    fn hand_over_completed_session(&mut self) {
-        let Some(run) = &mut self.run else { return };
+    /// camera, and returns the review length the hook asked for. Cancelled and failed sessions
+    /// never get here: only the last flash leads to `StripReview`.
+    fn hand_over_completed_session(&mut self) -> Option<u8> {
+        let run = self.run.as_mut()?;
         let camera = run.camera.id();
         if camera == CameraId::TEST {
             tracing::debug!("test-mode session: not handed to the completion hook");
-            return;
+            return None;
         }
-        let Some(hook) = self.ctx.completion_hook() else {
-            return;
-        };
+        let hook = self.ctx.completion_hook()?;
         hook.on_session_complete(CompletedSession {
             session_id: run.session_id.clone(),
             camera,
             shots: std::mem::take(&mut run.shots),
-        });
+        })
     }
 
     fn go_attract(&mut self) {
@@ -693,10 +700,14 @@ impl Actor {
                 total,
                 session_id: session_id(),
             },
-            Phase::StripReview { remaining } => SessionState::StripReview {
+            Phase::StripReview {
+                remaining,
+                total: review_total,
+            } => SessionState::StripReview {
                 session_id: session_id(),
                 photos: (1..=total).collect(),
                 auto_return_in: *remaining,
+                auto_return_total: *review_total,
             },
             Phase::Error {
                 message,
@@ -744,19 +755,23 @@ mod tests {
         }
     }
 
-    /// Records every completed session it is handed.
+    /// Records every completed session it is handed, and asks for `review` seconds.
     #[derive(Default)]
-    struct RecordingHook(std::sync::Mutex<Vec<CompletedSession>>);
+    struct RecordingHook {
+        sessions: std::sync::Mutex<Vec<CompletedSession>>,
+        review: Option<u8>,
+    }
 
     impl OnSessionComplete for RecordingHook {
-        fn on_session_complete(&self, session: CompletedSession) {
-            self.0.lock().unwrap().push(session);
+        fn on_session_complete(&self, session: CompletedSession) -> Option<u8> {
+            self.sessions.lock().unwrap().push(session);
+            self.review
         }
     }
 
     impl RecordingHook {
         fn sessions(&self) -> Vec<CompletedSession> {
-            self.0.lock().unwrap().clone()
+            self.sessions.lock().unwrap().clone()
         }
     }
 
@@ -905,6 +920,7 @@ mod tests {
             session_id: session_id.clone(),
             photos: vec![1, 2],
             auto_return_in: n,
+            auto_return_total: 5,
         };
         let flash = |shot| SessionState::Flash {
             shot,
@@ -1306,10 +1322,23 @@ mod tests {
 
     /// A rig whose camera is not the test camera, so completed sessions reach the hook.
     fn hooked_rig(photos: u8, countdown: u8, strip: u8) -> (Rig, Arc<RecordingHook>) {
+        hooked_rig_asking(photos, countdown, strip, None)
+    }
+
+    /// The same, with a hook that asks for a review of `review` seconds.
+    fn hooked_rig_asking(
+        photos: u8,
+        countdown: u8,
+        strip: u8,
+        review: Option<u8>,
+    ) -> (Rig, Arc<RecordingHook>) {
         let settings = settings(photos, countdown, strip);
         let mock = Arc::new(MockCamera::new(settings.test_mode.clone()));
         let camera = Arc::new(Relabelled(mock.clone(), CameraId::SONY_USB));
-        let hook = Arc::new(RecordingHook::default());
+        let hook = Arc::new(RecordingHook {
+            review,
+            ..RecordingHook::default()
+        });
         let rig = rig_full(
             settings,
             Vec::new(),
@@ -1353,6 +1382,45 @@ mod tests {
         // The auto-return countdown does not call it again.
         until(&mut rig.events, |s| matches!(s, SessionState::Attract)).await;
         assert_eq!(hook.sessions().len(), 1);
+    }
+
+    /// The portal's QR code needs longer than the strip alone (session 13): the hook can hold
+    /// the review screen up for longer, and the state says how long in all.
+    #[tokio::test(start_paused = true)]
+    async fn the_hook_can_keep_the_review_up_longer_but_never_shorter() {
+        for (strip, asked, expected) in [(5, Some(20), 20), (25, Some(20), 25), (5, None, 5)] {
+            let (mut rig, _hook) = hooked_rig_asking(1, 1, strip, asked);
+            rig.handle.start().await.unwrap();
+            let seen = until(&mut rig.events, |s| matches!(s, SessionState::Attract)).await;
+            let reviews: Vec<(u8, u8)> = seen
+                .iter()
+                .filter_map(|s| match s {
+                    SessionState::StripReview {
+                        auto_return_in,
+                        auto_return_total,
+                        ..
+                    } => Some((*auto_return_in, *auto_return_total)),
+                    _ => None,
+                })
+                .collect();
+            let want: Vec<(u8, u8)> = (1..=expected).rev().map(|n| (n, expected)).collect();
+            assert_eq!(reviews, want, "strip {strip}, hook asked {asked:?}");
+        }
+    }
+
+    /// The hook runs before the review is published, so whatever it records for the session
+    /// (the portal's QR code) is there when the UI first sees the review.
+    #[tokio::test(start_paused = true)]
+    async fn the_hook_has_the_session_before_the_review_is_published() {
+        let (mut rig, hook) = hooked_rig(1, 1, 5);
+        rig.handle.start().await.unwrap();
+        loop {
+            let state = next(&mut rig.events).await;
+            if is_strip(&state) {
+                assert_eq!(hook.sessions().len(), 1, "handed over before {state:?}");
+                break;
+            }
+        }
     }
 
     #[tokio::test(start_paused = true)]
@@ -1443,12 +1511,14 @@ mod tests {
                 session_id: "abc-1".into(),
                 photos: vec![1, 2, 3],
                 auto_return_in: 12,
+                auto_return_total: 20,
             }),
             serde_json::json!({
                 "state": "strip_review",
                 "session_id": "abc-1",
                 "photos": [1, 2, 3],
-                "auto_return_in": 12
+                "auto_return_in": 12,
+                "auto_return_total": 20
             })
         );
         assert_eq!(

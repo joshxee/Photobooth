@@ -8,7 +8,8 @@ use photobooth_core::SelectedEvent;
 
 use super::client::{http_client, HttpPortalClient, OutboxDepth, PortalOrigin};
 use super::credential::{CredentialStore, StoredCredential};
-use super::types::DeviceEvent;
+use super::gallery::GalleryUrl;
+use super::types::{DeviceEvent, DeviceEventDetail};
 use crate::dto::CommandError;
 
 /// How this build talks to portals.
@@ -157,13 +158,14 @@ impl PortalService {
             .map_err(|err| explain(&err, Call::Device))
     }
 
-    /// Re-fetches event `id` and returns it for selection if it accepts uploads now.
-    pub async fn open_event(&self, id: &str) -> Result<SelectedEvent, CommandError> {
+    /// Re-fetches event `id` and returns it for selection if it accepts uploads now, with its
+    /// gallery link while the gallery is LIVE.
+    pub async fn open_event(&self, id: &str) -> Result<OpenedEvent, CommandError> {
         if !is_contract_id(id) {
             return Err(CommandError::new("That isn't an event from the portal."));
         }
-        let detail = self
-            .client()?
+        let client = self.client()?;
+        let detail = client
             .event(id)
             .await
             .map_err(|err| explain(&err, Call::Event))?;
@@ -177,11 +179,32 @@ impl PortalService {
                 detail.upload_status.to_lowercase()
             )));
         }
-        Ok(SelectedEvent {
-            id: detail.id,
-            name: detail.name,
-            local_date: detail.local_date,
+        let gallery = live_gallery(&detail, client.origin());
+        Ok(OpenedEvent {
+            event: SelectedEvent {
+                id: detail.id,
+                name: detail.name,
+                local_date: detail.local_date,
+            },
+            gallery,
         })
+    }
+
+    /// What the portal says about event `id`'s gallery now: its link while LIVE, else `None`
+    /// (also when the booth isn't enrolled, was revoked or the event is gone). An error means
+    /// the portal couldn't be asked (offline, busy) and the last answer still stands.
+    pub async fn gallery(&self, id: &str) -> Result<Option<GalleryUrl>, PortalError> {
+        let Ok(client) = self.client() else {
+            return Ok(None);
+        };
+        match client.event(id).await {
+            Ok(detail) if detail.id == id => Ok(live_gallery(&detail, client.origin())),
+            Ok(_) => Ok(None),
+            Err(PortalError::Http {
+                status: 401 | 404, ..
+            }) => Ok(None),
+            Err(err) => Err(err),
+        }
     }
 
     /// A client with the stored credential, for the device API.
@@ -221,6 +244,30 @@ impl PortalService {
             .clone()
             .map_err(CommandError::new)
     }
+}
+
+/// An event chosen for selection, and its gallery link while LIVE.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct OpenedEvent {
+    pub event: SelectedEvent,
+    pub gallery: Option<GalleryUrl>,
+}
+
+/// `detail`'s gallery link if its gallery is LIVE and the link is on `origin`.
+fn live_gallery(detail: &DeviceEventDetail, origin: &PortalOrigin) -> Option<GalleryUrl> {
+    if detail.gallery_status != "LIVE" {
+        return None;
+    }
+    let url = detail.gallery_url.clone()?;
+    let checked = url.checked(origin);
+    if checked.is_none() {
+        // Never the link itself: it carries the event's share token.
+        tracing::warn!(
+            event_id = %detail.id,
+            "the portal's gallery link isn't on its own origin: no QR code"
+        );
+    }
+    checked
 }
 
 /// Which call failed, for wording a 401 or a 404.
@@ -419,7 +466,7 @@ mod tests {
         let open = portal(fixture("device.event-detail.hidden.json")).await;
         let service = service(&dir);
         service.enrol(&open.base, "CODE", "Booth 1").await.unwrap();
-        let selected = service.open_event(EVENT_ID).await.unwrap();
+        let selected = service.open_event(EVENT_ID).await.unwrap().event;
         assert_eq!(
             selected,
             SelectedEvent {
@@ -445,6 +492,97 @@ mod tests {
         assert!(
             err.0.contains("isn't open for uploads (it is closed)"),
             "{err}"
+        );
+    }
+
+    /// The live fixture's link, moved onto the mock portal's own origin (from `Host`).
+    fn live_here(r: &super::super::test_server::Recorded) -> Canned {
+        let host = r.header("host").unwrap();
+        let body = fixture("device.event-detail.live.json")
+            .replace("https://photos.example.invalid", &format!("http://{host}"));
+        Canned::json(200, &body)
+    }
+
+    /// Points `service`'s stored enrolment at `portal`.
+    fn repoint(service: &PortalService, portal: &MockPortal) {
+        let mut stored = service.enrolment().unwrap().unwrap();
+        stored.portal_url = portal.base.clone();
+        service.credentials.save(&stored).unwrap();
+    }
+
+    #[tokio::test]
+    async fn selection_brings_the_gallery_link_only_while_live_and_on_the_portal() {
+        let dir = tempfile::tempdir().unwrap();
+        let live = MockPortal::start(|r| match r.target.as_str() {
+            "/v1/device/enrol" => Canned::fixture("device.enrol-response.valid.json"),
+            _ => live_here(r),
+        })
+        .await;
+        let service = service(&dir);
+        service.enrol(&live.base, "CODE", "Booth 1").await.unwrap();
+        let opened = service.open_event(EVENT_ID).await.unwrap();
+        let link = opened.gallery.expect("a LIVE gallery's link");
+        assert_eq!(
+            link.expose(),
+            format!("{}/e/k7m2q9x4c3v8b6n5#k=ZXhhbXBsZS10b2tlbi0wMQ", live.base)
+        );
+
+        // The fixture as it is points at another host: refused. Hidden: no link.
+        for detail in [
+            fixture("device.event-detail.live.json"),
+            fixture("device.event-detail.hidden.json"),
+        ] {
+            let other = portal(detail).await;
+            repoint(&service, &other);
+            assert_eq!(service.open_event(EVENT_ID).await.unwrap().gallery, None);
+        }
+    }
+
+    #[tokio::test]
+    async fn the_gallery_lookup_forgets_on_a_refusal_and_keeps_on_a_failure() {
+        let dir = tempfile::tempdir().unwrap();
+        let service = service(&dir);
+        assert_eq!(
+            service.gallery(EVENT_ID).await.unwrap(),
+            None,
+            "not enrolled"
+        );
+
+        let live = MockPortal::start(|r| match r.target.as_str() {
+            "/v1/device/enrol" => Canned::fixture("device.enrol-response.valid.json"),
+            _ => live_here(r),
+        })
+        .await;
+        service.enrol(&live.base, "CODE", "Booth 1").await.unwrap();
+        assert!(service.gallery(EVENT_ID).await.unwrap().is_some());
+        assert_eq!(
+            live.requests().last().unwrap().target,
+            format!("/v1/device/events/{EVENT_ID}")
+        );
+
+        let hidden = portal(fixture("device.event-detail.hidden.json")).await;
+        repoint(&service, &hidden);
+        assert_eq!(service.gallery(EVENT_ID).await.unwrap(), None);
+
+        for name in ["error.body.unauthorized.json", "error.body.not_found.json"] {
+            let refusing = MockPortal::start(move |_| Canned::fixture(name)).await;
+            repoint(&service, &refusing);
+            assert_eq!(service.gallery(EVENT_ID).await.unwrap(), None, "{name}");
+        }
+
+        let busy = MockPortal::start(|_| Canned::json(503, "{}")).await;
+        repoint(&service, &busy);
+        assert!(
+            service.gallery(EVENT_ID).await.is_err(),
+            "a 503 keeps the last answer"
+        );
+
+        let mut stored = service.enrolment().unwrap().unwrap();
+        stored.portal_url = "http://127.0.0.1:9".into();
+        service.credentials.save(&stored).unwrap();
+        assert!(
+            service.gallery(EVENT_ID).await.is_err(),
+            "offline keeps it too"
         );
     }
 

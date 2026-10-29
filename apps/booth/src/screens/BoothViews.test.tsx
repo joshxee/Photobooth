@@ -165,6 +165,7 @@ describe("StripReview", () => {
         photos={[1, 2, 3]}
         autoReturnIn={9}
         autoReturnTotal={12}
+        share={{ mode: "none" }}
         headline="Ada & Bo"
         date="01.02.2027"
         onTakeAnother={() => (again += 1)}
@@ -174,7 +175,7 @@ describe("StripReview", () => {
     return () => again;
   };
 
-  test("shows the saved notice, the strip and the countdown to returning home", () => {
+  test("without the portal: the saved notice, the strip and the countdown to returning home", () => {
     renderReview();
     expect(
       screen.getByText("VIRTUAL PHOTO STRIP SAVED — COPIES WILL BE AVAILABLE AFTER THE EVENT"),
@@ -188,6 +189,38 @@ describe("StripReview", () => {
     expect(bar.getAttribute("aria-valuenow")).toBe("9");
     expect(bar.getAttribute("aria-valuemax")).toBe("12");
     expect((bar.firstElementChild as HTMLElement).style.width).toBe("75%");
+  });
+
+  test("with a QR code: the scan copy and the code, and nothing about 'after the event'", () => {
+    renderReview({
+      share: { mode: "qr", svg: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 49 49"></svg>' },
+    });
+    expect(screen.getByRole("heading", { name: "Scan for your photos" })).toBeTruthy();
+    expect(
+      screen.getByText("Opens on your phone. Save them or share them, no app needed."),
+    ).toBeTruthy();
+    const code = screen.getByRole("img", { name: "QR code for your photos" });
+    expect(code.querySelector("svg")?.getAttribute("viewBox")).toBe("0 0 49 49");
+    expect(screen.queryByText(/AFTER THE EVENT/)).toBeNull();
+    expect(screen.queryByText("Looking good.")).toBeNull();
+    expect(screen.getByRole("button", { name: "Take another strip →" })).toBeTruthy();
+    expect(screen.getByText("RETURNING TO PHOTOBOOTH")).toBeTruthy();
+  });
+
+  test("the gallery isn't LIVE: the photos will be in the event gallery, no QR code", () => {
+    renderReview({ share: { mode: "event_gallery" } });
+    expect(screen.getByRole("heading", { name: "Looking good." })).toBeTruthy();
+    expect(screen.getByText("Your photos will be in the event gallery.")).toBeTruthy();
+    expect(screen.queryByRole("img", { name: "QR code for your photos" })).toBeNull();
+    expect(screen.queryByText(/AFTER THE EVENT/)).toBeNull();
+  });
+
+  test("until Rust answers, no copy shows (no flash of the old notice)", () => {
+    renderReview({ share: null });
+    expect(screen.queryByText(/AFTER THE EVENT/)).toBeNull();
+    expect(screen.queryByText("Scan for your photos")).toBeNull();
+    expect(screen.queryByText("Looking good.")).toBeNull();
+    expect(screen.getAllByRole("img")).toHaveLength(3);
   });
 
   test("the progress bar is clamped to 0–100%", () => {

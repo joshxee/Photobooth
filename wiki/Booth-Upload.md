@@ -448,12 +448,97 @@ upload path. **The Sony leg is unverified** (left for the once-over).
   tablet; `session_cancel` is covered by the core session tests and an app test that cancels
   mid-countdown on a non-test camera and checks nothing reaches the portal.
 
+## The post-shoot QR code (session 13)
+
+After a session the guest sees a QR code that opens the gallery on their own shots
+(DESIGN §10 item 4). `portal/gallery.rs` holds it all.
+
+**The gallery link is cached in memory only.** `galleryUrl` (`/e/{publicId}#k={token}`) lets
+anyone holding it see the whole event, so it is never written to `settings.json`, the outbox or
+the log, and `GalleryUrl` has no `Display` and a redacted `Debug`. The booth learns it:
+
+- when an event is selected (`portal_select_event` already re-fetches the event, so the link
+  comes with it, no extra request);
+- from `AppState::gallery_refresher`: at start-up, every 5 minutes while an event is selected,
+  and at once when the enrolment or the event changes (`GET /v1/device/events/{id}`).
+
+A 401 (revoked) or 404 (event gone) forgets the link; a network failure, a 5xx or a 429 keeps
+the last answer, because the booth may be briefly offline while the gallery is still LIVE (the
+shots upload later, and the link works then). Unenrolling, enrolling and clearing the event
+forget it at once. A restart forgets it too and asks again.
+
+**The link must be on the enrolled portal's own origin** and a `/e/` path, or the booth shows
+no QR code (and logs a warning without the link). A QR code on the booth is something guests
+trust; a misconfigured or tampered response can't send them elsewhere.
+
+**Why Rust renders the QR code.** The WebView never sees the link as text: it gets an SVG of
+modules (`portal_session_qr`), and nothing in the WebView, its console or the dev panel's log can
+leak the token. The `qrcode` crate makes the module matrix (no default features: no `image`);
+the SVG is drawn here as one rectangle per horizontal run, with the 4-module white quiet zone
+inside the SVG and a `viewBox` but no size, so CSS sizes it. Error correction **L**: the code is
+on a screen and can't get damaged, and fewer modules make each one larger. A staging link
+(about 110 characters) is version 6, 41 modules. A test draws the SVG back into pixels and reads
+it with an independent decoder (`rqrr`, dev-only).
+
+**The link for a session** is `galleryUrl` with `s={session_id}&n={shots}` appended to the
+fragment, once (any `s`/`n` already there is replaced), and only for a session ID and a count
+the gallery accepts (`SessionId`, 1–10). The token stays in the fragment, so a browser never
+sends it to the server.
+
+**Which session.** The completion hook tells `PostShoot` which session went to which event
+with how many shots (`Destination::handed_over`). It runs on the session task just before the
+review is published (session 13 moved it from just after), so the answer is ready when the UI
+asks. `portal_session_qr` answers only for that last session, and only while enrolled:
+
+| Situation | `mode` | Post-shoot screen |
+|---|---|---|
+| Enrolled, event selected, gallery LIVE, link known | `qr` | "Scan for your photos" + QR code |
+| Enrolled, event selected, gallery not LIVE (or not heard yet) | `event_gallery` | "Looking good." + "Your photos will be in the event gallery." |
+| Not enrolled, no event, test camera, or another session | `none` | As before the portal |
+
+**The review stays up longer with a QR code.** The hook can ask the session for a longer
+review (`OnSessionComplete` returns `Option<u8>`); the app asks for the new **QR Code Display
+Time** setting (default 20 s, 10–60, the design's 20 s) when the session gets a QR code. The
+session uses the larger of that and the strip display time, and `StripReview` now carries
+`auto_return_total`, so the progress bar knows the length. Without a QR code nothing changes.
+
+**Races closed after the review.** A refresh that was in flight while the operator changed the
+event writes only if the event is still selected, checked under the same lock as the write
+(`PostShoot::set_gallery_if`; the selection saves the settings before its link). A session the
+encoder thread never took isn't recorded, so it can't get a QR code for shots that will never
+arrive. `portal_session_qr` ignores (and doesn't log) anything that isn't a session ID. The QR
+link's fragment is exactly `k`, `s` and `n` (whatever else the portal's fragment held, including
+an encoded `s`, is dropped), and the gallery link must be `/e/{publicId}` as the gallery parses it.
+
+### Device results (session 13, 2026-10-30, staging)
+
+Xiaomi Pad 6 over Wi-Fi adb, debug APK of the branch, enrolled on
+`https://portal-staging.josh-33c.workers.dev` with a code from the staging admin API (real TLS
+to Cloudflare), a throwaway LIVE event, and **the Sony A7 III** as the camera (live view and
+capture over USB worked first time). Six real sessions:
+
+- **QR state:** the screenshot's QR code decodes (OpenCV, from `adb exec-out screencap`) to
+  exactly `…/e/{publicId}#k={token}&s={session}&n=3`. Opened in Claude's built-in browser at
+  375 × 812: the token swap, a clean `/e/{id}?s=…&n=3` address, "Your photos", 3 photos.
+- **Shot-to-READY** (gate 5: `capturedAt` → `publishedAt` from the admin API, 9 shots in 3
+  sessions): 5.4–12.7 s, all under 15 s. The first shot of a session waits longest because the
+  booth encodes and uploads once the session completes. The booth's own `since_capture_ms` on
+  READY reads about 1.5 s more (it includes the response's trip back).
+- **READY-to-visible** (the session view open before the shots, with its `&n=3` placeholders,
+  "0 of 3 ready"): 6.7–10.7 s, one poll of the gallery's 10 s ± 10 % fast interval.
+- **Not LIVE:** gallery suspended through the admin API, app restarted (the start-up refresh):
+  "Looking good." + "Your photos will be in the event gallery.", a 12 s review, no QR code.
+- **No portal:** the Test Camera's session shows the original copy (`mode="none"`).
+- The start-up refresh logged `gallery link updated live=true`; the token and the gallery link
+  appear 0 times in 162,504 logcat lines and in no file under the app's data directory.
+
 ## Not done yet, and unverified
 
 - The whole path ran on the tablet against `wrangler dev` on the PC (session 10, through
-  `adb reverse` and `photos.localhost`; see above). Against Cloudflare it is **unverified**:
-  real TLS (webpki-roots against Cloudflare's certificate), real airplane mode, and the
-  Sony as the camera wait for the staging run (07) and the user's once-over.
+  `adb reverse` and `photos.localhost`; see above). Session 13 then ran it against staging:
+  real TLS (webpki-roots against Cloudflare's certificate) and the Sony as the camera, 6
+  sessions, all READY (see "Device results (session 13)"). Still **unverified** on Cloudflare:
+  real airplane mode and the rest of session 10's staging run.
 - File I/O is blocking. `drain_once` reads each variant (typically 0.25–0.62 MB, up to the
   contract's 3 MB HD cap) and writes and `fsync`s records inline, holding the outbox lock
   during each write; an `fsync` on f2fs can take tens of milliseconds. Hence `enqueue` runs on

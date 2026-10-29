@@ -28,6 +28,7 @@
     "allow-portal-events",
     "allow-portal-select-event",
     "allow-portal-clear-event",
+    "allow-portal-session-qr",
     "allow-outbox-status",
     "allow-outbox-items",
     "allow-outbox-retry",

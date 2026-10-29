@@ -26,6 +26,9 @@ pub trait Destination: Send + Sync {
     fn selected_event(&self) -> Option<String>;
     /// Whether the booth is enrolled. Read on the encoder thread (it reads a file).
     fn enrolled(&self) -> bool;
+    /// `session_id`'s `shots` shots go to `event_id`. Called on the session task, so it must
+    /// be cheap. Returns how long the review should stay up (for the session's QR code).
+    fn handed_over(&self, session_id: &str, event_id: &str, shots: usize) -> Option<u8>;
 }
 
 /// Makes a shot's variants. A function so tests can make the encoder fail or block.
@@ -76,18 +79,18 @@ impl EncodeAndQueue {
 }
 
 impl OnSessionComplete for EncodeAndQueue {
-    fn on_session_complete(&self, session: CompletedSession) {
+    fn on_session_complete(&self, session: CompletedSession) -> Option<u8> {
         if session.camera == CameraId::TEST {
             // The session never hands these over; refuse them here too (DESIGN §10).
             tracing::debug!(session_id = %session.session_id, "test camera: not queued");
-            return;
+            return None;
         }
         let Some(event_id) = self.destination.selected_event() else {
             tracing::info!(
                 session_id = %session.session_id,
                 "no portal event selected: session not queued"
             );
-            return;
+            return None;
         };
         tracing::info!(
             session_id = %session.session_id,
@@ -95,17 +98,24 @@ impl OnSessionComplete for EncodeAndQueue {
             shots = session.shots.len(),
             "session handed to the outbox"
         );
+        let (session_id, shots) = (session.session_id.clone(), session.shots.len());
         let sent = self
             .jobs
             .lock()
             .unwrap_or_else(|e| e.into_inner())
-            .send(Job { session, event_id });
-        if let Err(mpsc::SendError(job)) = sent {
+            .send(Job {
+                session,
+                event_id: event_id.clone(),
+            });
+        if sent.is_err() {
             tracing::error!(
-                session_id = %job.session.session_id,
+                session_id = %session_id,
                 "the outbox encoder is not running: session not queued"
             );
+            // Not handed over: no QR code for shots that will never arrive.
+            return None;
         }
+        self.destination.handed_over(&session_id, &event_id, shots)
     }
 }
 
@@ -182,6 +192,9 @@ mod tests {
     struct Fixed {
         event: Option<String>,
         enrolled: AtomicBool,
+        /// `(session, event, shots)` for each `handed_over`.
+        handed: Mutex<Vec<(String, String, usize)>>,
+        review: Option<u8>,
     }
 
     impl Destination for Fixed {
@@ -191,12 +204,21 @@ mod tests {
         fn enrolled(&self) -> bool {
             self.enrolled.load(Ordering::SeqCst)
         }
+        fn handed_over(&self, session_id: &str, event_id: &str, shots: usize) -> Option<u8> {
+            self.handed
+                .lock()
+                .unwrap()
+                .push((session_id.to_owned(), event_id.to_owned(), shots));
+            self.review
+        }
     }
 
     fn to(event: Option<&str>, enrolled: bool) -> Arc<Fixed> {
         Arc::new(Fixed {
             event: event.map(str::to_owned),
             enrolled: AtomicBool::new(enrolled),
+            handed: Mutex::new(Vec::new()),
+            review: None,
         })
     }
 
@@ -272,6 +294,55 @@ mod tests {
             .collect();
         names.sort();
         names
+    }
+
+    /// The post-shoot QR code (session 13) needs to know which session went to which event,
+    /// and its review length comes back to the session.
+    #[test]
+    fn the_destination_hears_where_each_session_went_and_sets_the_review() {
+        let destination = Arc::new(Fixed {
+            review: Some(20),
+            ..Arc::into_inner(to(Some(EVENT), true)).unwrap()
+        });
+        let (_dir, uploads, hook, _) = rig(destination.clone(), None);
+        assert_eq!(
+            hook.on_session_complete(session(CameraId::SONY_USB, "6a3f1c20-3")),
+            Some(20)
+        );
+        assert_eq!(
+            hook.on_session_complete(session(CameraId::TEST, "aa-1")),
+            None
+        );
+        eventually(|| uploads.outbox().len() == 3);
+        assert_eq!(
+            *destination.handed.lock().unwrap(),
+            [("6a3f1c20-3".to_owned(), EVENT.to_owned(), 3)],
+            "the test camera's session is never handed over"
+        );
+
+        let (_dir, _, hook, _) = rig(to(None, true), None);
+        assert_eq!(
+            hook.on_session_complete(session(CameraId::SONY_USB, "bb-1")),
+            None,
+            "no event, no QR"
+        );
+
+        // The encoder thread is gone: nothing is queued, so nothing is handed over.
+        let (tx, rx) = mpsc::channel();
+        drop(rx);
+        let orphan = EncodeAndQueue {
+            destination: destination.clone(),
+            jobs: Mutex::new(tx),
+        };
+        assert_eq!(
+            orphan.on_session_complete(session(CameraId::SONY_USB, "cc-1")),
+            None
+        );
+        assert_eq!(
+            destination.handed.lock().unwrap().len(),
+            1,
+            "cc-1 not recorded"
+        );
     }
 
     #[test]

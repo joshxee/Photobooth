@@ -137,6 +137,44 @@ The upload status (session 10) is operator-only: the guest screens are unchanged
 The badge's wording (`uploadText.ts`) picks the most urgent state; Rust supplies the facts
 (`OutboxStatus` from `outbox_status` and `portal://outbox`, kept in the store as `outbox`). The
 list is fetched with `outbox_items` whenever the status changes.
+
+## The post-shoot screen (session 13)
+
+`StripReview` takes a `share` from `portal_session_qr` (asked once per session by
+`useSessionShare`; Rust decides, see [Booth-Upload.md](./Booth-Upload.md) → "The post-shoot QR
+code"). Three states, plus a moment of waiting:
+
+| `share` | Right-hand column |
+|---|---|
+| `qr` | **Scan for your photos** (headline), "Opens on your phone. Save them or share them, no app needed.", the QR code, *Take another strip →* |
+| `event_gallery` | **Looking good.**, "Your photos will be in the event gallery.", *Take another strip →* |
+| `none` (not enrolled, no event, test camera, or the call failed) | as before the portal: the "VIRTUAL PHOTO STRIP SAVED — COPIES WILL BE AVAILABLE AFTER THE EVENT" notice, **Looking good.**, *Take another strip →* |
+| `null` (Rust hasn't answered, milliseconds) | hidden (`visibility: hidden`), so the old notice never flashes up before the QR code |
+
+The strip, the footer timer ("RETURNING TO PHOTOBOOTH") and *Take another strip →* are the same
+in every state, so the Maestro flows (which run with the test camera, `none`) are unchanged.
+The copy follows the design starter (`wiki/portal/design/post-shoot.html`), in the booth's own
+type (Geist, the review's 56 px headline) on its dark review background. The design's "Back to
+the start in 20 s" and *Done* button are the booth's existing footer timer and *Take another
+strip →*: a second way out would compete with the QR code. The "after the event" notice stays
+only without the portal, where it is still true (the operator hands out copies from the SD card).
+
+**QR sizing.** `min(380px, 48vh)` square in a white tile with a 20 px radius (the SVG carries its
+own 4-module quiet zone, which the radius never reaches). The Pad 6's WebView is **1152 × 720
+CSS px** (2880 × 1800 at DPR 2.5, measured with `wm density`), so the code is 48vh = 345 CSS px
+= 862 device px, about 7 cm at the screen's 309 ppi: the most the column fits beside the
+headline, the line of copy and the pill. A staging link is a version-6 code (41 modules plus the
+quiet zone, error correction L), so each module is about 1.4 mm. The tile is plain white on the
+dark background, so booth lighting can't wash out its contrast. Measured on the tablet: the
+finder patterns span 709 device px, and OpenCV decodes the code from a plain `screencap`.
+
+The QR headline is `min(56px, 4.4vw)`: at 56 px "Scan for your photos" (516 px) wrapped in the
+Pad 6's 504 px column, found on the tablet; a desktop browser at 1280 px didn't show it.
+
+**Selectors:** heading `Scan for your photos`; `role=img` with `aria-label="QR code for your
+photos"` (the SVG inside is `aria-hidden`); text `Your photos will be in the event gallery.`.
+The progress bar's `aria-valuemax` is now the session's `auto_return_total`, not the setting.
+
 ## Camera problems: one voice, and no photo you cannot take
 
 `cameraBanner` (in `store/store.ts`) is the single answer to "can the guest take a photo?" on the

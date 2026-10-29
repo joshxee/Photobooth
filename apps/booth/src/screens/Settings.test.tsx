@@ -39,6 +39,7 @@ describe("Settings", () => {
     expect(slider("Number of Photos").value).toBe("3");
     expect(slider("Countdown Seconds").value).toBe("3");
     expect(slider("Photo Strip Display Time").value).toBe("12");
+    expect(slider("QR Code Display Time").value).toBe("20");
     expect((screen.getByLabelText("Headline") as HTMLInputElement).value).toBe(
       "Sarah & Tom's Wedding",
     );
@@ -65,10 +66,12 @@ describe("Settings", () => {
     render(<Settings />);
     fireEvent.change(slider("Countdown Seconds"), { target: { value: "7" } });
     fireEvent.change(slider("Photo Strip Display Time"), { target: { value: "20" } });
-    await until(() => backend.callsTo("settings_set").length === 2, "both sent");
+    fireEvent.change(slider("QR Code Display Time"), { target: { value: "45" } });
+    await until(() => backend.callsTo("settings_set").length === 3, "all sent");
     expect(backend.callsTo("settings_set").map((c) => c.args.patch)).toEqual([
       { countdown_seconds: 7 },
       { strip_display_seconds: 20 },
+      { qr_display_seconds: 45 },
     ]);
   });
 

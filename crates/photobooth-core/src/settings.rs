@@ -62,6 +62,9 @@ pub struct Settings {
     pub number_of_photos: u8,
     pub countdown_seconds: u8,
     pub strip_display_seconds: u8,
+    /// How long the review stays up at least when it shows the portal's QR code: a guest
+    /// needs time to take out a phone and scan (session 13).
+    pub qr_display_seconds: u8,
     pub headline: String,
     pub event_date: String,
     pub mirror_preview: bool,
@@ -81,6 +84,7 @@ impl Default for Settings {
             number_of_photos: 3,
             countdown_seconds: 3,
             strip_display_seconds: 12,
+            qr_display_seconds: 20,
             headline: "Sarah & Tom's Wedding".to_owned(),
             event_date: "06.05.2026".to_owned(),
             mirror_preview: true,
@@ -102,6 +106,7 @@ pub struct SettingsPatch {
     pub number_of_photos: Option<u8>,
     pub countdown_seconds: Option<u8>,
     pub strip_display_seconds: Option<u8>,
+    pub qr_display_seconds: Option<u8>,
     pub headline: Option<String>,
     pub event_date: Option<String>,
     pub mirror_preview: Option<bool>,
@@ -173,6 +178,7 @@ impl Settings {
             5,
             30,
         )?;
+        check_range("qr_display_seconds", self.qr_display_seconds.into(), 10, 60)?;
         check_text("headline", &self.headline, 80)?;
         check_text("event_date", &self.event_date, 32)?;
         check_text("selected_camera", self.selected_camera.as_str(), 64)?;
@@ -230,6 +236,9 @@ impl Settings {
         }
         if let Some(v) = patch.strip_display_seconds {
             next.strip_display_seconds = v;
+        }
+        if let Some(v) = patch.qr_display_seconds {
+            next.qr_display_seconds = v;
         }
         if let Some(v) = patch.headline {
             next.headline = v;
@@ -367,8 +376,30 @@ mod tests {
         assert_eq!(s.number_of_photos, 3);
         assert_eq!(s.countdown_seconds, 3);
         assert_eq!(s.strip_display_seconds, 12);
+        assert_eq!(s.qr_display_seconds, 20);
         assert!(s.mirror_preview);
         assert_eq!(s.start_trigger, StartTriggerKind::Tap);
+    }
+
+    /// The post-shoot QR code's dwell (session 13): a settings file from before it existed
+    /// loads with the default, and a patch changes it within its range.
+    #[test]
+    fn qr_display_time_has_a_default_a_range_and_a_patch() {
+        let old: Settings = serde_json::from_str(r#"{"strip_display_seconds": 15}"#).unwrap();
+        assert_eq!(old.qr_display_seconds, 20);
+        for (n, ok) in [(9u8, false), (10, true), (60, true), (61, false)] {
+            let s = Settings {
+                qr_display_seconds: n,
+                ..Settings::default()
+            };
+            assert_eq!(s.validate().is_ok(), ok, "qr_display_seconds={n}");
+        }
+        let mut s = Settings::default();
+        s.patch(patch_json(r#"{"qr_display_seconds": 45}"#))
+            .unwrap();
+        assert_eq!(s.qr_display_seconds, 45);
+        assert!(s.patch(patch_json(r#"{"qr_display_seconds": 5}"#)).is_err());
+        assert_eq!(s.qr_display_seconds, 45, "a rejected patch changes nothing");
     }
 
     #[test]

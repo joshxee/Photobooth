@@ -42,6 +42,8 @@ const SETTINGS_FILE: &str = "settings.json";
 const PORTAL_CREDENTIAL_FILE: &str = "portal-credential.json";
 /// The portal upload outbox, under the app data directory (DESIGN §10).
 const OUTBOX_DIR: &str = "outbox";
+/// How often the selected event's gallery link is asked for again (session 13).
+const GALLERY_REFRESH: std::time::Duration = std::time::Duration::from_secs(5 * 60);
 /// Re-sends the upload status at least this often, so the free-space figure stays fresh.
 const OUTBOX_STATUS_REFRESH: std::time::Duration = std::time::Duration::from_secs(60);
 const LOG_LINES: usize = 500;
@@ -283,6 +285,7 @@ pub fn run() {
                 app.manage(uploads.clone());
             }
             tauri::async_runtime::spawn(session_task);
+            tauri::async_runtime::spawn(state.gallery_refresher(GALLERY_REFRESH));
             spawn_event_forwarders(app.handle(), &state);
             // The tablet's recognizer; desktop has none, so only the developer panel's palm counts.
             #[cfg(target_os = "android")]
@@ -319,6 +322,7 @@ pub fn run() {
             commands::portal_events,
             commands::portal_select_event,
             commands::portal_clear_event,
+            commands::portal_session_qr,
             commands::outbox_status,
             commands::outbox_items,
             commands::outbox_retry,

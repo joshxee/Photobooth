@@ -12,6 +12,7 @@ import type {
   OutboxStatus,
   PortalEvent,
   PortalStatus,
+  SessionShare,
   SessionState,
   Settings,
   SettingsPatch,
@@ -47,6 +48,9 @@ export const portalEvents = () => invoke<PortalEvent[]>("portal_events");
 /** Rust re-fetches the event and refuses it unless it is OPEN. */
 export const portalSelectEvent = (id: string) => invoke<PortalStatus>("portal_select_event", { id });
 export const portalClearEvent = () => invoke<PortalStatus>("portal_clear_event");
+/** What the review of `sessionId` shows: its QR code as an SVG, never the gallery link. */
+export const portalSessionQr = (sessionId: string) =>
+  invoke<SessionShare>("portal_session_qr", { sessionId });
 
 export const outboxStatus = () => invoke<OutboxStatus>("outbox_status");
 /** The needs-attention list. */

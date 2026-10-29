@@ -37,6 +37,7 @@ export const defaultSettings = (over: Partial<Settings> = {}): Settings => ({
   number_of_photos: 3,
   countdown_seconds: 3,
   strip_display_seconds: 12,
+  qr_display_seconds: 20,
   headline: "Sarah & Tom's Wedding",
   event_date: "06.05.2026",
   mirror_preview: true,

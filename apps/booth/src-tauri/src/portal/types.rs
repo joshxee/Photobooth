@@ -11,6 +11,8 @@ use std::fmt;
 
 use serde::{Deserialize, Serialize};
 
+use super::gallery::GalleryUrl;
+
 /// The device credential: a bearer secret, returned once by enrolment.
 ///
 /// It has no `Display`, and its `Debug` is redacted, so it can't end up in a log line or an
@@ -97,7 +99,7 @@ pub struct DeviceEventDetail {
     /// `HIDDEN`, `LIVE` or `SUSPENDED`.
     pub gallery_status: String,
     /// Present (with its `#k=` token) only while the gallery is LIVE.
-    pub gallery_url: Option<String>,
+    pub gallery_url: Option<GalleryUrl>,
 }
 
 impl DeviceEventDetail {
