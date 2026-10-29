@@ -126,8 +126,9 @@ describe("session states", () => {
       session_id: "s-1",
       photos: [1, 2, 3],
       auto_return_in: 12,
+      auto_return_total: 12,
     });
-    expect(screen.getByText("Looking good.")).toBeTruthy();
+    await until(() => screen.queryByText("Looking good.") !== null, "the review's copy");
     expect(screen.getAllByRole("img").map((i) => i.getAttribute("alt"))).toEqual([
       "Photo 1",
       "Photo 2",
@@ -188,7 +189,7 @@ describe("photo prefetch", () => {
     await mount();
     const atStart = cleared.length; // an idempotent clear on the initial attract state is fine
     await setSession({ state: "flash", shot: 1, total: 1, session_id: "s-9" });
-    await setSession({ state: "strip_review", session_id: "s-9", photos: [1], auto_return_in: 5 });
+    await setSession({ state: "strip_review", session_id: "s-9", photos: [1], auto_return_in: 5, auto_return_total: 5 });
     expect(cleared).toHaveLength(atStart);
 
     await setSession({ state: "attract" });
@@ -215,7 +216,13 @@ describe("guest actions", () => {
   test("'Take another strip →' asks for a fresh strip", async () => {
     const backend = installBackend();
     await mount();
-    await setSession({ state: "strip_review", session_id: "s", photos: [1], auto_return_in: 5 });
+    await setSession({
+      state: "strip_review",
+      session_id: "s",
+      photos: [1],
+      auto_return_in: 5,
+      auto_return_total: 5,
+    });
     fireEvent.click(screen.getByRole("button", { name: "Take another strip →" }));
     await until(() => backend.callsTo("session_take_another").length === 1, "take another");
   });
@@ -362,15 +369,70 @@ describe("preview", () => {
     );
   });
 
-  test("the strip review uses the configured headline, date and display time", async () => {
+  test("the strip review uses the configured headline and date, and Rust's review length", async () => {
     useBooth.setState({
-      settings: defaultSettings({ headline: "Ada & Bo", event_date: "01.02.2027", strip_display_seconds: 20 }),
+      settings: defaultSettings({ headline: "Ada & Bo", event_date: "01.02.2027", strip_display_seconds: 12 }),
     });
     installBackend();
     await mount();
-    await setSession({ state: "strip_review", session_id: "s", photos: [1], auto_return_in: 10 });
+    await setSession({
+      state: "strip_review",
+      session_id: "s",
+      photos: [1],
+      auto_return_in: 10,
+      auto_return_total: 20,
+    });
     expect(screen.getByText("ADA & BO")).toBeTruthy();
     expect(screen.getByText("01.02.2027")).toBeTruthy();
     expect(screen.getByRole("progressbar").getAttribute("aria-valuemax")).toBe("20");
+  });
+});
+
+describe("post-shoot QR code (session 13)", () => {
+  const QR = {
+    mode: "qr",
+    svg: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 49 49"><rect width="49" height="49" fill="#fff"/></svg>',
+  };
+  const review = (session_id: string, auto_return_in = 20): SessionState => ({
+    state: "strip_review",
+    session_id,
+    photos: [1, 2, 3],
+    auto_return_in,
+    auto_return_total: 20,
+  });
+
+  test("asks Rust once per session and shows the code it returns", async () => {
+    const backend = installBackend({
+      portal_session_qr: ({ sessionId }) => (sessionId === "s-1" ? QR : { mode: "none" }),
+    });
+    await mount();
+    await setSession(review("s-1"));
+    await until(() => screen.queryByText("Scan for your photos") !== null, "the QR copy");
+    expect(screen.getByRole("img", { name: "QR code for your photos" }).querySelector("svg")).not.toBeNull();
+    await setSession(review("s-1", 19));
+    expect(backend.callsTo("portal_session_qr").map((c) => c.args)).toEqual([{ sessionId: "s-1" }]);
+
+    // Take another: a new session, asked again; this one goes nowhere.
+    await setSession(review("s-2"));
+    await until(() => screen.queryByText("Looking good.") !== null, "the old copy");
+    expect(backend.callsTo("portal_session_qr").map((c) => c.args)).toEqual([
+      { sessionId: "s-1" },
+      { sessionId: "s-2" },
+    ]);
+    expect(screen.queryByRole("img", { name: "QR code for your photos" })).toBeNull();
+    expect(screen.getByText(/COPIES WILL BE AVAILABLE AFTER THE EVENT/)).toBeTruthy();
+  });
+
+  test("a failing call leaves the review as it was before the portal", async () => {
+    installBackend({
+      portal_session_qr: () => {
+        throw "the portal state is unavailable";
+      },
+    });
+    await mount();
+    await setSession(review("s-1"));
+    await until(() => screen.queryByText("Looking good.") !== null, "the old copy");
+    expect(screen.queryByRole("img", { name: "QR code for your photos" })).toBeNull();
+    expect(useBooth.getState().notice).toBeNull();
   });
 });

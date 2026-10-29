@@ -891,6 +891,37 @@ select {
   color: #fff;
 }
 
+/* Until Rust says what the review offers (milliseconds), keep the place but show nothing. */
+.review__text.is-pending {
+  visibility: hidden;
+}
+
+.review__lede {
+  margin: 0;
+  max-width: 24em;
+  font-size: 22px;
+  line-height: 1.4;
+  color: rgba(255, 255, 255, 0.72);
+}
+
+/* The session's QR code (session 13). As large as the column allows, for a scan from about
+   1 m: 380 CSS px is about 7.5 cm on the Pad 6. Rust's SVG carries its own white quiet zone,
+   which the corner radius never reaches. */
+.review__qr {
+  width: min(380px, 48vh);
+  aspect-ratio: 1;
+  flex-shrink: 0;
+  border-radius: 20px;
+  overflow: hidden;
+  background: #fff;
+}
+
+.review__qr svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
 .review__timer {
   position: absolute;
   left: 0;

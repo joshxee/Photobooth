@@ -24,6 +24,7 @@ import {
 } from "./BoothViews";
 import { DevPanel } from "./DevPanel";
 import { previewAspects, usePalmRegion } from "./usePalmRegion";
+import { useSessionShare } from "./useSessionShare";
 
 // Camera start/stop calls must not overlap (a retry disconnecting while a connect is mid-way
 // would race), so they run strictly one after another.
@@ -110,6 +111,7 @@ export function Booth() {
   const native = camera?.preview === "native";
   const mirror = settings?.mirror_preview ?? true;
   const banner = useBooth(cameraBanner);
+  const share = useSessionShare(session.state === "strip_review" ? session.session_id : null);
 
   // Open-palm start: only where Rust gets frames to look at, and only while the camera works.
   const gesture = useBooth((s) => s.gesture);
@@ -149,7 +151,8 @@ export function Booth() {
           sessionId={session.session_id}
           photos={session.photos}
           autoReturnIn={session.auto_return_in}
-          autoReturnTotal={settings?.strip_display_seconds ?? 12}
+          autoReturnTotal={session.auto_return_total}
+          share={share}
           headline={settings?.headline ?? ""}
           date={settings?.event_date ?? ""}
           onTakeAnother={guard(sessionTakeAnother)}

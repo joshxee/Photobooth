@@ -138,6 +138,14 @@ export function Settings() {
           suffix="s"
           onChange={(v) => void apply({ strip_display_seconds: v })}
         />
+        <SliderRow
+          label="QR Code Display Time"
+          value={settings.qr_display_seconds}
+          min={10}
+          max={60}
+          suffix="s"
+          onChange={(v) => void apply({ qr_display_seconds: v })}
+        />
         <TextRow
           label="Headline"
           value={settings.headline}

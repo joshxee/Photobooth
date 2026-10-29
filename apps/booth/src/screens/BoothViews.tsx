@@ -8,7 +8,7 @@ import { FillButton } from "../components/FillButton";
 import { PhotoStrip } from "../components/PhotoStrip";
 import { ShotPips } from "../components/ShotPips";
 import type { Rect } from "../ipc/frameGeometry";
-import type { GestureUpdate } from "../ipc/types";
+import type { GestureUpdate, SessionShare } from "../ipc/types";
 import { uiConfig } from "../uiConfig";
 
 /** What the attract screen needs to guide a guest's palm into the box. */
@@ -181,6 +181,11 @@ export function Flash({ fading }: { fading: boolean }) {
   );
 }
 
+/**
+ * The post-shoot screen. `share` is what Rust says the guest gets (session 13): the session's
+ * QR code, a line about the event gallery, or (without the portal) the original copy. Null
+ * until Rust answers, which takes milliseconds: the copy waits rather than flash the old one.
+ */
 export function StripReview({
   sessionId,
   photos,
@@ -188,6 +193,7 @@ export function StripReview({
   autoReturnTotal,
   headline,
   date,
+  share,
   onTakeAnother,
 }: {
   sessionId: string;
@@ -196,20 +202,21 @@ export function StripReview({
   autoReturnTotal: number;
   headline: string;
   date: string;
+  share: SessionShare | null;
   onTakeAnother: () => void;
 }) {
   const pct = autoReturnTotal > 0 ? Math.min(1, Math.max(0, autoReturnIn / autoReturnTotal)) : 0;
   return (
-    <section className="view view--review" aria-label="Photo strip">
+    <section
+      className={`view view--review${share?.mode === "qr" ? " review--qr" : ""}`}
+      aria-label="Photo strip"
+    >
       <div className="review__body">
         <div className="review__strip">
           <PhotoStrip sessionId={sessionId} photos={photos} headline={headline} date={date} />
         </div>
-        <div className="review__text">
-          <p className="mono review__saved">
-            VIRTUAL PHOTO STRIP SAVED — COPIES WILL BE AVAILABLE AFTER THE EVENT
-          </p>
-          <h1 className="review__headline">Looking good.</h1>
+        <div className={`review__text${share === null ? " is-pending" : ""}`}>
+          {share !== null && <ReviewCopy share={share} />}
           <FillButton
             label="Take another strip →"
             fillMs={uiConfig.fillMs}
@@ -239,6 +246,41 @@ export function StripReview({
       </footer>
     </section>
   );
+}
+
+function ReviewCopy({ share }: { share: SessionShare }) {
+  switch (share.mode) {
+    case "qr":
+      return (
+        <>
+          <h1 className="review__headline">Scan for your photos</h1>
+          <p className="review__lede">Opens on your phone. Save them or share them, no app needed.</p>
+          {/* Rust's SVG: a rect and one path, no script or text (portal/gallery.rs). */}
+          <div
+            className="review__qr"
+            role="img"
+            aria-label="QR code for your photos"
+            dangerouslySetInnerHTML={{ __html: share.svg }}
+          />
+        </>
+      );
+    case "event_gallery":
+      return (
+        <>
+          <h1 className="review__headline">Looking good.</h1>
+          <p className="review__lede">Your photos will be in the event gallery.</p>
+        </>
+      );
+    case "none":
+      return (
+        <>
+          <p className="mono review__saved">
+            VIRTUAL PHOTO STRIP SAVED — COPIES WILL BE AVAILABLE AFTER THE EVENT
+          </p>
+          <h1 className="review__headline">Looking good.</h1>
+        </>
+      );
+  }
 }
 
 export function SessionError({

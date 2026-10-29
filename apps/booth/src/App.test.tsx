@@ -80,6 +80,7 @@ describe("App", () => {
       session_id: "s-1",
       photos: [1, 2, 3],
       auto_return_in: 12,
+      auto_return_total: 12,
     });
     expect(screen.getByText("Take another strip →")).toBeTruthy();
     expect(screen.getAllByRole("img")).toHaveLength(3);
