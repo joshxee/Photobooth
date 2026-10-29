@@ -3,6 +3,7 @@
 
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, MutexGuard, OnceLock, Weak};
+use std::time::Duration;
 
 use async_trait::async_trait;
 use bytes::Bytes;
@@ -15,7 +16,7 @@ use photobooth_core::{
 };
 #[cfg(any(not(target_os = "android"), test))]
 use photobooth_core::{CameraError, CapturedPhoto};
-use tokio::sync::{broadcast, watch};
+use tokio::sync::{broadcast, watch, Notify};
 use tokio::task::JoinHandle;
 
 use crate::dto::{
@@ -24,6 +25,7 @@ use crate::dto::{
 };
 use crate::logs::LogRingBuffer;
 use crate::portal::client::PortalOrigin;
+use crate::portal::gallery::{PostShoot, SessionShare};
 use crate::portal::PortalService;
 use crate::upload::hook::{Destination, EncodeAndQueue, Encoder};
 use crate::upload::pump::{ClientSource, PortalSource};
@@ -196,6 +198,11 @@ pub struct AppState {
     /// Portal changes run one at a time, each with its settings write, so a double tap can't
     /// enrol twice and an unenrol can't interleave with a selection.
     portal_ops: tokio::sync::Mutex<()>,
+    /// The selected event's gallery link and the last session handed over, in memory only:
+    /// the post-shoot screen's QR code (session 13).
+    post_shoot: Arc<PostShoot>,
+    /// Wakes the gallery refresher when the enrolment or the event changes.
+    gallery_wake: Arc<Notify>,
 }
 
 impl AppState {
@@ -262,6 +269,8 @@ impl AppState {
                 portal: Arc::new(portal),
                 uploads: OnceLock::new(),
                 portal_ops: tokio::sync::Mutex::new(()),
+                post_shoot: Arc::new(PostShoot::default()),
+                gallery_wake: Arc::new(Notify::new()),
             },
             task,
         )
@@ -287,6 +296,7 @@ impl AppState {
         let destination = Arc::new(AppDestination {
             shared: Arc::downgrade(&self.shared),
             portal: self.portal.clone(),
+            post_shoot: self.post_shoot.clone(),
         });
         self.set_completion_hook(EncodeAndQueue::spawn(uploads, destination, encoder));
     }
@@ -300,6 +310,13 @@ impl AppState {
         if let Some(uploads) = self.uploads.get() {
             uploads.enrolment_changed();
         }
+        self.gallery_changed();
+    }
+
+    /// The enrolment or the event changed: the gallery link known so far no longer applies.
+    fn gallery_changed(&self) {
+        self.post_shoot.forget_gallery();
+        self.gallery_wake.notify_one();
     }
 
     pub fn photos(&self) -> &PhotoStore {
@@ -445,17 +462,86 @@ impl AppState {
     /// Photos already queued keep their event (DESIGN §10).
     pub async fn portal_select_event(&self, id: &str) -> Result<PortalStatus, CommandError> {
         let _op = self.portal_ops.lock().await;
-        let event = self.portal.open_event(id).await?;
-        tracing::info!(event_id = %event.id, "portal event selected");
-        self.change_settings(|s| s.selected_event = Some(event))?;
+        let opened = self.portal.open_event(id).await?;
+        let event_id = opened.event.id.clone();
+        tracing::info!(
+            event_id = %event_id,
+            gallery_live = opened.gallery.is_some(),
+            "portal event selected"
+        );
+        self.change_settings(|s| s.selected_event = Some(opened.event))?;
+        self.post_shoot.set_gallery(&event_id, opened.gallery);
         Ok(self.portal_status())
     }
 
     pub async fn portal_clear_event(&self) -> Result<PortalStatus, CommandError> {
         let _op = self.portal_ops.lock().await;
         self.change_settings(|s| s.selected_event = None)?;
+        self.gallery_changed();
         tracing::info!("portal event cleared");
         Ok(self.portal_status())
+    }
+
+    /// What the review of `session_id` shows the guest: its QR code, a line about the event
+    /// gallery, or what the booth showed before the portal (DESIGN §10 item 4). Only the
+    /// SVG leaves Rust, never the link or its token.
+    pub fn portal_session_qr(&self, session_id: &str) -> SessionShare {
+        let share = if matches!(self.portal.enrolment(), Ok(Some(_))) {
+            self.post_shoot.share(session_id)
+        } else {
+            SessionShare::None
+        };
+        tracing::info!(session_id, mode = share.mode(), "post-shoot screen");
+        share
+    }
+
+    /// Keeps the selected event's gallery link fresh, in memory only: asks the portal now,
+    /// every `every` (5 minutes in the app) and whenever the enrolment or the event changes.
+    /// A failed request keeps the last answer. Spawn it on the app's runtime; it ends when
+    /// the state is dropped.
+    pub fn gallery_refresher(
+        &self,
+        every: Duration,
+    ) -> impl std::future::Future<Output = ()> + Send + 'static {
+        let shared = Arc::downgrade(&self.shared);
+        let portal = self.portal.clone();
+        let post_shoot = self.post_shoot.clone();
+        let wake = self.gallery_wake.clone();
+        let selected = move || -> Option<Option<String>> {
+            let shared = shared.upgrade()?;
+            let id = lock(&shared.settings)
+                .selected_event
+                .as_ref()
+                .map(|e| e.id.clone());
+            Some(id)
+        };
+        async move {
+            loop {
+                let Some(event) = selected() else { return };
+                if let Some(event_id) = event {
+                    match portal.gallery(&event_id).await {
+                        // Only if the operator didn't change the event meanwhile.
+                        Ok(url) if selected().flatten().as_deref() == Some(event_id.as_str()) => {
+                            let live = url.is_some();
+                            if live != post_shoot.gallery_for(&event_id).is_some() {
+                                tracing::info!(event_id, live, "gallery link updated");
+                            }
+                            post_shoot.set_gallery(&event_id, url);
+                        }
+                        Ok(_) => {}
+                        Err(err) => tracing::info!(
+                            event_id,
+                            %err,
+                            "couldn't refresh the gallery link; keeping the last answer"
+                        ),
+                    }
+                }
+                tokio::select! {
+                    () = wake.notified() => {}
+                    () = tokio::time::sleep(every) => {}
+                }
+            }
+        }
     }
 
     // ----- upload queue -----------------------------------------------------------------
@@ -669,6 +755,7 @@ impl AppState {
 struct AppDestination {
     shared: Weak<Shared>,
     portal: Arc<PortalService>,
+    post_shoot: Arc<PostShoot>,
 }
 
 impl Destination for AppDestination {
@@ -680,6 +767,15 @@ impl Destination for AppDestination {
 
     fn enrolled(&self) -> bool {
         matches!(self.portal.enrolment(), Ok(Some(_)))
+    }
+
+    /// Records the session for its QR code; a review with a QR code stays up for the QR
+    /// display time.
+    fn handed_over(&self, session_id: &str, event_id: &str, shots: usize) -> Option<u8> {
+        let qr = self.post_shoot.handed_over(session_id, event_id, shots);
+        let shared = self.shared.upgrade()?;
+        let seconds = lock(&shared.settings).qr_display_seconds;
+        qr.then_some(seconds)
     }
 }
 
@@ -903,7 +999,9 @@ mod tests {
     struct NoopHook;
 
     impl OnSessionComplete for NoopHook {
-        fn on_session_complete(&self, _: photobooth_core::CompletedSession) {}
+        fn on_session_complete(&self, _: photobooth_core::CompletedSession) -> Option<u8> {
+            None
+        }
     }
 
     #[tokio::test(start_paused = true)]
@@ -1657,43 +1755,47 @@ mod tests {
     /// call is a 401 (a revoked device).
     async fn upload_portal(refuse: Arc<AtomicBool>) -> MockPortal {
         MockPortal::start(move |r| {
-            let host = r.header("host").unwrap_or_default().to_owned();
             let refused = refuse.load(Ordering::SeqCst)
                 && (r.target == "/v1/device/photos" || r.method == "PUT");
             if refused {
                 return Canned::fixture("error.body.unauthorized.json");
             }
-            match (r.method.as_str(), r.target.as_str()) {
-                ("POST", "/v1/device/enrol") => Canned::fixture("device.enrol-response.valid.json"),
-                ("GET", "/v1/device/events") => {
-                    Canned::fixture("device.events-response.valid.json")
-                }
-                ("GET", _) => Canned::fixture("device.event-detail.live.json"),
-                ("POST", "/v1/device/photos") => {
-                    let id = r.json()["clientPhotoId"].as_str().unwrap().to_owned();
-                    let target = |variant: &str| {
-                        serde_json::json!({
-                            "method": "PUT",
-                            "url": format!("http://{host}/v1/device/uploads/{id}/{variant}"),
-                            "headers": {"Content-Type": "image/jpeg"},
-                            "expiresAt": "2026-10-22T09:45:00.000Z",
-                        })
-                    };
-                    let body = serde_json::json!({
-                        "state": "PENDING",
-                        "photoId": id,
-                        "uploads": {"thumb": target("thumb"), "hd": target("hd")},
-                    });
-                    Canned::json(200, &body.to_string())
-                }
-                ("PUT", t) if t.ends_with("/thumb") => {
-                    Canned::fixture("device.upload-response.stored.json")
-                }
-                ("PUT", _) => Canned::fixture("device.upload-response.ready.json"),
-                _ => Canned::json(404, "{}"),
-            }
+            upload_answer(r)
         })
         .await
+    }
+
+    /// How the upload portal answers: intents PENDING with PUT URLs on itself, a thumb PUT
+    /// STORED, an HD PUT READY, the event detail LIVE.
+    fn upload_answer(r: &crate::portal::test_server::Recorded) -> Canned {
+        let host = r.header("host").unwrap_or_default().to_owned();
+        match (r.method.as_str(), r.target.as_str()) {
+            ("POST", "/v1/device/enrol") => Canned::fixture("device.enrol-response.valid.json"),
+            ("GET", "/v1/device/events") => Canned::fixture("device.events-response.valid.json"),
+            ("GET", _) => Canned::fixture("device.event-detail.live.json"),
+            ("POST", "/v1/device/photos") => {
+                let id = r.json()["clientPhotoId"].as_str().unwrap().to_owned();
+                let target = |variant: &str| {
+                    serde_json::json!({
+                        "method": "PUT",
+                        "url": format!("http://{host}/v1/device/uploads/{id}/{variant}"),
+                        "headers": {"Content-Type": "image/jpeg"},
+                        "expiresAt": "2026-10-22T09:45:00.000Z",
+                    })
+                };
+                let body = serde_json::json!({
+                    "state": "PENDING",
+                    "photoId": id,
+                    "uploads": {"thumb": target("thumb"), "hd": target("hd")},
+                });
+                Canned::json(200, &body.to_string())
+            }
+            ("PUT", t) if t.ends_with("/thumb") => {
+                Canned::fixture("device.upload-response.stored.json")
+            }
+            ("PUT", _) => Canned::fixture("device.upload-response.ready.json"),
+            _ => Canned::json(404, "{}"),
+        }
     }
 
     async fn enrol_and_select(rig: &UploadRig, portal: &MockPortal) {
@@ -1896,5 +1998,212 @@ mod tests {
             }
         ));
         assert!(rig.state.connect_camera().await.is_err());
+    }
+
+    // ----- post-shoot QR code (session 13) ----------------------------------------------
+
+    const TOKEN: &str = "ZXhhbXBsZS10b2tlbi0wMQ";
+
+    /// `upload_portal`, but the event's gallery is LIVE (its link on the mock's own origin)
+    /// while `live` is set, and HIDDEN otherwise.
+    async fn gallery_portal(live: Arc<AtomicBool>) -> MockPortal {
+        MockPortal::start(move |r| {
+            if r.method == "GET" && r.target == format!("/v1/device/events/{EVENT_ID}") {
+                let host = r.header("host").unwrap();
+                let body = if live.load(Ordering::SeqCst) {
+                    fixture("device.event-detail.live.json")
+                        .replace("https://photos.example.invalid", &format!("http://{host}"))
+                } else {
+                    fixture("device.event-detail.hidden.json").to_owned()
+                };
+                return Canned::json(200, &body);
+            }
+            upload_answer(r)
+        })
+        .await
+    }
+
+    /// The review's session ID and how long it lasts in all.
+    async fn review(events: &mut broadcast::Receiver<SessionState>) -> (String, u8) {
+        match until(events, |s| matches!(s, SessionState::StripReview { .. })).await {
+            SessionState::StripReview {
+                session_id,
+                auto_return_total,
+                ..
+            } => (session_id, auto_return_total),
+            _ => unreachable!(),
+        }
+    }
+
+    /// The next review of a session other than `previous` (its countdown may still be queued).
+    async fn new_review(
+        events: &mut broadcast::Receiver<SessionState>,
+        previous: &str,
+    ) -> (String, u8) {
+        loop {
+            let next = review(events).await;
+            if next.0 != previous {
+                return next;
+            }
+        }
+    }
+
+    /// Selecting a LIVE event caches its link; the next session's review shows the QR code
+    /// for exactly that session, for the QR display time. The gallery hidden: no QR code
+    /// and the strip display time. The link and its token are never logged or sent as text.
+    #[tokio::test]
+    async fn a_session_shows_its_qr_code_while_the_gallery_is_live() {
+        let logs = LogRingBuffer::new(2000);
+        let subscriber = tracing_subscriber::registry().with(
+            tracing_subscriber::fmt::layer()
+                .with_writer(logs.clone())
+                .with_ansi(false)
+                .with_filter(tracing_subscriber::filter::LevelFilter::TRACE),
+        );
+        let _guard = tracing::subscriber::set_default(subscriber);
+
+        let rig = upload_rig();
+        let live = Arc::new(AtomicBool::new(true));
+        let portal = gallery_portal(live.clone()).await;
+        enrol_and_select(&rig, &portal).await;
+        rig.state
+            .update_settings(patch(r#"{"qr_display_seconds":10}"#))
+            .unwrap();
+        let refresher = tokio::spawn(rig.state.gallery_refresher(Duration::from_millis(50)));
+
+        let mut events = rig.state.subscribe_session();
+        rig.state.session_start();
+        let (session_id, total) = review(&mut events).await;
+        assert_eq!(total, 10, "held for the QR display time");
+        let share = rig.state.portal_session_qr(&session_id);
+        let SessionShare::Qr { svg } = &share else {
+            panic!("expected a QR code, got {share:?}");
+        };
+        assert_eq!(
+            crate::portal::gallery::tests::decode(svg),
+            format!(
+                "{}/e/k7m2q9x4c3v8b6n5#k={TOKEN}&s={session_id}&n=3",
+                portal.base
+            )
+        );
+        assert_eq!(
+            rig.state.portal_session_qr("someone-else-1"),
+            SessionShare::None,
+            "only the session just handed over"
+        );
+        let ipc = serde_json::to_string(&share).unwrap();
+        assert!(
+            !ipc.contains(TOKEN),
+            "the token never goes over IPC as text"
+        );
+
+        // The admin hides the gallery: the refresher notices, and the next review has no QR.
+        live.store(false, Ordering::SeqCst);
+        eventually("the refresher sees the hidden gallery", || {
+            rig.state.post_shoot.gallery_for(EVENT_ID).is_none()
+        })
+        .await;
+        rig.state.session_take_another().await.unwrap();
+        let (second, total) = new_review(&mut events, &session_id).await;
+        assert_eq!(total, 5, "back to the strip display time");
+        assert_eq!(
+            rig.state.portal_session_qr(&second),
+            SessionShare::EventGallery
+        );
+
+        refresher.abort();
+        let lines = logs.recent(2000);
+        assert!(
+            lines.iter().any(|l| l.contains("post-shoot screen")),
+            "logs were captured: {lines:?}"
+        );
+        for line in &lines {
+            assert!(!line.contains(TOKEN), "log line leaks the token: {line}");
+            assert!(
+                !line.contains("/e/k7m2q9x4c3v8b6n5"),
+                "log line has the link: {line}"
+            );
+        }
+    }
+
+    /// Not enrolled, no event, or the test camera: the review is as it was before the portal.
+    #[tokio::test]
+    async fn without_the_portal_the_review_is_unchanged() {
+        let rig = upload_rig();
+        rig.state.select_camera(CameraId::SONY_USB).await.unwrap();
+        rig.state
+            .update_settings(patch(
+                r#"{"number_of_photos":1,"countdown_seconds":1,"strip_display_seconds":5}"#,
+            ))
+            .unwrap();
+        let mut events = rig.state.subscribe_session();
+
+        // Not enrolled.
+        rig.state.session_start();
+        let (id, total) = review(&mut events).await;
+        assert_eq!(
+            (rig.state.portal_session_qr(&id), total),
+            (SessionShare::None, 5)
+        );
+
+        // Enrolled, no event.
+        let portal = gallery_portal(Arc::new(AtomicBool::new(true))).await;
+        rig.state
+            .portal_enrol(&portal.base, "CODE", "Booth 1")
+            .await
+            .unwrap();
+        rig.state.session_take_another().await.unwrap();
+        let (id, total) = new_review(&mut events, &id).await;
+        assert_eq!(
+            (rig.state.portal_session_qr(&id), total),
+            (SessionShare::None, 5)
+        );
+
+        // An event with a LIVE gallery, but unenrolled before the guest looks: nothing.
+        rig.state.portal_select_event(EVENT_ID).await.unwrap();
+        rig.state.session_take_another().await.unwrap();
+        let (id, _) = new_review(&mut events, &id).await;
+        assert!(matches!(
+            rig.state.portal_session_qr(&id),
+            SessionShare::Qr { .. }
+        ));
+        rig.state.portal_unenrol().await.unwrap();
+        assert_eq!(rig.state.portal_session_qr(&id), SessionShare::None);
+        assert_eq!(
+            rig.state.post_shoot.gallery_for(EVENT_ID),
+            None,
+            "forgotten"
+        );
+    }
+
+    #[tokio::test]
+    async fn the_test_camera_never_gets_a_qr_code() {
+        let rig = rig();
+        let portal = gallery_portal(Arc::new(AtomicBool::new(true))).await;
+        rig.state
+            .portal_enrol(&portal.base, "CODE", "Booth 1")
+            .await
+            .unwrap();
+        rig.state.portal_select_event(EVENT_ID).await.unwrap();
+        rig.state.select_camera(CameraId::TEST).await.unwrap();
+        rig.state
+            .update_settings(patch(r#"{"number_of_photos":1,"countdown_seconds":1}"#))
+            .unwrap();
+        let mut events = rig.state.subscribe_session();
+        rig.state.session_start();
+        let (id, total) = review(&mut events).await;
+        assert_eq!(rig.state.portal_session_qr(&id), SessionShare::None);
+        assert_eq!(total, 12, "the strip display time");
+    }
+
+    /// Clearing the event forgets its link at once, before any refresh.
+    #[tokio::test]
+    async fn clearing_the_event_forgets_its_gallery_link() {
+        let rig = upload_rig();
+        let portal = gallery_portal(Arc::new(AtomicBool::new(true))).await;
+        enrol_and_select(&rig, &portal).await;
+        assert!(rig.state.post_shoot.gallery_for(EVENT_ID).is_some());
+        rig.state.portal_clear_event().await.unwrap();
+        assert_eq!(rig.state.post_shoot.gallery_for(EVENT_ID), None);
     }
 }

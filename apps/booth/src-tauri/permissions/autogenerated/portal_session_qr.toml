@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-portal-session-qr"
+description = "Enables the portal_session_qr command without any pre-configured scope."
+commands.allow = ["portal_session_qr"]
+
+[[permission]]
+identifier = "deny-portal-session-qr"
+description = "Denies the portal_session_qr command without any pre-configured scope."
+commands.deny = ["portal_session_qr"]

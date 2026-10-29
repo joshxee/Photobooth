@@ -24,6 +24,8 @@ tauri-plugin-photobooth-camera = { path = "../../../plugins/tauri-plugin-photobo
 # the client brings a rustls config on `ring` with the Mozilla roots instead (portal/client.rs).
 reqwest = { version = "0.13", default-features = false, features = ["rustls-no-provider"] }
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
+# The post-shoot screen's QR code (session 13): the module matrix only; the SVG is drawn here.
+qrcode = { version = "0.14", default-features = false }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tauri = { version = "2", features = [] }
@@ -47,6 +49,8 @@ tauri-plugin-photobooth-camera = { path = "../../../plugins/tauri-plugin-photobo
 [dev-dependencies]
 sony-ptp = { path = "../../../crates/sony-ptp", features = ["sim"] }
 tauri-plugin-photobooth-camera = { path = "../../../plugins/tauri-plugin-photobooth-camera", features = ["core-camera", "sony-transport"] }
+# Reads the post-shoot QR code back in its tests.
+rqrr = "0.11"
 tempfile = "3"
 # `net` and `io-util` for the portal client's local mock server.
 tokio = { version = "1", features = ["sync", "time", "rt", "macros", "test-util", "net", "io-util"] }

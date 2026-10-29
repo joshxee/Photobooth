@@ -105,7 +105,7 @@ impl PortalOrigin {
         self.0.join(path).expect("a path joins onto an origin")
     }
 
-    fn is_same_origin(&self, url: &Url) -> bool {
+    pub(crate) fn is_same_origin(&self, url: &Url) -> bool {
         url.origin() == self.0.origin()
     }
 }
@@ -152,6 +152,11 @@ impl HttpPortalClient {
             app_version: app_version.into(),
             outbox_depth,
         }
+    }
+
+    /// The portal this client talks to.
+    pub fn origin(&self) -> &PortalOrigin {
+        &self.origin
     }
 
     /// `POST /v1/device/enrol`: swaps a one-time code for the credential. No bearer.

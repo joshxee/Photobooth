@@ -9,6 +9,7 @@ use tauri::State;
 use crate::dto::{
     CameraInfo, CommandError, Fault, OutboxEntry, OutboxStatus, PortalEvent, PortalStatus,
 };
+use crate::portal::gallery::SessionShare;
 use crate::state::{AppState, FrameSink};
 
 type CommandResult<T> = Result<T, CommandError>;
@@ -148,6 +149,17 @@ pub async fn portal_select_event(
 #[tauri::command]
 pub async fn portal_clear_event(state: State<'_, AppState>) -> CommandResult<PortalStatus> {
     state.portal_clear_event().await
+}
+
+/// What the post-shoot screen shows for `session_id`: its QR code as an SVG (never the link
+/// itself), a line about the event gallery, or nothing new. It reads the enrolment file, so it
+/// is async (off the main thread).
+#[tauri::command]
+pub async fn portal_session_qr(
+    state: State<'_, AppState>,
+    session_id: String,
+) -> CommandResult<SessionShare> {
+    Ok(state.portal_session_qr(&session_id))
 }
 
 /// Upload queue counts and flags; changes arrive as `portal://outbox` events. It waits for
