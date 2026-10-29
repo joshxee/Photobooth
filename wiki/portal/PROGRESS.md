@@ -24,6 +24,7 @@ this file first, so state facts and not intentions.
 - Built: nothing new in the code. This entry is session 10's device check, rerun against **staging** with **the Sony**.
 - Verified: Xiaomi Pad 6 over Wi-Fi adb, debug APK of `main` at `a75adac` (before 13 merged; 13 had its own staging run).
   - Setup: a throwaway OPEN event and device made with the staging admin API (service token).
+  - Screenshots: the badge and Upload Queue states are `wiki/portal/design/screenshots/10-1…9`.
   - Booth: `https://portal-staging.josh-33c.workers.dev` (real TLS), the Sony A7 III.
   - Evidence: `wiki/Booth-Upload.md` → "Staging device results (session 10)"; screenshots, run logs and a logcat excerpt in the session notes folder (`10b-evidence`).
   - **Count:** 10 sessions → **exactly 30 READY** (admin API). One event ID; the 10 session IDs match the booth's hand-over lines; shots 1–3 once each; no PENDING/REJECTED.
@@ -39,17 +40,21 @@ this file first, so state facts and not intentions.
   - **Test Camera:** not handed to the hook, nothing queued, 0 photos.
   - **Credential:** 0 hits in 242,882 logcat lines and in every app file except the `0600` credential file.
   - **NOT verified:** multi-hour offline, a full disk, several booths, the custom domains, production. **Cancel:** the UI has no cancel control (unit and app tests only, as in 10).
-- Device check: **critical. Automated gate: passed** (above). **Human once-over: awaiting the owner.** The booth was left on the Sony, enrolled as "Pad 6 10b gate 2", event "Session 10 once-over".
+- Device check: **critical. Automated gate: passed** (above). **Human once-over: awaiting the owner.**
+  - What it covers: 3 sessions, the badge, Wi-Fi off briefly, one app kill, everything arriving in the staging admin.
+  - Done when #3's manual cancel can't be done (no cancel control); the owner is asked to accept the tests for it.
+  - The booth was left on the Sony, enrolled as "Pad 6 10b gate 2", event "Session 10 once-over".
+  - Still on staging until after the once-over: the events "Session 10 staging gate" and "Session 10 once-over" and the device "Pad 6 10b gate 2". The probe event is deleted; the first device is revoked.
 - Deviations from DESIGN.md: none.
 - Wiki updated:
-  - `wiki/Booth-Upload.md`: the staging results; the unverified list.
+  - `wiki/Booth-Upload.md`: the staging results; the unverified list. Screenshots `wiki/portal/design/screenshots/10-1…9`.
   - `wiki/portal/17-hardening-gates.md`: gate 2's airplane mode can be scripted.
 - Notes for next sessions:
   - **Follow-up (throughput):** within a session the shots upload one at a time.
     - Why: new items are due at once (`next_attempt_at = UNIX_EPOCH`), so the pass starts when shot 1 is queued. `drain_once`'s second worker finds nothing and ends; the first worker then does shots 2 and 3 in turn.
     - Two uploads only overlap on a backlog.
-    - Fix idea: end a pass when a worker finds nothing and let the next pass pick the rest, or have an idle worker re-check once.
-    - Worth about 2 s per session (DESIGN §17 gate 5 is still met: shot-to-READY 6.9–13.9 s).
+    - Fix idea: end the pass when a worker finds nothing due, so the next pass (the enqueue nudges are waiting) takes shots 2 and 3 together. An idle worker re-checking at once wouldn't help: shot 2 is queued about 450 ms after shot 1.
+    - Worth about 2 s per session. One booth's shot-to-READY (6.9–13.9 s) is within gate 5's 15 s, with little margin; gate 5 itself (5 booths, p95) hasn't been run.
   - **17 (gate 2):** real airplane mode sets `adb_wifi_enabled` to 0. A detached script on the tablet (`setsid nohup sh script.sh &`) can:
     - shoot with `input tap`, force-stop and screenshot;
     - turn airplane mode off and run `settings put global adb_wifi_enabled 1` once Wi-Fi is back.

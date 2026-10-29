@@ -453,16 +453,18 @@ The automated gate from `wiki/portal/10-booth-upload-status.md`, rerun against *
 (`https://portal-staging.josh-33c.workers.dev`, real TLS) with **the Sony A7 III**. Xiaomi Pad 6
 over Wi-Fi adb, debug APK of `main` at `a75adac` (before session 13 merged; 13's hook changes
 had their own staging run, above). A throwaway OPEN event and device were made with the staging
-admin API and the service token, and deleted afterwards. Screenshots, the on-device run logs and
-a logcat excerpt are in the session notes folder (`10b-evidence`); the photos are of the room
-and stay out of the repo.
+admin API and the service token (all deleted or revoked after the owner's once-over, PROGRESS
+10b). The badge and Upload Queue screenshots are `wiki/portal/design/screenshots/10-1…9`; the
+on-device run logs, a logcat excerpt and the screenshots showing photos (of the room, kept out
+of the repo) are in the session notes folder (`10b-evidence`). The app was restarted once
+between sessions 3 and 4 (a force-stop trial before the offline block, nothing queued).
 
 - **Count:** 10 sessions, **exactly 30 READY** in the admin API. Every row has the gate event's
   ID, the 10 session IDs match the booth's `session handed to the outbox` lines, each session has
   shots 1, 2 and 3 once, and nothing is PENDING or REJECTED. Every HD is 2560 × 1707.
 - **Session end → READY** online (the hand-over at `StripReview` to the session's last READY):
   **6.6–7.7 s** (sessions 1–5: 7.7, 7.1, 6.7, 6.8, 6.6 s). Encode 378–541 ms per Sony shot;
-  each upload (intent and two PUTs to Cloudflare, HD 224–262 KB) 1.9–2.7 s. The booth's
+  each upload (intent and two PUTs to Cloudflare, HD 219–262 KB) 1.9–2.7 s. The booth's
   `since_capture_ms` on READY: 6.9–13.9 s. Against `wrangler dev` this was about 2 s; the
   difference is the real network and that a session's three shots upload **one after another**
   (next point).
@@ -476,13 +478,16 @@ and stay out of the repo.
   - **Block 1, 5 min 45 s:** sessions 6 and 7 shot offline (`the portal can't be reached;
     uploads wait`, badge `Uploads: offline, 6 waiting`), then **`am force-stop` with 6 queued**.
     On relaunch `outbox opened … items=6`, offline again 2.4 s later, Settings `Queued 6` with
-    the offline line. Airplane off: the next 30 s probe was READY 12.9 s later, `uploads resume
+    the offline line. A third session meant for this block was lost to the script (it stayed in
+    Settings, whose Back button had scrolled out of view), so block 2 followed. Airplane off: an
+    item whose own backoff ended 10 s later was READY at +12.9 s, then `uploads resume
     brought=5`, two uploads at once, **all 6 READY 19.7 s after the network returned**.
   - **Block 2, 5 min 30 s:** session 8 at the start and session 9 three minutes in (`offline, 3
-    waiting`, then `6 waiting`); all 6 READY **26.1 s** after airplane off.
-  - While offline the backoff and probe behaved as designed: each item's delay grew from
-    about 18 s towards the 5-minute cap, and every 30 s poll probed the oldest item (its
-    attempt count reached 12, the known uncapped count).
+    waiting`, then `6 waiting`); this time the 30 s probe got the first answer (sent at +18.5 s, READY at +20.7 s), and all
+    6 were READY **26.1 s** after airplane off.
+  - While offline the backoff and probe behaved as designed: each item's delay doubled from
+    under a second (to 244 s at most in 5¾ minutes, below the 5-minute cap), and every 30 s
+    poll probed the oldest item (its attempt count reached 12, the known uncapped count).
 - **Outbox files:** listed after every offline session: only `{id}.thumb.jpg`, `{id}.hd.jpg`
   and `{id}.json` (15 of each over the listings), never an original; empty at the end.
 - **Take another:** tapped 4.4 s after session 4's review appeared, while its shots 2 and 3
@@ -490,7 +495,7 @@ and stay out of the repo.
 - **Revoked mid-run:** the device revoked through the admin API, then session 10 shot. The first
   intent got 401: `upload stopped: the portal refused the device`, the loop paused with the
   queue kept, badge `Uploads paused: the portal refused this booth`, Settings `Queued 3` and the
-  explanation. A new device code, Unenrol, Enrol: two uploads started the same millisecond and
+  explanation. A new device code, Unenrol, Enrol: two uploads started 1 ms apart and
   all 3 were READY 3.8 s after enrolment, through the new device. The badge went `sending, 3
   left` → `sending, 1 left` → `all sent` (unenrolling clears the event, so the picker then
   reads "no event selected"; the queued shots kept their own event ID).
