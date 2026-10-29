@@ -20,7 +20,7 @@ this file first, so state facts and not intentions.
 ---
 
 ## 10b — Session 10's staging device gate and once-over — PARTIAL (awaiting the owner's once-over) — 2026-10-30
-- PR: #PR (branch `portal/10b-staging-device-gate`)
+- PR: #38 (branch `portal/10b-staging-device-gate`)
 - Built: nothing new in the code. This entry is session 10's device check, rerun against **staging** with **the Sony**.
 - Verified: Xiaomi Pad 6 over Wi-Fi adb, debug APK of `main` at `a75adac` (before 13 merged; 13 had its own staging run).
   - Setup: a throwaway OPEN event and device made with the staging admin API (service token).
