@@ -45,6 +45,15 @@ this file first, so state facts and not intentions.
   - Done when #3's manual cancel can't be done (no cancel control); the owner is asked to accept the tests for it.
   - The booth was left on the Sony, enrolled as "Pad 6 10b gate 2", event "Session 10 once-over".
   - Still on staging until after the once-over: the events "Session 10 staging gate" and "Session 10 once-over" and the device "Pad 6 10b gate 2". The probe event is deleted; the first device is revoked.
+- Independent review (fresh-context subagent, REVIEW.md §4–6): no blockers. It checked every number against the run logs and confirmed the serial-upload cause in the code.
+  - Fixed:
+    - block 1's recovery came from an item's own backoff ending, not the 30 s probe (block 2's did);
+    - HD 219–262 KB;
+    - gate 5 is not claimed met;
+    - the serial-upload fix idea that would actually help;
+    - block 1's lost session and the restart between sessions 3 and 4;
+    - the once-over scope and the staging objects still to delete.
+  - The UI-only screenshots are committed, as 13 did.
 - Deviations from DESIGN.md: none.
 - Wiki updated:
   - `wiki/Booth-Upload.md`: the staging results; the unverified list. Screenshots `wiki/portal/design/screenshots/10-1…9`.
