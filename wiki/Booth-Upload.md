@@ -448,6 +448,60 @@ upload path. **The Sony leg is unverified** (left for the once-over).
   tablet; `session_cancel` is covered by the core session tests and an app test that cancels
   mid-countdown on a non-test camera and checks nothing reaches the portal.
 
+## The post-shoot QR code (session 13)
+
+After a session the guest sees a QR code that opens the gallery on their own shots
+(DESIGN §10 item 4). `portal/gallery.rs` holds it all.
+
+**The gallery link is cached in memory only.** `galleryUrl` (`/e/{publicId}#k={token}`) lets
+anyone holding it see the whole event, so it is never written to `settings.json`, the outbox or
+the log, and `GalleryUrl` has no `Display` and a redacted `Debug`. The booth learns it:
+
+- when an event is selected (`portal_select_event` already re-fetches the event, so the link
+  comes with it, no extra request);
+- from `AppState::gallery_refresher`: at start-up, every 5 minutes while an event is selected,
+  and at once when the enrolment or the event changes (`GET /v1/device/events/{id}`).
+
+A 401 (revoked) or 404 (event gone) forgets the link; a network failure, a 5xx or a 429 keeps
+the last answer, because the booth may be briefly offline while the gallery is still LIVE (the
+shots upload later, and the link works then). Unenrolling, enrolling and clearing the event
+forget it at once. A restart forgets it too and asks again.
+
+**The link must be on the enrolled portal's own origin** and a `/e/` path, or the booth shows
+no QR code (and logs a warning without the link). A QR code on the booth is something guests
+trust; a misconfigured or tampered response can't send them elsewhere.
+
+**Why Rust renders the QR code.** The WebView never sees the link as text: it gets an SVG of
+modules (`portal_session_qr`), and nothing in the WebView, its console or the dev panel's log can
+leak the token. The `qrcode` crate makes the module matrix (no default features: no `image`);
+the SVG is drawn here as one rectangle per horizontal run, with the 4-module white quiet zone
+inside the SVG and a `viewBox` but no size, so CSS sizes it. Error correction **L**: the code is
+on a screen and can't get damaged, and fewer modules make each one larger. A staging link
+(about 110 characters) is version 6, 41 modules. A test draws the SVG back into pixels and reads
+it with an independent decoder (`rqrr`, dev-only).
+
+**The link for a session** is `galleryUrl` with `s={session_id}&n={shots}` appended to the
+fragment, once (any `s`/`n` already there is replaced), and only for a session ID and a count
+the gallery accepts (`SessionId`, 1–10). The token stays in the fragment, so a browser never
+sends it to the server.
+
+**Which session.** The completion hook tells `PostShoot` which session went to which event
+with how many shots (`Destination::handed_over`). It runs on the session task just before the
+review is published (session 13 moved it from just after), so the answer is ready when the UI
+asks. `portal_session_qr` answers only for that last session, and only while enrolled:
+
+| Situation | `mode` | Post-shoot screen |
+|---|---|---|
+| Enrolled, event selected, gallery LIVE, link known | `qr` | "Scan for your photos" + QR code |
+| Enrolled, event selected, gallery not LIVE (or not heard yet) | `event_gallery` | "Looking good." + "Your photos will be in the event gallery." |
+| Not enrolled, no event, test camera, or another session | `none` | As before the portal |
+
+**The review stays up longer with a QR code.** The hook can ask the session for a longer
+review (`OnSessionComplete` returns `Option<u8>`); the app asks for the new **QR Code Display
+Time** setting (default 20 s, 10–60, the design's 20 s) when the session gets a QR code. The
+session uses the larger of that and the strip display time, and `StripReview` now carries
+`auto_return_total`, so the progress bar knows the length. Without a QR code nothing changes.
+
 ## Not done yet, and unverified
 
 - The whole path ran on the tablet against `wrangler dev` on the PC (session 10, through
