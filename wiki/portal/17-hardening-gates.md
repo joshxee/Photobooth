@@ -46,6 +46,9 @@ its own session (`17b-*.md`).
    2. **Durability on device** (critical): 50 shots across about 17 sessions, with 30 minutes
       of airplane mode plus one app kill. The result must be exactly 50 READY, no duplicates,
       correct event IDs, and an empty outbox. The agent automates it and you watch and confirm.
+      Airplane mode ends Wireless debugging, so drive the offline part with a script on the
+      tablet that also turns Wireless debugging back on afterwards (session 10's staging run,
+      `wiki/Booth-Upload.md` → "Staging device results (session 10)").
    3. **No metadata, on both sides** (DESIGN §17 gate 3): the booth encoder's output for the
       GPS and serial-number fixture and for real Sony captures from the tablet has only
       allowlisted segments and the right orientation (inspect the variants as uploaded to
