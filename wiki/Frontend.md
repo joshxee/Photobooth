@@ -160,11 +160,16 @@ strip →*: a second way out would compete with the QR code. The "after the even
 only without the portal, where it is still true (the operator hands out copies from the SD card).
 
 **QR sizing.** `min(380px, 48vh)` square in a white tile with a 20 px radius (the SVG carries its
-own 4-module quiet zone, which the radius never reaches). On the Pad 6 (1280 × 800 CSS px,
-about 25 cm wide) 380 CSS px is about 7.5 cm, the most the column fits beside the headline,
-the line of copy and the pill. A staging link is a 41-module code (error correction L), so each
-module is about 1.5 mm: comfortable for a phone camera at about 1 m. The tile is plain white
-on the dark background, so booth lighting can't wash out its contrast.
+own 4-module quiet zone, which the radius never reaches). The Pad 6's WebView is **1152 × 720
+CSS px** (2880 × 1800 at DPR 2.5, measured with `wm density`), so the code is 48vh = 345 CSS px
+= 862 device px, about 7 cm at the screen's 309 ppi: the most the column fits beside the
+headline, the line of copy and the pill. A staging link is a version-6 code (41 modules plus the
+quiet zone, error correction L), so each module is about 1.4 mm. The tile is plain white on the
+dark background, so booth lighting can't wash out its contrast. Measured on the tablet: the
+finder patterns span 709 device px, and OpenCV decodes the code from a plain `screencap`.
+
+The QR headline is `min(56px, 4.4vw)`: at 56 px "Scan for your photos" (516 px) wrapped in the
+Pad 6's 504 px column, found on the tablet; a desktop browser at 1280 px didn't show it.
 
 **Selectors:** heading `Scan for your photos`; `role=img` with `aria-label="QR code for your
 photos"` (the SVG inside is `aria-hidden`); text `Your photos will be in the event gallery.`.

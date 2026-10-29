@@ -502,12 +502,43 @@ Time** setting (default 20 s, 10–60, the design's 20 s) when the session gets 
 session uses the larger of that and the strip display time, and `StripReview` now carries
 `auto_return_total`, so the progress bar knows the length. Without a QR code nothing changes.
 
+**Races closed after the review.** A refresh that was in flight while the operator changed the
+event writes only if the event is still selected, checked under the same lock as the write
+(`PostShoot::set_gallery_if`; the selection saves the settings before its link). A session the
+encoder thread never took isn't recorded, so it can't get a QR code for shots that will never
+arrive. `portal_session_qr` ignores (and doesn't log) anything that isn't a session ID. The QR
+link's fragment is exactly `k`, `s` and `n` (whatever else the portal's fragment held, including
+an encoded `s`, is dropped), and the gallery link must be `/e/{publicId}` as the gallery parses it.
+
+### Device results (session 13, 2026-10-30, staging)
+
+Xiaomi Pad 6 over Wi-Fi adb, debug APK of the branch, enrolled on
+`https://portal-staging.josh-33c.workers.dev` with a code from the staging admin API (real TLS
+to Cloudflare), a throwaway LIVE event, and **the Sony A7 III** as the camera (live view and
+capture over USB worked first time). Six real sessions:
+
+- **QR state:** the screenshot's QR code decodes (OpenCV, from `adb exec-out screencap`) to
+  exactly `…/e/{publicId}#k={token}&s={session}&n=3`. Opened in Claude's built-in browser at
+  375 × 812: the token swap, a clean `/e/{id}?s=…&n=3` address, "Your photos", 3 photos.
+- **Shot-to-READY** (gate 5: `capturedAt` → `publishedAt` from the admin API, 9 shots in 3
+  sessions): 5.4–12.7 s, all under 15 s. The first shot of a session waits longest because the
+  booth encodes and uploads once the session completes. The booth's own `since_capture_ms` on
+  READY reads about 1.5 s more (it includes the response's trip back).
+- **READY-to-visible** (the session view open before the shots, with its `&n=3` placeholders,
+  "0 of 3 ready"): 6.7–10.7 s, one poll of the gallery's 10 s ± 10 % fast interval.
+- **Not LIVE:** gallery suspended through the admin API, app restarted (the start-up refresh):
+  "Looking good." + "Your photos will be in the event gallery.", a 12 s review, no QR code.
+- **No portal:** the Test Camera's session shows the original copy (`mode="none"`).
+- The start-up refresh logged `gallery link updated live=true`; the token and the gallery link
+  appear 0 times in 162,504 logcat lines and in no file under the app's data directory.
+
 ## Not done yet, and unverified
 
 - The whole path ran on the tablet against `wrangler dev` on the PC (session 10, through
-  `adb reverse` and `photos.localhost`; see above). Against Cloudflare it is **unverified**:
-  real TLS (webpki-roots against Cloudflare's certificate), real airplane mode, and the
-  Sony as the camera wait for the staging run (07) and the user's once-over.
+  `adb reverse` and `photos.localhost`; see above). Session 13 then ran it against staging:
+  real TLS (webpki-roots against Cloudflare's certificate) and the Sony as the camera, 6
+  sessions, all READY (see "Device results (session 13)"). Still **unverified** on Cloudflare:
+  real airplane mode and the rest of session 10's staging run.
 - File I/O is blocking. `drain_once` reads each variant (typically 0.25–0.62 MB, up to the
   contract's 3 MB HD cap) and writes and `fsync`s records inline, holding the outbox lock
   during each write; an `fsync` on f2fs can take tens of milliseconds. Hence `enqueue` runs on
