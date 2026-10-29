@@ -98,22 +98,24 @@ impl OnSessionComplete for EncodeAndQueue {
             shots = session.shots.len(),
             "session handed to the outbox"
         );
-        let review =
-            self.destination
-                .handed_over(&session.session_id, &event_id, session.shots.len());
+        let (session_id, shots) = (session.session_id.clone(), session.shots.len());
         let sent = self
             .jobs
             .lock()
             .unwrap_or_else(|e| e.into_inner())
-            .send(Job { session, event_id });
-        if let Err(mpsc::SendError(job)) = sent {
+            .send(Job {
+                session,
+                event_id: event_id.clone(),
+            });
+        if sent.is_err() {
             tracing::error!(
-                session_id = %job.session.session_id,
+                session_id = %session_id,
                 "the outbox encoder is not running: session not queued"
             );
+            // Not handed over: no QR code for shots that will never arrive.
             return None;
         }
-        review
+        self.destination.handed_over(&session_id, &event_id, shots)
     }
 }
 
@@ -323,6 +325,23 @@ mod tests {
             hook.on_session_complete(session(CameraId::SONY_USB, "bb-1")),
             None,
             "no event, no QR"
+        );
+
+        // The encoder thread is gone: nothing is queued, so nothing is handed over.
+        let (tx, rx) = mpsc::channel();
+        drop(rx);
+        let orphan = EncodeAndQueue {
+            destination: destination.clone(),
+            jobs: Mutex::new(tx),
+        };
+        assert_eq!(
+            orphan.on_session_complete(session(CameraId::SONY_USB, "cc-1")),
+            None
+        );
+        assert_eq!(
+            destination.handed.lock().unwrap().len(),
+            1,
+            "cc-1 not recorded"
         );
     }
 

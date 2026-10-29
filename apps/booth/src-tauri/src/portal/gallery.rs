@@ -21,11 +21,14 @@ use super::client::PortalOrigin;
 pub struct GalleryUrl(String);
 
 impl GalleryUrl {
-    /// The portal's link, if it is a gallery link (`/e/…`) on the enrolled portal's own
-    /// origin: a QR code on the booth must never send guests anywhere else.
+    /// The portal's link, if it is a gallery link (`/e/{publicId}`, as the gallery parses it)
+    /// on the enrolled portal's own origin: a QR code on the booth must never send guests
+    /// anywhere else.
     pub fn checked(self, origin: &PortalOrigin) -> Option<Self> {
         let url = Url::parse(&self.0).ok()?;
-        (origin.is_same_origin(&url) && url.path().starts_with("/e/")).then_some(self)
+        let id = url.path().strip_prefix("/e/")?;
+        let id = id.strip_suffix('/').unwrap_or(id);
+        (origin.is_same_origin(&url) && is_link_id(id)).then_some(self)
     }
 
     pub fn expose(&self) -> &str {
@@ -39,36 +42,32 @@ impl fmt::Debug for GalleryUrl {
     }
 }
 
-/// The gallery's limits on what it reads from the link (`src/web/gallery/link.ts`): a
-/// session ID as the contract's `SessionId`, and 1–10 shots.
-fn is_session_id(id: &str) -> bool {
+/// The gallery's rule for the IDs in its link (`src/web/gallery/link.ts`: the public ID and
+/// the session ID, the contract's `SessionId`).
+pub(crate) fn is_link_id(id: &str) -> bool {
     (1..=64).contains(&id.len())
         && id
             .bytes()
             .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
 }
 
-/// The QR code's link for one session: the gallery link with `s={session_id}&n={shots}` in
-/// its fragment, once. Any `s` or `n` already there is replaced. `None` for a session ID or
-/// a shot count the gallery would ignore.
+/// The QR code's link for one session: the gallery link's fragment becomes
+/// `k={token}&s={session_id}&n={shots}`, exactly what the gallery reads, so the session is
+/// in it once whatever the portal's fragment held (anything else there is dropped, including
+/// an `s` or `n`, however encoded). `None` without a token, or for a session ID or a shot
+/// count (1–10) the gallery would ignore.
 pub fn session_link(gallery: &GalleryUrl, session_id: &str, shots: usize) -> Option<String> {
-    if !is_session_id(session_id) || !(1..=10).contains(&shots) {
+    if !is_link_id(session_id) || !(1..=10).contains(&shots) {
         return None;
     }
     let mut url = Url::parse(gallery.expose()).ok()?;
-    let mut fragment: Vec<String> = url
+    let token = url
         .fragment()
         .unwrap_or_default()
         .split('&')
-        .filter(|pair| {
-            let key = pair.split('=').next().unwrap_or_default();
-            !pair.is_empty() && key != "s" && key != "n"
-        })
-        .map(str::to_owned)
-        .collect();
-    fragment.push(format!("s={session_id}"));
-    fragment.push(format!("n={shots}"));
-    url.set_fragment(Some(&fragment.join("&")));
+        .find(|pair| pair.starts_with("k=") && pair.len() > 2)?
+        .to_owned();
+    url.set_fragment(Some(&format!("{token}&s={session_id}&n={shots}")));
     Some(url.into())
 }
 
@@ -175,6 +174,26 @@ impl PostShoot {
         });
     }
 
+    /// [`PostShoot::set_gallery`], but only if `still_selected()` holds, checked under the same
+    /// lock as the write: a refresh that raced an event change can't overwrite the new event's
+    /// link (the selection writes the settings before the link). Returns whether it wrote.
+    pub fn set_gallery_if(
+        &self,
+        event_id: &str,
+        url: Option<GalleryUrl>,
+        still_selected: impl FnOnce() -> bool,
+    ) -> bool {
+        let mut gallery = lock(&self.gallery);
+        if !still_selected() {
+            return false;
+        }
+        *gallery = Some(KnownGallery {
+            event_id: event_id.to_owned(),
+            url,
+        });
+        true
+    }
+
     /// Forgets the link (unenrolled, event cleared, revoked).
     pub fn forget_gallery(&self) {
         *lock(&self.gallery) = None;
@@ -249,14 +268,26 @@ pub(crate) mod tests {
     fn fragment_edge_cases_still_give_one_well_formed_fragment() {
         let base = "https://photos.example.invalid/e/abc";
         for (gallery, expected) in [
-            (base.to_owned(), format!("{base}#s=s-1&n=2")),
-            (format!("{base}#"), format!("{base}#s=s-1&n=2")),
-            (format!("{base}#k=t&"), format!("{base}#k=t&s=s-1&n=2")),
-            (format!("{base}#&&k=t"), format!("{base}#k=t&s=s-1&n=2")),
+            (
+                format!("{base}#k=t&"),
+                Some(format!("{base}#k=t&s=s-1&n=2")),
+            ),
+            (
+                format!("{base}#&&k=t"),
+                Some(format!("{base}#k=t&s=s-1&n=2")),
+            ),
+            (
+                format!("{base}#k=t&k=u"),
+                Some(format!("{base}#k=t&s=s-1&n=2")),
+            ),
+            // No token: the gallery couldn't open it, so no QR code.
+            (base.to_owned(), None),
+            (format!("{base}#"), None),
+            (format!("{base}#k="), None),
         ] {
             assert_eq!(
                 session_link(&url(&gallery), "s-1", 2),
-                Some(expected),
+                expected,
                 "from {gallery}"
             );
         }
@@ -264,10 +295,15 @@ pub(crate) mod tests {
 
     #[test]
     fn the_session_is_appended_once_even_if_the_link_already_has_one() {
-        let link = session_link(&url(&format!("{LIVE}&s=old-1&n=9&ss=x")), "new-2", 4).unwrap();
+        // `%73` is an encoded `s`: URLSearchParams would decode it and read the first `s`.
+        let link = session_link(
+            &url(&format!("{LIVE}&s=old-1&n=9&ss=x&%73=evil-1")),
+            "new-2",
+            4,
+        )
+        .unwrap();
         let fragment = link.split_once('#').unwrap().1;
-        assert_eq!(fragment, "k=ZXhhbXBsZS10b2tlbi0wMQ&ss=x&s=new-2&n=4");
-        assert_eq!(link.matches("s=").count(), 2, "ss=x and s=new-2 only");
+        assert_eq!(fragment, "k=ZXhhbXBsZS10b2tlbi0wMQ&s=new-2&n=4");
     }
 
     #[test]
@@ -293,11 +329,19 @@ pub(crate) mod tests {
     #[test]
     fn only_a_gallery_link_on_the_enrolled_origin_is_kept() {
         assert!(url(LIVE).checked(&origin()).is_some());
+        assert!(
+            url("https://photos.example.invalid/e/k7m2q9x4c3v8b6n5/#k=t")
+                .checked(&origin())
+                .is_some()
+        );
         for other in [
             "https://evil.example/e/k7m2q9x4c3v8b6n5#k=t",
             "http://photos.example.invalid/e/k7m2q9x4c3v8b6n5#k=t",
             "https://photos.example.invalid:8443/e/k7m2q9x4c3v8b6n5#k=t",
             "https://photos.example.invalid/admin#k=t",
+            "https://photos.example.invalid/e/a/b#k=t",
+            "https://photos.example.invalid/e/#k=t",
+            "https://photos.example.invalid/e/a%20b#k=t",
             "not a url",
         ] {
             assert!(url(other).checked(&origin()).is_none(), "{other}");
@@ -421,6 +465,17 @@ pub(crate) mod tests {
         post.set_gallery("ev", Some(url(LIVE)));
         post.forget_gallery();
         assert_eq!(post.gallery_for("ev"), None);
+    }
+
+    /// A refresh that raced the operator's change of event writes nothing.
+    #[test]
+    fn a_stale_refresh_never_overwrites_the_new_events_link() {
+        let post = PostShoot::default();
+        post.set_gallery("new", Some(url(LIVE)));
+        assert!(!post.set_gallery_if("old", None, || false));
+        assert!(post.gallery_for("new").is_some(), "kept");
+        assert!(post.set_gallery_if("new", None, || true));
+        assert_eq!(post.gallery_for("new"), None);
     }
 
     #[test]

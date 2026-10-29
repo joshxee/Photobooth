@@ -25,7 +25,7 @@ use crate::dto::{
 };
 use crate::logs::LogRingBuffer;
 use crate::portal::client::PortalOrigin;
-use crate::portal::gallery::{PostShoot, SessionShare};
+use crate::portal::gallery::{is_link_id, PostShoot, SessionShare};
 use crate::portal::PortalService;
 use crate::upload::hook::{Destination, EncodeAndQueue, Encoder};
 use crate::upload::pump::{ClientSource, PortalSource};
@@ -486,6 +486,10 @@ impl AppState {
     /// gallery, or what the booth showed before the portal (DESIGN §10 item 4). Only the
     /// SVG leaves Rust, never the link or its token.
     pub fn portal_session_qr(&self, session_id: &str) -> SessionShare {
+        if !is_link_id(session_id) {
+            // Not a session ID: nothing to show, and nothing from the WebView to log.
+            return SessionShare::None;
+        }
         let share = if matches!(self.portal.enrolment(), Ok(Some(_))) {
             self.post_shoot.share(session_id)
         } else {
@@ -520,15 +524,16 @@ impl AppState {
                 let Some(event) = selected() else { return };
                 if let Some(event_id) = event {
                     match portal.gallery(&event_id).await {
-                        // Only if the operator didn't change the event meanwhile.
-                        Ok(url) if selected().flatten().as_deref() == Some(event_id.as_str()) => {
+                        Ok(url) => {
                             let live = url.is_some();
-                            if live != post_shoot.gallery_for(&event_id).is_some() {
+                            let was_live = post_shoot.gallery_for(&event_id).is_some();
+                            // Only if the operator didn't change the event meanwhile.
+                            let still = || selected().flatten().as_deref() == Some(&*event_id);
+                            if post_shoot.set_gallery_if(&event_id, url, still) && live != was_live
+                            {
                                 tracing::info!(event_id, live, "gallery link updated");
                             }
-                            post_shoot.set_gallery(&event_id, url);
                         }
-                        Ok(_) => {}
                         Err(err) => tracing::info!(
                             event_id,
                             %err,

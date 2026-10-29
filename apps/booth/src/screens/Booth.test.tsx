@@ -412,8 +412,18 @@ describe("post-shoot QR code (session 13)", () => {
     await setSession(review("s-1", 19));
     expect(backend.callsTo("portal_session_qr").map((c) => c.args)).toEqual([{ sessionId: "s-1" }]);
 
-    // Take another: a new session, asked again; this one goes nowhere.
+    // Take another: a new session. Until Rust answers for it, the old session's QR code
+    // (its own filtered link) must not stay up.
+    let answer: (share: unknown) => void = () => {};
+    backend.on("portal_session_qr", () => new Promise((resolve) => (answer = resolve)));
     await setSession(review("s-2"));
+    await until(() => backend.callsTo("portal_session_qr").length === 2, "asked for s-2");
+    expect(screen.queryByRole("img", { name: "QR code for your photos" })).toBeNull();
+    expect(screen.queryByText("Scan for your photos")).toBeNull();
+    await act(async () => {
+      answer({ mode: "none" });
+      await flush();
+    });
     await until(() => screen.queryByText("Looking good.") !== null, "the old copy");
     expect(backend.callsTo("portal_session_qr").map((c) => c.args)).toEqual([
       { sessionId: "s-1" },

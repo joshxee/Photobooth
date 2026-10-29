@@ -891,6 +891,13 @@ select {
   color: #fff;
 }
 
+/* "Scan for your photos" on one line in the column beside the strip: the Pad 6 is
+   1152 CSS px wide (DPR 2.5), where 56 px would wrap. */
+.review--qr .review__headline {
+  font-size: min(56px, 4.4vw);
+  line-height: 1;
+}
+
 /* Until Rust says what the review offers (milliseconds), keep the place but show nothing. */
 .review__text.is-pending {
   visibility: hidden;
@@ -905,8 +912,8 @@ select {
 }
 
 /* The session's QR code (session 13). As large as the column allows, for a scan from about
-   1 m: 380 CSS px is about 7.5 cm on the Pad 6. Rust's SVG carries its own white quiet zone,
-   which the corner radius never reaches. */
+   1 m: on the Pad 6 (1152 × 720 CSS px) that is 48vh, 345 CSS px or about 7 cm. Rust's SVG
+   carries its own white quiet zone, which the corner radius never reaches. */
 .review__qr {
   width: min(380px, 48vh);
   aspect-ratio: 1;
