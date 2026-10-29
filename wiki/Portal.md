@@ -239,10 +239,12 @@ On the real Workers (commits `a584176` and `8d89aef`), from this PC and from the
   an invented preview hostname gets Cloudflare's 404, not the Worker. The gallery Worker answers
   `/api/events` with 404 (it never serves admin).
 
-**Not verified on staging:** a person's Access JWT (only the service token's; open the admin UI in a
-browser to check the email path, the dialogs and downloads, the Photos tab's `<img>` previews through
-the Access cookie, and `Asia/…` zones from sessions 14 and 15; `smoke.ts --keep` leaves a synthetic
-event to look at);
+A person's Access login was checked by the owner in a browser on 2026-10-28 (07b): the Events
+list, the Photos tab's `<img>` previews and the full-size viewer through the Access cookie, deleting an
+event and revoking a device.
+
+**Not verified on staging:** the other admin dialogs and downloads, and `Asia/…` zones from session
+14 (`smoke.ts --keep` leaves a synthetic event to look at);
 `SESSION_LIMITER` and `INTENT_LIMITER` reaching 429 (same binding as `ENROL_LIMITER`); remote D1
 `rows_read`; concurrent PUTs on remote D1; the retention
 cron's CPU and that it fires (it first runs at 14:00 UTC; read it with `wrangler tail --env
@@ -1033,10 +1035,28 @@ is locked out at once.
 ### Errors
 
 `api.ts` turns the closed error codes into sentences; the server's own text is shown only for
-`conflict`, which the Worker words for people. A fetch that throws, or an answer that isn't the API's
-JSON, is "can't reach the server; reload the page to sign in again": when Access's session lapses the
-browser is redirected to its login page, which looks exactly like that. A 401/403 from the Worker
-replaces the app with the Not authorised page.
+`conflict`, which the Worker words for people. A 401/403 from the Worker replaces the app with the
+Not authorised page. Three failures never reach the API, and the admin is told which (07b):
+
+- **Signed out.** When the Access session lapses, Access answers with a 302 to its login page on
+  another origin. Followed, that fails as CORS and looks like a network error, so requests use
+  `redirect: "manual"` and an `opaqueredirect` reads as "Your sign-in has ended. Reload the page".
+  Not Access's documented SPA option (`X-Requested-With: XMLHttpRequest`, which makes it answer
+  401): a 401 would show the Not authorised page instead of "sign in again". The Devices view, open
+  for hours on event day, adds the sentence to its "Couldn't refresh" line.
+- **Blocked.** Content blockers' filter lists can match paths like `/api/event…`. On staging, uBlock
+  Origin blocked the admin's `GET /api/events` (which filter matched wasn't recorded; uBlock's logger
+  shows it), and the Events list said "can't reach the server" while everything else worked. When a
+  request throws, `api.ts` probes `/healthz`, which is behind Access like every path and on no list we
+  know of. If it answers, the request was refused in the browser, or the connection blipped and is
+  back. A GET is then sent once more, and only a second failure (or a failed mutation, never resent)
+  reads "This request didn't get through. If you use an ad or tracker blocker, allow this site;
+  otherwise try again." If the probe redirects, the session lapsed; if it throws too, "Can't reach
+  the server". An extension that *redirects* a request instead of blocking it would read as signed
+  out; that case is rare enough to leave. The paths keep their names: the admins can allow-list the
+  admin host. The guest gallery can't rely on that, and session 17 checks it with uBlock Origin's
+  default lists.
+- **Network.** Nothing answers, or a 2xx answer isn't the API's JSON (a proxy's page).
 
 ### What was verified, and where
 
@@ -1312,9 +1332,8 @@ EOI only), so the header walk (session 06) accepts them and browsers display the
   enrolment").
 - `ADMIN_EMAILS`, `ACCESS_*` and `CONTACT_*` are still empty in production (session 18 fills them;
   `scripts/preflight.ts` refuses the deploy until then).
-- A real Access service-token JWT is accepted on staging (session 07: `common_name`, `aud`, issuer,
-  signature). A real *user* JWT (the email path) is **unverified** until someone signs in to the staging
-  admin UI.
+- Real Access JWTs are accepted on staging: the service token's (session 07: `common_name`, `aud`, issuer,
+  signature) and a person's (the email path, the owner's browser check, 07b).
 - The certs cache is per isolate, so each new isolate fetches the certs once.
 - `GET /api/events` is unpaginated and the response schema caps it at 1,000 events, so the list
   would return a 500 past that. At about four events a month that is decades away; paginate it

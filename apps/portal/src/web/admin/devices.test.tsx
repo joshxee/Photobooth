@@ -103,6 +103,24 @@ describe("auto-refresh", () => {
     expect(text()).toContain("Booth A");
     expect(text()).toContain("Couldn't refresh");
   });
+
+  it("says why a refresh failed when the sign-in has ended", async () => {
+    const env = fakeAdminEnv();
+    let failing = false;
+    mocked = mockFetch(() => {
+      if (!failing) return json({ devices: [device({ name: "Booth A" })] });
+      // What fetch(…, { redirect: "manual" }) gives for Access's login redirect.
+      const res = new Response(null, { status: 204 });
+      Object.defineProperties(res, { type: { value: "opaqueredirect" }, status: { value: 0 }, ok: { value: false } });
+      return res;
+    });
+    await mountApp(env.env, "/devices");
+    failing = true;
+    await settle(() => env.advance(15_000));
+    expect(text()).toContain("Booth A");
+    expect(text()).toContain("Couldn't refresh");
+    expect(text()).toContain("Your sign-in has ended. Reload the page to sign in again.");
+  });
 });
 
 describe("create a booth and show its code once", () => {

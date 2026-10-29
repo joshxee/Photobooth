@@ -85,6 +85,7 @@ export interface Call {
   path: string;
   body: unknown;
   headers: Record<string, string>;
+  redirect: RequestRedirect | undefined;
 }
 
 /** Replaces global fetch with `route`; records every call. */
@@ -98,6 +99,7 @@ export function mockFetch(route: (call: Call) => Response | Promise<Response>) {
       path: url.pathname + url.search,
       body: typeof init?.body === "string" ? JSON.parse(init.body) : null,
       headers: Object.fromEntries(Object.entries((init?.headers ?? {}) as Record<string, string>).map(([k, v]) => [k.toLowerCase(), v])),
+      redirect: init?.redirect,
     };
     calls.push(call);
     return route(call);

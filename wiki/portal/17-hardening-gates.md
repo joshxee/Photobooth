@@ -36,6 +36,11 @@ its own session (`17b-*.md`).
    - **Logs:** tail staging during a smoke run and grep for tokens, cookies, `sig=` and
      `#k=`. There must be none.
    - Dependency audit: `bun pm ls`, and check each portal dependency is in DESIGN §5.
+   - **Content blockers (added by 07b):** open the guest gallery from a QR link (session swap,
+     grid, viewer, download) in a browser with uBlock Origin's default lists (EasyList and
+     EasyPrivacy). Guests won't allow-list us, so every gallery request must get through. On
+     staging, uBlock blocked the admin's `/api/events` (wiki/Portal.md → "Errors"). Record any
+     blocked request in `gates/security.md`, and fix it in this session if a guest path is hit.
 2. **Release gates** (record each in `wiki/portal/gates/release.md` with evidence):
    1. Security (above).
    2. **Durability on device** (critical): 50 shots across about 17 sessions, with 30 minutes
