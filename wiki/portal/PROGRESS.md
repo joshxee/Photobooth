@@ -19,6 +19,20 @@ this file first, so state facts and not intentions.
 
 ---
 
+## 13 — Booth post-shoot screen with session QR — PARTIAL (device run pending) — 2026-10-30
+- PR: (branch `portal/13-booth-post-shoot`)
+- Built:
+  - `apps/booth/src-tauri/src/portal/gallery.rs`: `GalleryUrl` (redacted `Debug`, no `Display`, kept only if it is a `/e/` link on the enrolled origin), `session_link` (`&s={session}&n={shots}` appended to the fragment once), `qr_svg` (`qrcode` crate matrix, EC L, own SVG with the quiet zone and a `viewBox`), `PostShoot` (the gallery link and the last session handed over, memory only), `SessionShare` (`qr` / `event_gallery` / `none`).
+  - `PortalService::gallery(id)` (401/404 forget the link, network/5xx/429 keep the last answer) and `open_event` returning the link with the event; `AppState::gallery_refresher` (start-up, every 5 min, on enrol/unenrol/clear), command `portal_session_qr{session_id}` (default capability).
+  - Core: the completion hook runs just before `StripReview` is published and can ask for a longer review (`OnSessionComplete` returns `Option<u8>`); `StripReview` carries `auto_return_total`; setting `qr_display_seconds` (default 20, 10–60). The app asks for it only when the session gets a QR code.
+  - UI: `StripReview` with the three states (Frontend.md table), `useSessionShare`, Settings → **QR Code Display Time**.
+- Verified: `cargo fmt --all -- --check`; clippy `-D warnings` for `photobooth-core` and `photobooth`; `cargo test -p photobooth-core` (164) and `cargo test -p photobooth` (134); `apps/booth` typecheck, `bun test` (171), build. Named tests: `the_svg_reads_back_as_the_session_link_and_scales_to_its_box` (rqrr decodes the SVG), `the_session_is_appended_once_even_if_the_link_already_has_one`, `fragment_edge_cases_still_give_one_well_formed_fragment`, `only_a_gallery_link_on_the_enrolled_origin_is_kept`, `a_session_shows_its_qr_code_while_the_gallery_is_live` (real encoder and HTTP client against the mock portal: QR decoded to the exact link, gallery hidden → `event_gallery` and the strip time, no token or link in any log line or IPC payload), `without_the_portal_the_review_is_unchanged`, `the_test_camera_never_gets_a_qr_code`, `the_hook_can_keep_the_review_up_longer_but_never_shorter`; UI: QR present, gallery not LIVE, not enrolled/no event (today's copy), pending, a failing call.
+- Device check: **critical: pending** (the tablet's Wireless debugging was off at the start of the session).
+- Deviations from DESIGN.md: §10 item 4 records the states, the memory-only cache and the QR display time. `portal_session_qr` returns a tagged `SessionShare` (the SVG inside `qr`), not a bare SVG string, so the screen can tell "not LIVE" from "no portal".
+- Wiki updated: `wiki/Booth-Upload.md` ("The post-shoot QR code"), `wiki/Frontend.md` ("The post-shoot screen"), `wiki/Tauri-App.md` (capability review), `wiki/portal/DESIGN.md` §10 item 4.
+
+---
+
 ## 07b — Admin: blocked requests told apart from network failures — DONE — 2026-10-28
 - PR: #36 (branch `portal/07b-admin-blocked-requests`)
 - Found by the owner's browser check of staging after #35 merged. The Events list said "Can't reach the
