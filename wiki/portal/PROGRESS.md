@@ -19,6 +19,67 @@ this file first, so state facts and not intentions.
 
 ---
 
+## 10b — Session 10's staging device gate and once-over — DONE — 2026-10-30
+- PR: #38 (branch `portal/10b-staging-device-gate`)
+- Built: nothing new in the code. This entry is session 10's device check, rerun against **staging** with **the Sony**.
+- Verified: Xiaomi Pad 6 over Wi-Fi adb, debug APK of `main` at `a75adac` (before 13 merged; 13 had its own staging run).
+  - Setup: a throwaway OPEN event and device made with the staging admin API (service token).
+  - Screenshots: the badge and Upload Queue states are `wiki/portal/design/screenshots/10-1…9`.
+  - Booth: `https://portal-staging.josh-33c.workers.dev` (real TLS), the Sony A7 III.
+  - Evidence: `wiki/Booth-Upload.md` → "Staging device results (session 10)"; screenshots, run logs and a logcat excerpt in the session notes folder (`10b-evidence`).
+  - **Count:** 10 sessions → **exactly 30 READY** (admin API). One event ID; the 10 session IDs match the booth's hand-over lines; shots 1–3 once each; no PENDING/REJECTED.
+  - **Session end → READY** online: **6.6–7.7 s**. Encode 378–541 ms per Sony shot; each upload 1.9–2.7 s, one after another within a session (see Notes).
+  - **Real airplane mode, twice**, driven by a script on the tablet because airplane mode drops adb:
+    - 5 min 45 s: 2 sessions shot offline, then `am force-stop` with 6 queued → relaunch `items=6`, `Queued 6`, offline. Network back → all 6 READY in **19.7 s**, two uploads at once.
+    - 5 min 30 s: sessions shot at t = 8 s and t = 200 s; all 6 READY **26.1 s** after airplane off.
+  - **Take another** tapped 4.4 s into session 4's review, while its shots were still uploading: all of sessions 4 and 5 arrived.
+  - **Revoke** (admin API) → session 10 → `Uploads paused: the portal refused this booth`, `Queued 3`. New device code, Unenrol, Enrol → all 3 READY in 3.8 s.
+  - **Needs attention:** a deleted event's session → `event_closed (409)` ×3, badge `3 need attention`. Retry → the same 409; Delete… with its confirmation → outbox empty.
+  - **Badge states captured:** all sent, offline N waiting, sending N left, paused/refused, N need attention. Settings: Queued 6 + offline, Uploading 1/2, Queued 3 + refused, the needs-attention list.
+  - **Outbox:** only `*.thumb.jpg`/`*.hd.jpg`/`*.json` in every listing; empty at the end.
+  - **Test Camera:** not handed to the hook, nothing queued, 0 photos.
+  - **Credential:** 0 hits in 242,882 logcat lines and in every app file except the `0600` credential file.
+  - **NOT verified:** multi-hour offline, a full disk, several booths, the custom domains, production. **Cancel:** the UI has no cancel control (unit and app tests only, as in 10).
+- Device check: **critical. [x] Automated gate: passed** (above). **[x] Human once-over: passed** on 2026-10-30. The owner's words: "once-over done, all good".
+  - What it covered: the Sony on staging event "Session 10 once-over", device "Pad 6 10b gate 2".
+  - Admin API afterwards: **6 READY**, from 2 sessions, with no duplicates and no wrong event.
+    - Session 6, online: READY 5 s after its last shot.
+    - Session 7, shot offline: the app was killed with 3 queued and relaunched with `items=3`, offline. The probe got through at 13:54:01, and all 3 were READY by 13:54:05.8.
+  - The third, online session (step 6) wasn't run, so the event had 6 photos rather than 9. Step 2 had already covered an online session.
+  - Cancel: there is still no cancel control, so it is covered by tests only (as in 10). The owner's reply didn't mention it.
+  - Cleaned up afterwards:
+    - Both events are deleted (soft delete, purged on the retention schedule). The probe event was deleted earlier.
+    - Both devices are revoked.
+    - The tablet is unenrolled, its outbox is empty, and the run's scripts, logs and screenshots are gone from `/data/local/tmp`.
+- Independent review (fresh-context subagent, REVIEW.md §4–6): no blockers. It checked every number against the run logs and confirmed the serial-upload cause in the code.
+  - Fixed:
+    - block 1's recovery came from an item's own backoff ending, not the 30 s probe (block 2's did);
+    - HD 219–262 KB;
+    - gate 5 is not claimed met;
+    - the serial-upload fix idea that would actually help;
+    - block 1's lost session and the restart between sessions 3 and 4;
+    - the once-over scope and the staging objects still to delete.
+  - The UI-only screenshots are committed, as 13 did.
+- Deviations from DESIGN.md: none.
+- Wiki updated:
+  - `wiki/Booth-Upload.md`: the staging results; the unverified list. Screenshots `wiki/portal/design/screenshots/10-1…9`.
+  - `wiki/portal/17-hardening-gates.md`: gate 2's airplane mode can be scripted.
+- Notes for next sessions:
+  - **Follow-up (throughput):** within a session the shots upload one at a time.
+    - Why: new items are due at once (`next_attempt_at = UNIX_EPOCH`), so the pass starts when shot 1 is queued. `drain_once`'s second worker finds nothing and ends; the first worker then does shots 2 and 3 in turn.
+    - Two uploads only overlap on a backlog.
+    - Fix idea: end the pass when a worker finds nothing due, so the next pass (the enqueue nudges are waiting) takes shots 2 and 3 together. An idle worker re-checking at once wouldn't help: shot 2 is queued about 450 ms after shot 1.
+    - Worth about 2 s per session. One booth's shot-to-READY (6.9–13.9 s) is within gate 5's 15 s, with little margin; gate 5 itself (5 booths, p95) hasn't been run.
+  - **17 (gate 2):** real airplane mode sets `adb_wifi_enabled` to 0. A detached script on the tablet (`setsid nohup sh script.sh &`) can:
+    - shoot with `input tap`, force-stop and screenshot;
+    - turn airplane mode off and run `settings put global adb_wifi_enabled 1` once Wi-Fi is back.
+
+    adb's mDNS auto-connect found the tablet within about 90 s, so the 30-minute gate can run unattended. Don't visit Settings in such a script: its Back button scrolls out of view (block 1 lost a session that way).
+  - A booth keeps a deleted event selected; its shots need attention with `event_closed`. Expected; the operator picks another event.
+  - The debug build's Sony live view logs `live view frame refused (AccessDenied)` at DEBUG many times a second, so logcat's ring buffer holds only minutes. Record with `logcat -s Photobooth:I -f …` on the tablet.
+
+---
+
 ## 13 — Booth post-shoot screen with session QR — DONE — 2026-10-30
 - PR: #37 (branch `portal/13-booth-post-shoot`)
 - Built:
@@ -255,7 +316,7 @@ this file first, so state facts and not intentions.
   - Commands `outbox_status`, `outbox_items`, `outbox_retry{id}`, `outbox_dismiss{id}` (default capability; retry/dismiss in `spawn_blocking`), event `portal://outbox` (sent when the status differs, at least every 60 s). `PortalService::with_outbox_depth` (`X-Outbox-Depth` = outbox length) and `client_with(http)`. `lib.rs` opens the outbox at `{app_data}/outbox` in every build; the 08 and 08b debug probes are gone; `AppState::set_completion_hook` is no longer debug-only.
   - UI: an upload badge on the camera picker beside the `Portal:` line (`role=status`, `Upload status`), Settings → Upload Queue (counts, free storage, low-storage/revoked/offline text, needs-attention list with Retry and a confirmed Delete, Dismiss for not-queued notices). Guest screens unchanged.
 - Verified: `cargo fmt --all -- --check`; clippy `-D warnings` for `photobooth-core` and `photobooth`; `cargo test -p photobooth-core` (161, 5 new) and `cargo test -p photobooth` (117: 26 new, the 08b probe's 2 removed: the hook, the loop on a paused clock with a fake portal, `Uploads`, and three end-to-end tests with the real encoder and `HttpPortalClient` against the local mock portal: two sessions with an immediate take-another → 6 intents, no duplicates, files deleted; cancelled + test-mode sessions → no request; revoked → queue kept, unenrol/enrol → drained); `apps/booth` typecheck, `bun test` (166, 19 new), build; on the Windows dev PC. Mutation checks, each caught: the hook's test-camera guard removed, no enrolment check, enrol not bumping the epoch, no `expedite_all`, no probe, a 401 marked needs attention. **Desktop build against local `wrangler dev`** (throwaway test, not committed, as in 09): enrol with a code from `POST /api/devices`, the seeded OPEN event, two sessions → 6 READY rows in local D1, 450 ms after the first review. **NOT verified:** anything on Cloudflare (no staging): real TLS, real airplane mode, the Sony as the camera on this run, multi-hour offline, a full disk, 5 booths at once.
-- Device check: **critical: awaiting staging run (07) and user once-over.** Automated part done on the Xiaomi Pad 6 (debug APK of this branch, Wi-Fi adb) against `wrangler dev` on the PC through `adb reverse tcp:8787 tcp:8787`: Android 14 resolves `photos.localhost` to 127.0.0.1, so the Worker issues plain-http upload URLs and the whole upload path runs from the tablet (this lifts 09's "tablet uploads need staging" for local runs). The Sony timed out on `GetDeviceInfo` even after the user woke it and an app restart, so the run used the **Device Camera** (real, non-test). Fresh event `Session 10 gate`: **10 sessions → exactly 30 READY**, 30 distinct `clientPhotoId`s and session/shot pairs, outbox empty; only `*.thumb.jpg`/`*.hd.jpg`/`*.json` on disk while queued. Session end → READY 1.7–2.2 s online (encode 313–350 ms per shot). Offline 5 min 46 s by removing the tunnel (Wi-Fi kept: real airplane mode would end Wireless debugging): badge `Uploads: offline, 6 waiting` → `15 waiting`; `am force-stop` with 6 queued → relaunch `items=6`, Settings `Queued 6`; tunnel back → all 15 READY in 33 s. Take another tapped on the review screen: all 3 shots arrived. Revoked mid-run: `Uploads paused: the portal refused this booth`, `Queued 3`, needs attention 0; new code, Unenrol, Enrol → drained within 3 s (36 READY in all, no duplicates). Credential (43 chars) found 0 times in the whole logcat buffer and in `settings.json`; free storage shown (175 GB, `statvfs`); the server's device row shows `lastBacklog` from `X-Outbox-Depth`. Screenshots, `uiautomator` dumps and a logcat excerpt are in the session notes folder (`10-evidence`). **For the staging run and the once-over:** the Sony (replug or power-cycle if `GetDeviceInfo` times out), real airplane mode ≥ 5 min (someone must turn it off: it ends Wireless debugging), real TLS, the staging admin API count. The booth UI has **no cancel control**, so "one manual cancel during the once-over" can't be done as written; cancellation is covered by the core session tests and this session's app test.
+- Device check: **critical. Done: staging gate and the owner's once-over passed on 2026-10-30 (entry 10b).** First automated part (2026-10-23) done on the Xiaomi Pad 6 (debug APK of this branch, Wi-Fi adb) against `wrangler dev` on the PC through `adb reverse tcp:8787 tcp:8787`: Android 14 resolves `photos.localhost` to 127.0.0.1, so the Worker issues plain-http upload URLs and the whole upload path runs from the tablet (this lifts 09's "tablet uploads need staging" for local runs). The Sony timed out on `GetDeviceInfo` even after the user woke it and an app restart, so the run used the **Device Camera** (real, non-test). Fresh event `Session 10 gate`: **10 sessions → exactly 30 READY**, 30 distinct `clientPhotoId`s and session/shot pairs, outbox empty; only `*.thumb.jpg`/`*.hd.jpg`/`*.json` on disk while queued. Session end → READY 1.7–2.2 s online (encode 313–350 ms per shot). Offline 5 min 46 s by removing the tunnel (Wi-Fi kept: real airplane mode would end Wireless debugging): badge `Uploads: offline, 6 waiting` → `15 waiting`; `am force-stop` with 6 queued → relaunch `items=6`, Settings `Queued 6`; tunnel back → all 15 READY in 33 s. Take another tapped on the review screen: all 3 shots arrived. Revoked mid-run: `Uploads paused: the portal refused this booth`, `Queued 3`, needs attention 0; new code, Unenrol, Enrol → drained within 3 s (36 READY in all, no duplicates). Credential (43 chars) found 0 times in the whole logcat buffer and in `settings.json`; free storage shown (175 GB, `statvfs`); the server's device row shows `lastBacklog` from `X-Outbox-Depth`. Screenshots, `uiautomator` dumps and a logcat excerpt are in the session notes folder (`10-evidence`). **For the staging run and the once-over:** the Sony (replug or power-cycle if `GetDeviceInfo` times out), real airplane mode ≥ 5 min (someone must turn it off: it ends Wireless debugging), real TLS, the staging admin API count. The booth UI has **no cancel control**, so "one manual cancel during the once-over" can't be done as written; cancellation is covered by the core session tests and this session's app test.
 - Deviations from DESIGN.md: §9.3 now separates 401 (revoked: the loop pauses, items stay queued, a new enrolment resumes them) from 403 (upload URL not valid: needs attention), because per-item needs attention would strand a revoked booth's whole backlog; the session file asked for "pauses the loop". §10 item 5 records where the badge lives and the not-queued entries. Choices within the session: the event is read when the session completes, the enrolment just before encoding (so a session waiting to encode while the operator re-enrols with a *different* portal is queued with the old event's ID and ends up needing attention there; rare, accepted); encode failures are kept in memory (≤ 50) as dismiss-only entries; the offline probe instead of a network-change hint; `libc` (`cfg(unix)`, already in the lockfile) for `statvfs`.
 - Independent review (fresh-context subagent, REVIEW.md): no blockers; it re-ran every check and a mutation of its own (a 401 not stopping the pass: 3 tests caught it). Fixed: `outbox_status` and `outbox_items` were sync commands (Tauri runs those on the main thread) and the status forwarder read the status on an async worker, all waiting on the outbox lock that the loop holds across `fsync`s; all three now run on blocking threads. The enrolment rollback path bumps the epoch too. Justified, not changed: the probe always picks the oldest waiting item, so its attempt count grows while offline (no cap exists, its backoff just stays at 5 min); backoff counts from the pass's start, so an attempt slower than its backoff is due again at once (08's rule, no spin); the needs-attention list re-reads on every status event, so a retried item failing with a new reason under equal counts shows the old reason until the next event (the 60 s refresh at the latest only if free space changed); the badge shows "needs attention" ahead of "not enrolled".
 - Wiki updated: `wiki/Booth-Upload.md` (new session 10 section: encoding, the loop, revoked/offline/shutdown, operator view, logs, device timings and results, limits), `wiki/Tauri-App.md` (commands and capability review), `wiki/Frontend.md` (badge and queue selectors), `wiki/Tauri-Workstreams.md` and `README.md` (the disk rule's outbox exception), `wiki/portal/DESIGN.md` (§9.3, §10).

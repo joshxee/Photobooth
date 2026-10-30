@@ -423,7 +423,7 @@ debug build's default portal address works on the tablet and the Worker issues p
 upload URLs; this replaces session 09's "uploads from the tablet need staging". The Sony
 timed out on `GetDeviceInfo` (bulk write) after being woken and the app restarted, so the run
 used the tablet's **Device Camera**, a real non-test camera on the same capture → hook →
-upload path. **The Sony leg is unverified** (left for the once-over).
+upload path. The Sony leg was verified later, on staging ("Staging device results (session 10)", below).
 
 - **Session end → READY** (the `StripReview` hand-over to the last shot's READY), online:
   1.7–2.2 s for three shots; encode 313–350 ms per shot (Device Camera JPEGs, smaller than
@@ -441,12 +441,83 @@ upload path. **The Sony leg is unverified** (left for the once-over).
 - **Revoked mid-run**: the next session's shots stayed queued (`Queued 3`, needs attention 0),
   badge `Uploads paused: the portal refused this booth`, Settings explains it; a new device
   code, Unenrol, Enrol: the queue emptied within 3 s, with no event re-selection needed.
-- **Not tested**: real airplane mode (it turns Wi-Fi off, which ends Wireless debugging and
-  with it every adb command, so it needs someone at the tablet); multi-hour offline; a full
-  disk; real TLS to Cloudflare (staging, 07); concurrent booths.
+- **Not tested on that run**: real airplane mode, real TLS to Cloudflare, the Sony (all three
+  done on staging on 2026-10-30, below); multi-hour offline; a full disk; concurrent booths.
 - **Cancel**: the booth UI has no cancel control, so a cancelled session can't be made on the
   tablet; `session_cancel` is covered by the core session tests and an app test that cancels
   mid-countdown on a non-test camera and checks nothing reaches the portal.
+
+### Staging device results (session 10, 2026-10-30)
+
+The automated gate from `wiki/portal/10-booth-upload-status.md`, rerun against **staging**
+(`https://portal-staging.josh-33c.workers.dev`, real TLS) with **the Sony A7 III**. Xiaomi Pad 6
+over Wi-Fi adb, debug APK of `main` at `a75adac` (before session 13 merged; 13's hook changes
+had their own staging run, above). A throwaway OPEN event and device were made with the staging
+admin API and the service token (all deleted or revoked after the owner's once-over, PROGRESS
+10b). The badge and Upload Queue screenshots are `wiki/portal/design/screenshots/10-1…9`; the
+on-device run logs, a logcat excerpt and the screenshots showing photos (of the room, kept out
+of the repo) are in the session notes folder (`10b-evidence`). The app was restarted once
+between sessions 3 and 4 (a force-stop trial before the offline block, nothing queued).
+
+- **Count:** 10 sessions, **exactly 30 READY** in the admin API. Every row has the gate event's
+  ID, the 10 session IDs match the booth's `session handed to the outbox` lines, each session has
+  shots 1, 2 and 3 once, and nothing is PENDING or REJECTED. Every HD is 2560 × 1707.
+- **Session end → READY** online (the hand-over at `StripReview` to the session's last READY):
+  **6.6–7.7 s** (sessions 1–5: 7.7, 7.1, 6.7, 6.8, 6.6 s). Encode 378–541 ms per Sony shot;
+  each upload (intent and two PUTs to Cloudflare, HD 219–262 KB) 1.9–2.7 s. The booth's
+  `since_capture_ms` on READY: 6.9–13.9 s. Against `wrangler dev` this was about 2 s; the
+  difference is the real network and that a session's three shots upload **one after another**
+  (next point).
+- **Uploads within a session run one at a time.** New items are due at once, so the pass
+  starts when shot 1 is queued; the second `drain_once` worker finds nothing yet and ends, and
+  the first worker then takes shots 2 and 3 in turn. Two uploads only overlap when two items are
+  waiting at the start of a pass (a backlog after offline or re-enrolment: seen below). Not a
+  correctness problem; a follow-up could save about 2 s a session.
+- **Real airplane mode, twice**, driven by a script on the tablet (`setsid nohup sh …`), since
+  airplane mode drops adb:
+  - **Block 1, 5 min 45 s:** sessions 6 and 7 shot offline (`the portal can't be reached;
+    uploads wait`, badge `Uploads: offline, 6 waiting`), then **`am force-stop` with 6 queued**.
+    On relaunch `outbox opened … items=6`, offline again 2.4 s later, Settings `Queued 6` with
+    the offline line. A third session meant for this block was lost to the script (it stayed in
+    Settings, whose Back button had scrolled out of view), so block 2 followed. Airplane off: an
+    item whose own backoff ended 10 s later was READY at +12.9 s, then `uploads resume
+    brought=5`, two uploads at once, **all 6 READY 19.7 s after the network returned**.
+  - **Block 2, 5 min 30 s:** session 8 at the start and session 9 three minutes in (`offline, 3
+    waiting`, then `6 waiting`); this time the 30 s probe got the first answer (sent at +18.5 s, READY at +20.7 s), and all
+    6 were READY **26.1 s** after airplane off.
+  - While offline the backoff and probe behaved as designed: each item's delay doubled from
+    under a second (to 244 s at most in 5¾ minutes, below the 5-minute cap), and every 30 s
+    poll probed the oldest item (its attempt count reached 12, the known uncapped count).
+- **Outbox files:** listed after every offline session: only `{id}.thumb.jpg`, `{id}.hd.jpg`
+  and `{id}.json` (15 of each over the listings), never an original; empty at the end.
+- **Take another:** tapped 4.4 s after session 4's review appeared, while its shots 2 and 3
+  were still uploading; session 5 started at once, and all 6 shots arrived.
+- **Revoked mid-run:** the device revoked through the admin API, then session 10 shot. The first
+  intent got 401: `upload stopped: the portal refused the device`, the loop paused with the
+  queue kept, badge `Uploads paused: the portal refused this booth`, Settings `Queued 3` and the
+  explanation. A new device code, Unenrol, Enrol: two uploads started 1 ms apart and
+  all 3 were READY 3.8 s after enrolment, through the new device. The badge went `sending, 3
+  left` → `sending, 1 left` → `all sent` (unenrolling clears the event, so the picker then
+  reads "no event selected"; the queued shots kept their own event ID).
+- **Needs attention:** a second event selected and then deleted through the admin API, a
+  session shot to it: each shot `event_closed (409)`, badge `Uploads: 3 need attention`, the
+  list with the reason per shot. Retry ran the intent again (same 409, back on the list);
+  Delete… asked "Delete this photo from the booth?" and removed all three; outbox empty.
+- **Test Camera:** one session; `test-mode session: not handed to the completion hook`, nothing
+  in the outbox, 0 photos on the event.
+- **Credential:** 0 hits in 242,882 logcat lines, in both log recordings and in every file in
+  the app's data directory except `portal-credential.json` (`-rw-------`).
+- **Wireless debugging and airplane mode:** airplane mode set `adb_wifi_enabled` to 0. The
+  script set it back to 1 once Wi-Fi had reconnected, and adb's mDNS auto-connect found the
+  tablet again within about 90 s, with nobody at the tablet. So release gate 2 (airplane 30 min)
+  can be scripted the same way.
+- **Seen in passing:** a booth keeps a deleted event selected until the operator changes it;
+  its shots then need attention as above (expected: the event is checked when uploading).
+- **The owner's once-over** (the Sony, a fresh staging event): passed ("once-over done, all
+  good"). The admin API showed 6 READY from 2 sessions, with no duplicates. One session was
+  online, READY 5 s after its last shot. One was shot offline, then the app was killed with 3
+  queued and relaunched (`items=3`); after the network came back the probe got through and
+  all 3 were READY within 4 s. The planned third online session wasn't run.
 
 ## The post-shoot QR code (session 13)
 
@@ -537,8 +608,10 @@ capture over USB worked first time). Six real sessions:
 - The whole path ran on the tablet against `wrangler dev` on the PC (session 10, through
   `adb reverse` and `photos.localhost`; see above). Session 13 then ran it against staging:
   real TLS (webpki-roots against Cloudflare's certificate) and the Sony as the camera, 6
-  sessions, all READY (see "Device results (session 13)"). Still **unverified** on Cloudflare:
-  real airplane mode and the rest of session 10's staging run.
+  sessions, all READY (see "Device results (session 13)"), and session 10's gate ran there
+  too: real airplane mode, a kill while queued, revoke and re-enrol, 30 READY (see "Staging
+  device results (session 10)"). Still **unverified**: multi-hour offline, a full disk,
+  several booths at once, and anything on the custom domains or in production.
 - File I/O is blocking. `drain_once` reads each variant (typically 0.25–0.62 MB, up to the
   contract's 3 MB HD cap) and writes and `fsync`s records inline, holding the outbox lock
   during each write; an `fsync` on f2fs can take tens of milliseconds. Hence `enqueue` runs on
