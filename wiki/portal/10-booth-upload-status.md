@@ -73,10 +73,12 @@ uploads, so use the real camera or a debug-only "upload test mode" flag in the d
 pull Wi-Fi briefly, kill the app once, and confirm everything arrives. Tick it in PROGRESS.md.
 
 ## Done when
-- [ ] The automated gate passes, with evidence in the PR.
-- [ ] The human once-over is ticked.
+- [x] The automated gate passes, with evidence in the PR (PROGRESS 10b).
+- [x] The human once-over is ticked (PROGRESS 10b).
 - [ ] Cancelled sessions and test mode are verified as not uploaded (a test plus one manual
       cancel during the once-over).
+      Left open: test mode was verified on staging, but the booth has no cancel control, so
+      cancel has tests only (PROGRESS 10 and 10b).
 
 ## Hand-off
 - `wiki/Booth-Upload.md`: the drain loop's design, where encoding runs and why, concurrency,

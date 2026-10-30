@@ -423,7 +423,7 @@ debug build's default portal address works on the tablet and the Worker issues p
 upload URLs; this replaces session 09's "uploads from the tablet need staging". The Sony
 timed out on `GetDeviceInfo` (bulk write) after being woken and the app restarted, so the run
 used the tablet's **Device Camera**, a real non-test camera on the same capture → hook →
-upload path. **The Sony leg is unverified** (left for the once-over).
+upload path. The Sony leg was verified later, on staging ("Staging device results (session 10)", below).
 
 - **Session end → READY** (the `StripReview` hand-over to the last shot's READY), online:
   1.7–2.2 s for three shots; encode 313–350 ms per shot (Device Camera JPEGs, smaller than
@@ -513,6 +513,11 @@ between sessions 3 and 4 (a force-stop trial before the offline block, nothing q
   can be scripted the same way.
 - **Seen in passing:** a booth keeps a deleted event selected until the operator changes it;
   its shots then need attention as above (expected: the event is checked when uploading).
+- **The owner's once-over** (the Sony, a fresh staging event): passed ("once-over done, all
+  good"). The admin API showed 6 READY from 2 sessions, with no duplicates. One session was
+  online, READY 5 s after its last shot. One was shot offline, then the app was killed with 3
+  queued and relaunched (`items=3`); after the network came back the probe got through and
+  all 3 were READY within 4 s. The planned third online session wasn't run.
 
 ## The post-shoot QR code (session 13)
 
