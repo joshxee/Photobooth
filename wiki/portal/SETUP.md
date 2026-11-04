@@ -140,12 +140,9 @@ zone policy they don't apply.
   - `production`: `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`; **required reviewer =
     joshxee**, "Allow administrators to bypass" **off** (agents use the owner's `gh` login),
     branch `main` only.
-  - **Not an enforced boundary yet** (the session 07 review):
-    - Both environments hold the same `ci-deploy` token, which can write production too.
-    - Agents act as joshxee, so they could approve the reviewer gate themselves.
-    - `main` has no branch protection.
-    - Decide before session 18 (DESIGN §4.1, "Open"): a separate production account or token,
-      protect `main`, and a non-owner identity for agents.
+  - **Not an enforced boundary, accepted for now** (DESIGN §4.1, "Production deploys"): both
+    environments hold the same `ci-deploy` token, and agents act as joshxee, so they could approve
+    the reviewer gate themselves. Agents follow the AGENTS.md rules instead.
 - [x] `agent-readonly`, 1 year, in this PC's environment (`CLOUDFLARE_API_TOKEN`,
       `CLOUDFLARE_ACCOUNT_ID`). Account: Workers Scripts Read, Workers Tail Read, D1 Read,
       Workers R2 Storage Read, Account Settings Read. Zone `knockbox.nz`: Workers Routes Read.
@@ -166,11 +163,19 @@ zone policy they don't apply.
 
 ## F. Production (before session 18)
 
-- [ ] Create the production D1 and R2 resources with the commands session 07 prints. You run
-      them, not the agent.
-- [ ] Set the production secrets (`UPLOAD_KEY`, `SESSION_KEY`, unique values, never reused
-      from staging).
-- [ ] Set `CONTACT_EMAIL` and confirm `CONTACT_ADDRESS` (34b Malvern Road, Morningside,
-      Auckland).
-- [ ] Privacy notice text reviewed against the NZ Privacy Act (the business's responsibility).
+- [x] Production D1 `portal` and R2 `portal-media`, both location `oc` (done 2026-11-05). At the
+      owner's request an agent created them through the Cloudflare API MCP, instead of the owner
+      running `scripts/provision.ts`. Don't run its production commands again: the names already
+      exist, and the secret commands would replace the secrets.
+- [x] Production secrets `UPLOAD_KEY` and `SESSION_KEY` (done 2026-11-05): random 32-byte values
+      generated inside the API call, so they were never shown or saved. They are separate from
+      staging's. This needed the Worker `portal` to exist, so it is an empty stub that returns 404,
+      with `workers.dev` and Preview URLs off and no routes, until session 18's first deploy.
+- [x] `CONTACT_EMAIL` is `privacy@knockbox.nz`, set in `env.production`. No postal address: the
+      business has no physical office (owner, 2026-11-05).
+- [x] Privacy notice text accepted by the owner for now (2026-11-05): "Only people with this
+      event's link can see these photos. They are kept until the event's gallery is deleted."
+      Not a legal review. It's still the business's responsibility, and the footer gives an email
+      as its only address, which draft Privacy Commissioner guidance appears to allow but the Act
+      doesn't spell out.
 

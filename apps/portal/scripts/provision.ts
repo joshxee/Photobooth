@@ -3,7 +3,7 @@
 // login, which agents never hold (AGENTS.md). The owner runs them in PowerShell 7 from apps/portal.
 //
 //   bun run scripts/provision.ts --env staging      # SETUP D/E, run once (session 07)
-//   bun run scripts/provision.ts --env production   # SETUP F (session 18)
+//   bun run scripts/provision.ts --env production   # Done (SETUP F): running it again replaces the secrets
 //
 // Names come from wrangler.jsonc, so they can't drift from what the Workers bind. There is no R2
 // lifecycle rule (DESIGN D6: objects stay until an event is deleted). The location hint `oc`

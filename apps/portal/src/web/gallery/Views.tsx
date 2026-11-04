@@ -244,13 +244,10 @@ export function Footer({ meta }: { meta: Meta }) {
       </p>
       <p>
         <a href={`mailto:${meta.contact.email}?subject=${subject}`}>Ask us to remove a photo</a>
-      </p>
-      <address>
-        {meta.contact.address}
-        <br />
+        {" · "}
         <a href={`mailto:${meta.contact.email}`}>{meta.contact.email}</a>
-      </address>
-      <p className="foot__by">
+      </p>
+      <p>
         Photo booth by <a href="https://knockbox.nz">knockbox.nz</a>
       </p>
     </footer>

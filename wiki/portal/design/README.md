@@ -28,8 +28,8 @@ screenshots are what the user signs off:
 - the processing placeholders in the session view (shots expected but not READY yet),
 - the empty gallery (LIVE, no photos yet),
 - the "This gallery isn't available" page (one page for every refusal),
-- the phone footer with the privacy notice, "Ask us to remove a photo", and the contact
-  address and email (DESIGN §11). The canvas has a footer only on desktop, without the notice.
+- a small phone footer with the privacy notice, "Ask us to remove a photo", and the contact
+  email (DESIGN §11). The canvas has a footer only on desktop, without the notice.
 
 ## Where the canvas and the plan differ
 

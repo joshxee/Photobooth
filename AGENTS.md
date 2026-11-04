@@ -72,7 +72,7 @@ cd apps/booth && bun install --frozen-lockfile && bun run typecheck && bun test 
   `https://photos-staging.knockbox.nz`, admin `https://admin-staging.knockbox.nz` (Access). Put a branch there with
   `gh workflow run deploy-staging.yml -f ref=<branch>` (deploy + smoke); never `wrangler deploy` yourself.
   Dispatch only a branch you pushed to this repo (never a fork's ref or `refs/pull/*`): the run executes that
-  ref's code with a token that can also reach production (DESIGN §4.1, "Open"). Never push to `main`, and
+  ref's code with a token that can also reach production (DESIGN §4.1, "Production deploys"). Never push to `main`, and
   never approve or dispatch a `production` deployment.
   Read logs with the read-only token: `wrangler tail --env staging --format json`.
   Call the staging admin API with the service token from the user environment:

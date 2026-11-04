@@ -23,7 +23,7 @@ runs on it, and the counts reconcile. After this the MVP is live.
    - The **release-build** booth APK (signing per `wiki/Android-Build.md`).
    - A diff checklist confirming that `DEV_AUTH` cannot be set in production (the config has no
      such var, and a test already covers the host check).
-2. **Deploy** (you): merge, then `gh workflow run deploy-portal.yml` → approve the
+2. **Deploy** (you): merge, then `gh workflow run deploy-production.yml` → approve the
    `production` job. Then:
    - `curl` `/healthz` on both hosts (the admin host needs an Access session or service token: since session 04 every admin request is authenticated);
    - Access login works for both admins;

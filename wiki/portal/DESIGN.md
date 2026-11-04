@@ -121,22 +121,17 @@ benefit. Staging's synthetic traffic barely touches the free allowances.
   - Agents deploy staging by triggering the `deploy-staging` workflow.
   - Locally they use a **read-only** token (Workers observability, D1 read, R2 read) for logs
     and inspection.
-  - **Open, decide before session 18 (found in the session 07 review):** the separation between
-    staging and production deploys is by convention, not enforced.
-    - Both GitHub environments hold the same account-wide `ci-deploy` token.
-    - `staging` has no branch rule, so a dispatched ref runs its own `wrangler.jsonc` and scripts
-      with a token that can also write production's Worker and D1 and read its R2.
-      `scripts/preflight.ts` pins the Worker names and keeps staging off production's resources,
-      but it runs from that same ref.
-    - The production reviewer is the owner's GitHub identity, which agents use through `gh`, and
-      `main` is unprotected.
-    - Options:
-      - a separate Cloudflare account for production with its own token (the only real
-        isolation, since Workers and D1 permissions can't be scoped below the account);
-      - otherwise, a production-only token, branch protection on `main`, and agents on a GitHub
-        identity that can't approve the `production` environment.
-    - Until then, agents follow the AGENTS.md rules: dispatch only refs they pushed, never push
-      to `main`, never approve a deployment.
+  - **Production deploys (decided by the owner on 2026-11-05):** keep the simple setup. Production
+    deploys from `main`: the owner dispatches `deploy-production.yml` and approves the `production`
+    environment. The owner is the repo's only collaborator and merges every PR. Agents never merge
+    or deploy production (AGENTS.md). These gaps, from the session 07 review, are accepted for now,
+    and the owner may tighten this later:
+    - Agents use the owner's GitHub login, so these are agent rules and GitHub doesn't enforce them.
+    - Both GitHub environments hold the same account-wide `ci-deploy` token, and `staging` has no
+      branch rule, so a dispatched ref runs its own `wrangler.jsonc` and scripts with a token that
+      can also write production's Worker and D1 and read its R2. `scripts/preflight.ts` pins the
+      Worker names and keeps staging off production's resources, but it runs from that same ref.
+      Agents therefore dispatch only refs they pushed.
 - The current personal account is used only for the throwaway spike (session 01). Its
   resources are deleted afterwards.
 - Set billing notifications as in section 15.
@@ -560,11 +555,9 @@ day 1 to preserve this.
   session view polls every 10 s for its first 2 minutes, so a guest sees their own shots arrive. New photos appear as a "N new"
   pill rather than shifting the grid. Thumbnails are
   lazy-loaded.
-- **Privacy notice and removal contact** in the footer. These are deployment variables:
-  `CONTACT_ADDRESS` = *34b Malvern Road, Morningside, Auckland* and `CONTACT_EMAIL`
-  (`privacy@<domain>`, set once the domain exists). An email address is required as well as
-  the postal address, because removal requests need a prompt channel. Deployment fails if either
-  variable is empty.
+- **Privacy notice and removal contact** in a small footer. The contact is the deployment variable
+  `CONTACT_EMAIL` (`privacy@<domain>`), and deployment fails if it is empty. There is no postal
+  address, because the business has no physical office (owner, 2026-11-05).
 - **Accessibility**: keyboard-operable grid and lightbox, labelled controls, WCAG 2.2 AA target.
 - **Refinements (session 11)**, reasons in wiki/Portal.md → "Guest access and the gallery API":
   - The cookie value is `{eventId}.{accessVersion}.{exp}.{sig}`, the MAC over
@@ -666,8 +659,8 @@ in batches, and is bounded per run (40 D1/R2 calls, 2,000 objects, 10 events) so
 anything unfinished continues the next day. See `wiki/Portal.md` → "Retention and deletion".
 
 Removal requests are handled with "Delete permanently" in admin, which removes the variants
-immediately (and the photo's row; there is no undo, unlike an event), plus erasing the SD-card file. Guests see the privacy notice at the booth and in
-the gallery. NZ privacy review and the hosting-location disclosure remain the business's
+immediately (and the photo's row; there is no undo, unlike an event), plus erasing the SD-card file. Guests see the privacy notice in
+the gallery; the booth shows none (owner, 2026-11-05). NZ privacy review and the hosting-location disclosure remain the business's
 responsibility; Cloudflare location hints are not a residency guarantee.
 
 ## 15. Operations
@@ -801,6 +794,6 @@ Resolved:
 - D9: the share token is stored retrievably.
 - TLD: `.nz`. The design does not depend on it (section 4.1).
 - Post-shoot QR opens the guest's session; admins can also generate an event-wide QR.
-- Contact address: 34b Malvern Road, Morningside, Auckland, plus `privacy@<domain>`.
+- Contact: `privacy@<domain>` only. The business has no physical office, so the gallery shows no postal address (owner, 2026-11-05).
 - Environments: one dedicated business account with separate staging and production
   resources (section 4.1).
