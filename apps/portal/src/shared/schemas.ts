@@ -267,7 +267,7 @@ export const GalleryPhotosPage = z.strictObject({
   eventOpen: z.boolean(),
   photos: z.array(GalleryPhoto).max(LIMITS.galleryPageMax),
   nextCursor: z.string().min(1).max(128).nullable(),
-  contact: z.strictObject({ address: z.string().min(1).max(200), email: z.email().max(200) }),
+  contact: z.strictObject({ email: z.email().max(200) }),
 });
 export type GalleryPhotosPage = z.infer<typeof GalleryPhotosPage>;
 

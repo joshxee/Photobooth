@@ -47,8 +47,8 @@ on a phone, with a design that matches the booth's identity.
 5. **Lightbox:**
    - Shows the `hd` variant, with swipe or arrow-key navigation, a Download button
      (`hd` with `?download=1`), Escape or Back to close, and focus trap and restore.
-6. **Footer:** a short privacy notice, "Ask us to remove a photo", and the contact address and
-   email (from the API).
+6. **Footer:** small: a short privacy notice, "Ask us to remove a photo", and the contact email
+   (from the API).
 7. **Accessibility:**
    - Keyboard-operable grid and lightbox, labelled controls, visible focus,
      `prefers-reduced-motion`, and AA contrast.

@@ -28,7 +28,7 @@ later portal session only adds behaviour.
    - Bindings `DB` (D1), `MEDIA` (R2) and the rate-limit bindings (placeholders). There is no
      Images binding (D14), and no `limits` block: the account is on Workers Free (DESIGN §16).
    - Vars `GALLERY_HOST`, `ADMIN_HOST`, `ADMIN_EMAILS`, `ADMIN_SERVICE_CLIENTS`,
-     `ACCESS_TEAM_DOMAIN`, `ACCESS_AUD`, `CONTACT_ADDRESS`, `CONTACT_EMAIL`.
+     `ACCESS_TEAM_DOMAIN`, `ACCESS_AUD`, `CONTACT_EMAIL`.
    - A cron trigger (daily, 03:00 NZ ≈ `0 14 * * *` UTC, noting the DST drift).
    - `env.staging` and `env.production` blocks with placeholder IDs and hosts (filled in by
      session 07).

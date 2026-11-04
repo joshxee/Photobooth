@@ -57,9 +57,8 @@
     "ADMIN_SERVICE_CLIENTS": "",
     "ACCESS_TEAM_DOMAIN": "",
     "ACCESS_AUD": "",
-    // The gallery footer's removal contact (DESIGN §11). Local placeholders: the address is the
-    // business's published one, the email a reserved .invalid domain. Staging and production set theirs.
-    "CONTACT_ADDRESS": "34b Malvern Road, Morningside, Auckland",
+    // The gallery footer's removal contact (DESIGN §11). A reserved .invalid domain locally; staging
+    // and production set theirs.
     "CONTACT_EMAIL": "privacy@example.invalid",
     // Local development only: `wrangler dev --var DEV_AUTH:1` injects a fixed admin actor, and only
     // on a *.localhost host (middleware/adminAuth.ts). Never set it in staging or production.
@@ -101,7 +100,6 @@
         "ADMIN_SERVICE_CLIENTS": "",
         "ACCESS_TEAM_DOMAIN": "",
         "ACCESS_AUD": "",
-        "CONTACT_ADDRESS": "34b Malvern Road, Morningside, Auckland",
         "CONTACT_EMAIL": "privacy@knockbox.nz",
         // Always empty here: DEV_AUTH is for `wrangler dev` only (and works only on *.localhost).
         "DEV_AUTH": "",
@@ -138,7 +136,6 @@
         "ACCESS_TEAM_DOMAIN": "knockbox.cloudflareaccess.com",
         // The AUD tag of the Worker-level Access application on portal-staging-admin (SETUP D).
         "ACCESS_AUD": "cda0c595f8c7d4feedb0fdade699cb9e74547e870ed7d35baa04c27ad01f207d",
-        "CONTACT_ADDRESS": "34b Malvern Road, Morningside, Auckland",
         "CONTACT_EMAIL": "privacy@knockbox.nz",
         "DEV_AUTH": "",
         "GIT_SHA": ""
@@ -151,7 +148,7 @@
         { "pattern": "admin.example.invalid", "custom_domain": true }
       ],
       "d1_databases": [
-        { "binding": "DB", "database_name": "portal", "database_id": "00000000-0000-0000-0000-000000000000" }
+        { "binding": "DB", "database_name": "portal", "database_id": "3cec22a2-153a-448a-999b-4a1ae6e0dc18" }
       ],
       "r2_buckets": [{ "binding": "MEDIA", "bucket_name": "portal-media" }],
       "ratelimits": [
@@ -167,8 +164,7 @@
         "ADMIN_SERVICE_CLIENTS": "",
         "ACCESS_TEAM_DOMAIN": "",
         "ACCESS_AUD": "",
-        "CONTACT_ADDRESS": "",
-        "CONTACT_EMAIL": "",
+        "CONTACT_EMAIL": "privacy@knockbox.nz",
         // Always empty here: DEV_AUTH is for `wrangler dev` only (and works only on *.localhost).
         "DEV_AUTH": "",
         "GIT_SHA": ""

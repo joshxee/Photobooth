@@ -166,11 +166,19 @@ zone policy they don't apply.
 
 ## F. Production (before session 18)
 
-- [ ] Create the production D1 and R2 resources with the commands session 07 prints. You run
-      them, not the agent.
-- [ ] Set the production secrets (`UPLOAD_KEY`, `SESSION_KEY`, unique values, never reused
-      from staging).
-- [ ] Set `CONTACT_EMAIL` and confirm `CONTACT_ADDRESS` (34b Malvern Road, Morningside,
-      Auckland).
-- [ ] Privacy notice text reviewed against the NZ Privacy Act (the business's responsibility).
+- [x] Production D1 `portal` and R2 `portal-media`, both location `oc` (done 2026-11-05). At the
+      owner's request an agent created them through the Cloudflare API MCP, instead of the owner
+      running `scripts/provision.ts`. Don't run its production commands again: the names already
+      exist, and the secret commands would replace the secrets.
+- [x] Production secrets `UPLOAD_KEY` and `SESSION_KEY` (done 2026-11-05): random 32-byte values
+      generated inside the API call, so they were never shown or saved. They are separate from
+      staging's. This needed the Worker `portal` to exist, so it is an empty stub that returns 404,
+      with `workers.dev` and Preview URLs off and no routes, until session 18's first deploy.
+- [x] `CONTACT_EMAIL` is `privacy@knockbox.nz`, set in `env.production`. No postal address: the
+      business has no physical office (owner, 2026-11-05).
+- [x] Privacy notice text accepted by the owner for now (2026-11-05): "Only people with this
+      event's link can see these photos. They are kept until the event's gallery is deleted."
+      Not a legal review. It's still the business's responsibility, and the footer gives an email
+      as its only address, which draft Privacy Commissioner guidance appears to allow but the Act
+      doesn't spell out.
 

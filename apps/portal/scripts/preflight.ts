@@ -64,7 +64,7 @@ function common(config: Config, envName: string, problems: string[]): WorkerEnv 
     if (!env.secrets?.required?.includes(secret)) p(`secrets.required must list ${secret}`);
   }
   if (env.vars.DEV_AUTH !== "") p("DEV_AUTH must be empty");
-  if (!env.vars.CONTACT_ADDRESS || !env.vars.CONTACT_EMAIL) p("CONTACT_ADDRESS and CONTACT_EMAIL must be set");
+  if (!env.vars.CONTACT_EMAIL) p("CONTACT_EMAIL must be set");
   for (const host of [env.vars.GALLERY_HOST ?? "", env.vars.ADMIN_HOST ?? ""]) {
     if (host === "" || host.includes("localhost") || host.includes(":")) p(`"${host}" is not a deployed hostname`);
   }

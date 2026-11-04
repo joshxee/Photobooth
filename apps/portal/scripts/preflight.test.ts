@@ -24,7 +24,6 @@ function ready(): Config {
     ADMIN_EMAILS: "josh@knockbox.nz",
     ACCESS_TEAM_DOMAIN: "knockbox.cloudflareaccess.com",
     ACCESS_AUD: AUD,
-    CONTACT_ADDRESS: "34b Malvern Road, Morningside, Auckland",
     CONTACT_EMAIL: "privacy@knockbox.nz",
   });
   return c;
@@ -36,9 +35,8 @@ describe("preflight", () => {
     expect(preflight(ready(), "production")).toEqual([]);
   });
 
-  it("refuses the committed production block until SETUP F fills it in", () => {
+  it("refuses the committed production block until session 18 fills it in", () => {
     const problems = preflight(committed, "production").join("\n");
-    expect(problems).toContain("database_id");
     expect(problems).toContain("ACCESS_AUD");
     expect(problems).toContain("hosts must be the real domain");
   });
@@ -51,7 +49,7 @@ describe("preflight", () => {
     expect(preflight(c, "staging")).toEqual([
       "env.staging: the DB binding needs the real database_id",
       "env.staging: DEV_AUTH must be empty",
-      "env.staging-admin: CONTACT_ADDRESS and CONTACT_EMAIL must be set",
+      "env.staging-admin: CONTACT_EMAIL must be set",
       "env.staging-admin: must share portal-staging's D1 and R2",
     ]);
   });

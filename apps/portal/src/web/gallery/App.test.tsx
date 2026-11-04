@@ -142,10 +142,10 @@ describe("event view", () => {
     expect($("button.more")).toBeNull();
   });
 
-  it("shows the contact address, email and a removal link in the footer", async () => {
+  it("shows the contact email and a removal link in the footer, and no postal address", async () => {
     await render(`/e/${PUBLIC}`, () => json(page([a1])));
     const footer = $("footer");
-    expect(footer?.textContent).toContain("34b Malvern Road, Morningside, Auckland");
+    expect(footer?.querySelector("address")).toBeNull();
     expect(footer?.textContent).toContain("privacy@example.invalid");
     const removal = [...(footer?.querySelectorAll("a") ?? [])].find((a) => a.textContent === "Ask us to remove a photo");
     expect(removal?.getAttribute("href")).toStartWith("mailto:privacy@example.invalid?subject=");

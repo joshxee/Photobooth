@@ -76,7 +76,7 @@ describe("GET /e/{publicId}/api/photos", () => {
         publishedAt: new Date(Date.parse("2026-10-22T09:30:00.000Z") + (2 - i) * 1000).toISOString(),
       })),
       nextCursor: null,
-      contact: { address: env.CONTACT_ADDRESS, email: env.CONTACT_EMAIL },
+      contact: { email: env.CONTACT_EMAIL },
     });
   });
 
@@ -212,20 +212,18 @@ describe("GET /e/{publicId}/api/photos", () => {
     }
   });
 
-  it("answers a 500 and logs an internal error when the contact variables are empty (a config fault, not the client's)", async () => {
+  it("answers a 500 and logs an internal error when the contact email is empty (a config fault, not the client's)", async () => {
     const event = await liveEvent();
     const cookie = await openGallery(event);
     const errors = vi.spyOn(console, "error").mockImplementation(() => {});
-    for (const blank of [{ CONTACT_EMAIL: "" }, { CONTACT_ADDRESS: "" }]) {
-      const res = await createApp().fetch(
-        new Request(`http://photos.localhost:8787/e/${event.public_id}/api/photos`, { headers: { Cookie: cookie } }),
-        { ...env, ...blank },
-        createExecutionContext(),
-      );
-      expect(res.status).toBe(500);
-      expect(ErrorBody.parse(await res.json()).code).toBe("internal");
-    }
-    expect(errors.mock.calls.map((c) => JSON.parse(String(c[0])).outcome)).toEqual(["internal_error", "internal_error"]);
+    const res = await createApp().fetch(
+      new Request(`http://photos.localhost:8787/e/${event.public_id}/api/photos`, { headers: { Cookie: cookie } }),
+      { ...env, CONTACT_EMAIL: "" },
+      createExecutionContext(),
+    );
+    expect(res.status).toBe(500);
+    expect(ErrorBody.parse(await res.json()).code).toBe("internal");
+    expect(errors.mock.calls.map((c) => JSON.parse(String(c[0])).outcome)).toEqual(["internal_error"]);
   });
 
   it("still serves a gallery past its upload window (galleries don't expire, D15)", async () => {

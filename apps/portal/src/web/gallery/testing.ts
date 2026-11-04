@@ -74,7 +74,7 @@ export function page(photos: GalleryPhoto[], extra: Partial<GalleryPhotosPage> =
     eventOpen: true,
     photos,
     nextCursor: null,
-    contact: { address: "34b Malvern Road, Morningside, Auckland", email: "privacy@example.invalid" },
+    contact: { email: "privacy@example.invalid" },
     ...extra,
   };
 }

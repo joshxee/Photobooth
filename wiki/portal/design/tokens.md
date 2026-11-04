@@ -16,7 +16,7 @@ them. Decisions recorded with the user on 2026-10-15: neutral palette, primary b
 | `--ink-2` | `#5C6066` | `--ink-2 #4a4f54` | Secondary text, timestamps, meta, chevrons | 6.3:1 on `--bg`, 5.9:1 on `--surface` |
 | `--hairline` | `#D9DCE0` | `--hairline #dcd8d0` | Secondary button and quick-check borders, sheet handle | decorative |
 | `--hairline-2` | `#ECEDEF` | | Desktop header and footer rules | decorative |
-| `--brand` | `#2C5B3F` | `--forest #2e5240` | knockbox mark, "knockbox.nz" link | 7.9:1 on `--bg` |
+| `--brand` | `#2C5B3F` | `--forest #2e5240` | knockbox mark | 7.9:1 on `--bg` |
 | `--live` | `#1F7A4D` | | "Live" dot, quick-check tick | dot is decorative; the word "Live" carries the meaning |
 | `--disabled-bg` / `--disabled-ink` | `#E4E6E9` / `#6B7078` | | Disabled primary button | exempt (inactive control) |
 | `--dark-bg` | `#0B0B0C` | `--ink #1b1f22` (booth body) | Viewer and booth post-shoot background | |
@@ -44,7 +44,8 @@ Mono (TTF files in `apps/booth/src/fonts/`). Which one the gallery uses is a dec
 | Sheet heading | 18 | 700 | | "Share photo" |
 | Button | 17 (viewer 16, sheet 15) | 600 | | Primary and secondary buttons |
 | Body | 16 / 15 | 500 / 400 | | Quick-check label, session meta line |
-| Small | 14 / 13 | 600 / 400 | | Pill, "Live · N photos", footer |
+| Small | 14 / 13 | 600 / 400 | | Pill, "Live · N photos" |
+| Footer | 12 | 400 | | Gallery footer, in `--ink-2` |
 | Eyebrow | 13 | 600, uppercase | 0.08em | "[Date] · [Venue]", event name above the session title |
 | Meta | 12 | 400, tabular numerals | | "9:42 PM · 4" beside section headings, viewer position |
 | Wordmark | 17–18 | 800 | -0.03em | "knockbox" beside the mark |
