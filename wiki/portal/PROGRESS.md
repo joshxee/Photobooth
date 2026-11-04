@@ -20,7 +20,7 @@ this file first, so state facts and not intentions.
 ---
 
 ## SETUP — F production resources — PARTIAL — 2026-11-05
-- PR: see the PR for branch `portal/setup-f`.
+- PR: #43 (branch `portal/setup-f`).
 - Built, on real Cloudflare: D1 `portal` (`3cec22a2-153a-448a-999b-4a1ae6e0dc18`, region OC, no tables yet: the deploy runs the migrations), R2 `portal-media` (OC), Worker `portal` as an empty 404 stub with the secrets `UPLOAD_KEY` and `SESSION_KEY`. `env.production` now has the database ID and contact email. The owner removed the postal address everywhere (config, API contract, preflight, gallery) because the business has no physical office, and asked for a smaller footer.
 - Verified: read back through the API: both resources exist, the secret names and types are listed, the stub's `workers.dev` and Preview URLs are off, and it has no custom domains. `preflight.ts --env production` still refuses, because session 18 fills in the rest. Typecheck, `bun run test` (644 Vitest, 306 `bun test`) and build pass on Node 22.11 (Vitest in workerd crashes or hangs here under another Node). **Unverified:** the stub's secrets surviving the first real deploy, which is Wrangler's documented behaviour.
 - Device check: n/a
