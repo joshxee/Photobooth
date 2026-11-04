@@ -20,7 +20,7 @@ this file first, so state facts and not intentions.
 ---
 
 ## SETUP — C and D done after the domain move; DNSSEC still to do — PARTIAL — 2026-11-05
-- PR: #<n> (branch `claude/setup-after-move`). Docs only. Follows the SETUP entry of 2026-10-23.
+- PR: #39 (branch `claude/setup-after-move`). Docs only. Follows the SETUP entry of 2026-10-23.
 - Done by the owner, guided: the Registrar move (accepted 2026-11-04), `privacy@` as a Hostinger alias, Access apps `admin-staging` and `admin`, the policies `Admins` (two emails) and `Service Auth` (`agent-staging`, staging only), the WAF rule `photos flood limit`, the website Worker's `workers.dev` and Preview URLs off.
 - Verified: zone `active` since 2026-11-04T19:50:14Z (API, read-only token; zone ID `ca22cff4b3cfa8eebb84362dedfe52a6`); the `.nz` registry servers answer `fay`/`zeus`; both new nameservers answer the Hostinger MX; `knockbox.nz` through the new zone returns 200 with the business Worker's page; the Worker's `workers.dev` returns 404 and its subdomain API says `enabled: false, previews_enabled: false`; the owner confirmed a test mail to `privacy@` and mail both ways. Policies read from dashboard screenshots. **Unverified:** the service token and both apps on real traffic (their hostnames have no DNS record until the switch), the WAF rule (same; session 17), and the SPF/DKIM results were read by the owner, not by an agent.
 - Non-secret values for the staging switch and session 18:
