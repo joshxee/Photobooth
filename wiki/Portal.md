@@ -118,7 +118,7 @@ Only CI deploys; agents and this PC never hold a Cloudflare write token (AGENTS.
   `ci-deploy`, no reviewer). It runs on every push to `main` that touches `apps/portal`, and on
   demand for any ref: `gh workflow run deploy-staging.yml -f ref=<branch>` (the workflow must be on
   `main` for this). Steps: preflight → typecheck, test, build → `d1 migrations apply --remote` →
-  deploy both staging Workers with `--var GIT_SHA:<sha>` → `scripts/smoke.ts` against both hosts.
+  deploy `portal-staging` with `--var GIT_SHA:<sha>` → `scripts/smoke.ts` against both hosts.
   One run at a time (`concurrency`, never cancelled half-way).
 - **Production**: `.github/workflows/deploy-production.yml`, `workflow_dispatch` from `main` only,
   GitHub environment `production` (required reviewer: the owner). Preflight, gates, migrations,
@@ -139,12 +139,13 @@ Only CI deploys; agents and this PC never hold a Cloudflare write token (AGENTS.
   - missing `CONTACT_*`;
   - equal gallery and admin hosts;
   - an incomplete Access config (team domain, a 64-hex AUD, `ADMIN_EMAILS`);
-  - in production, also `workers_dev` on, hosts that aren't exactly its two custom-domain routes,
-    or any service client;
-  - in staging, the interim rules below, inherited routes, and production's D1 or R2.
+  - in either, `workers_dev` on, or hosts that aren't exactly the environment's two custom-domain
+    routes; in production, also any service client;
+  - in staging, also production's D1 or R2 (staging otherwise follows production's rules and may keep
+    `ADMIN_SERVICE_CLIENTS`).
 - **`scripts/provision.ts --env staging|production`** prints (never runs) the owner's one-time
-  commands: D1 and R2 (`--location oc`), fresh random secrets piped into every Worker of the
-  environment, then `wrangler logout` (SETUP E).
+  commands: D1 and R2 (`--location oc`), fresh random secrets piped into the environment's Worker,
+  then `wrangler logout` (SETUP E).
 - `/healthz` reports `{ ok, version, commit }`; `commit` is the deployed SHA (null locally). The
   smoke waits for both hosts to report the commit it is testing before it starts.
 - Migrations run before the deploy, so a migration must work with the code that is still live
@@ -153,44 +154,26 @@ Only CI deploys; agents and this PC never hold a Cloudflare write token (AGENTS.
   --timestamp <ISO>` (or `--bookmark`), needs a write token, so the owner runs it as in SETUP E
   (log in, run, log out). Take an audit export first; R2 is unaffected.
 
-### Interim staging on workers.dev
+### Staging on its custom domains
 
-Until `knockbox.nz` is Active in the business account (Registrar move, from 2026-11-01; SETUP C),
-staging runs on `workers.dev`, a staging-only deviation recorded in DESIGN §4.1:
+Staging is one Worker, `portal-staging` (`env.staging`), on `photos-staging.knockbox.nz` and
+`admin-staging.knockbox.nz` (both Custom Domains, `workers_dev: false`, previews off), the same shape as
+production. Session 07 first ran it as two Workers on `workers.dev` because the zone was still in the
+personal account; the switch (07c) removed `portal-staging-admin`, its Worker-level Access app and its
+policy. Notes for whoever checks it next:
 
-| | `portal-staging` (`env.staging`) | `portal-staging-admin` (`env.staging-admin`) |
-|---|---|---|
-| Serves | gallery + device API | admin UI + API |
-| Host | `portal-staging.josh-33c.workers.dev` | `portal-staging-admin.josh-33c.workers.dev` |
-| `ADMIN_HOST` | `admin.portal-staging.invalid` (never resolves) | its own hostname |
-| Access | none (booths aren't browsers); Access vars empty | Worker-level Access app (SETUP D), `ACCESS_AUD` = its AUD |
-| Cron | the retention job | none (`crons: []`), so it never runs twice |
-| D1 / R2 / secrets | `portal-staging` / `portal-media-staging` / shared values | the same |
+- The admin host is behind its own Access app (SETUP D); the photos host has none (booths aren't
+  browsers). `ACCESS_AUD` in `env.staging` is the `admin-staging` app's. The Worker still verifies the
+  JWT itself.
+- Custom Domains create their own DNS records and certificates on deploy. Right after the first deploy
+  a hostname can be slow to answer, which is why the smoke waits for `/healthz` to report the commit.
+- Preflight now holds staging to the same rules as production (exactly the two custom-domain routes,
+  `workers_dev` false, Access configured); staging alone may keep `ADMIN_SERVICE_CLIENTS`.
+- The zone WAF rule `photos flood limit` covers `photos-staging` too (SETUP C). **Unverified** until
+  session 17 floods it.
+- The cron runs on this one Worker, so the retention job still runs once.
 
-Both have `workers_dev: true`, `preview_urls: false` and no routes. The admin Worker's
-`GALLERY_HOST` is the gallery Worker's hostname, so event QR codes point at the gallery. The
-Worker-level Access app covers the admin Worker's `workers.dev` hostname and any route added later,
-and the Worker still checks the JWT. Lost until the switch: the zone WAF rate-limiting rule.
-
-**Switching to the custom domains** (once the zone is Active):
-
-1. Done (SETUP D, 2026-11-05): the Access app for `admin-staging.knockbox.nz` (two admin emails,
-   12 h, a Service Auth policy for `agent-staging`). Its AUD is in PROGRESS.md (SETUP entry).
-2. `env.staging`: routes `photos-staging.knockbox.nz` and `admin-staging.knockbox.nz`, both
-   `custom_domain: true`; `workers_dev: false`; `GALLERY_HOST`/`ADMIN_HOST` those hosts; the
-   admin vars from `env.staging-admin`, with the new `ACCESS_AUD`.
-3. Delete `env.staging-admin` and its entry in `scripts/provision.ts` `ENVIRONMENTS`, the
-   build's dry run, the second deploy line and the `ADMIN_ORIGIN` in `deploy-staging.yml`.
-   Update `scripts/preflight.ts`'s staging rules to production's (custom-domain routes,
-   `workers_dev` false) and its tests.
-4. Deploy through the workflow, then have the owner delete the `portal-staging-admin` Worker
-   and its Worker-level Access app (dashboard), and turn off `portal-staging`'s `workers.dev`
-   route if the dashboard still shows it.
-5. Re-enrol each staging booth against `photos-staging.knockbox.nz` (its build-time staging
-   URL changes), and check the WAF rule (SETUP C, already deployed) covers `photos-staging`.
-6. Remove this section and the DESIGN §4.1 deviation.
-
-### What was verified on staging (session 07, 2026-10-28)
+### What was verified on staging (session 07, 2026-10-28, on workers.dev before the switch)
 
 On the real Workers (commits `a584176` and `8d89aef`), from this PC and from the workflow:
 
@@ -248,7 +231,7 @@ event and revoking a device.
 `SESSION_LIMITER` and `INTENT_LIMITER` reaching 429 (same binding as `ENROL_LIMITER`); remote D1
 `rows_read`; concurrent PUTs on remote D1; the retention
 cron's CPU and that it fires (it first runs at 14:00 UTC; read it with `wrangler tail --env
-staging`); the daily-limit behaviour on `workers.dev`.
+staging`); the daily-limit behaviour (SETUP C, fail-closed toggle).
 
 ## Local development
 

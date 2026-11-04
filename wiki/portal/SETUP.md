@@ -90,10 +90,13 @@ login email lives on the domain):
       it at the pilot. Session 17 checks it.
 - Fail-closed at the daily limit is a per-route toggle (Cloudflare docs, Workers limits:
   fail open bypasses the Worker, fail closed returns error 1027). The portal uses Custom
-  Domains, which have no origin to fall back to. Session 07 (interim, `workers.dev`): there are no
-  routes, so there is no toggle to set; with no origin behind them, a Worker over the limit can
-  only fail (error 1027). **Unverified** (not exercised: it would take the account's whole daily
-  allowance). Check the toggle again when the Custom Domains exist.
+  Domains, which have no origin to fall back to, so a Worker over the limit can only fail.
+  **Unverified, checked by the staging switch (07c) only as far as the docs go:** the docs speak of
+  "the corresponding route" and do not say whether a Custom Domain shows the toggle. Owner: in the
+  dashboard, **Workers & Pages → portal-staging → Settings → Domains & Routes**, see whether each
+  Custom Domain has a fail-open/closed setting, set it to closed if it does, and tell the session
+  what you saw (production gets the same check in session 18). Not exercised against the limit
+  itself: that would take the account's whole daily allowance.
 
 ## D. Zero Trust and Access (before session 07)
 
@@ -101,17 +104,11 @@ login email lives on the domain):
 - [x] Login method: the **Cloudflare** identity provider, restricted to account members (the
       default for new teams). It uses each admin's Cloudflare login and 2FA, which is stronger
       than a one-time PIN, so there is no OTP.
-- [x] Interim staging (session 07, until the move; wiki/Portal.md → "Interim staging on
-      workers.dev"): a **Worker-level** Access app on `portal-staging-admin`. **Workers & Pages →
-      portal-staging-admin → Access → Protect this Worker behind Access → All traffic → Apply**,
-      then in **Zero Trust → Access controls → Applications** the Allow policy limited to the two
-      admin emails with an 8-hour session, plus a *Service Auth* policy for `agent-staging`. Its
-      AUD tag is `ACCESS_AUD` in `env.staging-admin` (not a secret). It covers the Worker's
-      `workers.dev` hostname, which a hostname app couldn't without a zone.
 - [x] Access app `admin-staging` for `admin-staging.knockbox.nz` (2026-11-05; an Access app
       needs an active zone): policies `Admins` and `Service Auth`, 12-hour session (the owner's
-      choice, instead of 8: a long event day). AUD in PROGRESS.md. Then follow the switch
-      checklist in wiki/Portal.md and delete the interim Worker-level app with its Worker.
+      choice, instead of 8: a long event day). AUD in PROGRESS.md and in
+      `env.staging`. The interim Worker-level app on `portal-staging-admin` is retired by the staging
+      switch (07c; the owner's dashboard steps are in its PROGRESS entry).
 - [x] Access app `admin` for `admin.knockbox.nz`: policy `Admins` only, 12-hour session, its own
       AUD. Production never accepts the service token.
 - [x] Reusable policies (**Zero Trust → Access controls → Policies**). `Admins`: Allow, Include
@@ -123,8 +120,7 @@ login email lives on the domain):
       PC's user environment (`CF_ACCESS_CLIENT_ID`, `CF_ACCESS_CLIENT_SECRET`) and the GitHub
       `staging` environment. Never commit them.
 - [x] *Service Auth* policy for `agent-staging` (`Service Auth`) on the **staging** app only. The
-      interim app has its own (`Agent Staging Service Auth`), deleted with it. **Unverified** on
-      `admin-staging` until the staging switch gives the hostname a DNS record.
+      interim app's own policy (`Agent Staging Service Auth`) goes with that app.
 
 ## E. Tokens and GitHub (before session 07)
 
@@ -160,8 +156,9 @@ zone policy they don't apply.
 - [x] Staging D1, R2 and secrets (done 2026-10-28): run what `bun run scripts/provision.ts --env staging` prints, in
       a new PowerShell 7 window from `apps/portal` (session 07). It removes the read-only token
       for that window, logs in, creates `portal-staging` (D1) and `portal-media-staging` (R2),
-      and pipes a fresh random 32-byte value for `UPLOAD_KEY` and `SESSION_KEY` into both staging
-      Workers (`--env staging` and `--env staging-admin`; this also creates them empty). It **ends
+      and pipes a fresh random 32-byte value for `UPLOAD_KEY` and `SESSION_KEY` into the staging
+      Worker (`--env staging`; this also creates it empty; session 07 did it for the since-removed
+      `staging-admin` too). It **ends
       with `npx wrangler logout`**: otherwise the write login stays cached in `~/.wrangler` and any
       process on this PC that runs Wrangler without `CLOUDFLARE_API_TOKEN` would use it, so agents
       would hold a write token after all. If `npx wrangler` does nothing (no Node on PATH), prefix
