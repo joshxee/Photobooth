@@ -19,6 +19,17 @@ this file first, so state facts and not intentions.
 
 ---
 
+## 18a — Release branch for production deploys — DONE — 2026-11-05
+- PR: see the PR for branch `portal/18a-release-branch`. Closes the open question in DESIGN §4.1.
+- Built: `deploy-production.yml` runs on a push to `release` (or a dispatch from it) and refuses any other ref. The docs now say merging `main` into `release` is the owner's approval: AGENTS.md, DESIGN §4.1, `wiki/Portal.md`, SETUP E and F, session 18.
+- Verified: the workflow YAML parses. **Unverified:** the workflow has not run. `release`, its ruleset and the environment change are SETUP F steps for the owner, and nothing has been deployed.
+- Device check: n/a
+- Deviations from DESIGN.md: §4.1 decided by the owner, who chose this over a separate Cloudflare account or a bot GitHub identity. `production` no longer has a required reviewer.
+- Wiki updated: `wiki/Portal.md`
+- Notes for next session: the accepted gaps are in DESIGN §4.1: agents share the owner's GitHub login, so "only the owner merges" is an agent rule, and the staging token can reach production. PR #40 edits nearby lines in AGENTS.md, DESIGN §4.1, `wiki/Portal.md` and SETUP.md, so whichever merges second may need a small conflict fix.
+
+---
+
 ## SETUP — C and D done after the domain move; DNSSEC still to do — PARTIAL — 2026-11-05
 - PR: #39 (branch `claude/setup-after-move`). Docs only. Follows the SETUP entry of 2026-10-23.
 - Done by the owner, guided: the Registrar move (accepted 2026-11-04), `privacy@` as a Hostinger alias, Access apps `admin-staging` and `admin`, the policies `Admins` (two emails) and `Service Auth` (`agent-staging`, staging only), the WAF rule `photos flood limit`, the website Worker's `workers.dev` and Preview URLs off.

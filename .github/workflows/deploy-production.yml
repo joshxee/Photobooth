@@ -1,12 +1,15 @@
 name: Deploy production
 
-# Production deploys only ever run from here, started by hand from main AND approved by the required
-# reviewer on the `production` environment (SETUP.md E). Agents never start it (AGENTS.md). It is
-# not used before session 18: until SETUP F has created the production D1, R2 and secrets and
-# filled env.production in wrangler.jsonc, the preflight step stops it before anything is touched.
-# A production smoke run is session 18's decision.
+# Production deploys only ever run from here, on the `release` branch. Merging main into `release`
+# is the owner's approval (DESIGN §4.1, "Production deploys"), and a dispatch from `release` re-runs
+# a deploy without a new merge. Agents never open or merge those PRs and never start this workflow
+# (AGENTS.md). It is not used before session 18: until SETUP F has created the production D1, R2 and
+# secrets and filled env.production in wrangler.jsonc, the preflight step stops it before anything
+# is touched. A production smoke run is session 18's decision.
 
 on:
+  push:
+    branches: [release]
   workflow_dispatch:
 
 concurrency:
@@ -22,8 +25,8 @@ env:
 jobs:
   production:
     name: Deploy (production)
-    # The environment also allows main only; this stops a run from another ref before it waits for approval.
-    if: github.ref == 'refs/heads/main'
+    # The environment also allows release only; this stops a run from another ref before it starts.
+    if: github.ref == 'refs/heads/release'
     runs-on: ubuntu-latest
     environment: production
     timeout-minutes: 20

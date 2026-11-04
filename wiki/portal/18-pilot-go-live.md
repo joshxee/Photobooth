@@ -1,12 +1,12 @@
 # 18 — Production go-live and pilot event (critical)
 
-**Goal:** production is deployed by you through the approval gate, a real low-volume NZ event
+**Goal:** production is deployed by you through a merge into `release`, a real low-volume NZ event
 runs on it, and the counts reconcile. After this the MVP is live.
 
 - **Depends on:** 17 (all gates pass or are accepted), SETUP F.
 - **Unlocks:** —
 - **Device check:** **critical** (a real event).
-- **Human gate:** you approve the production deploy and run the event. The agent prepares,
+- **Human gate:** you merge into `release`, which deploys production, and run the event. The agent prepares,
   watches the read-only logs, and reconciles.
 
 ## Read first
@@ -23,8 +23,8 @@ runs on it, and the counts reconcile. After this the MVP is live.
    - The **release-build** booth APK (signing per `wiki/Android-Build.md`).
    - A diff checklist confirming that `DEV_AUTH` cannot be set in production (the config has no
      such var, and a test already covers the host check).
-2. **Deploy** (you): merge, then `gh workflow run deploy-portal.yml` → approve the
-   `production` job. Then:
+2. **Deploy** (you): merge the readiness PR into `main`, then merge `main` into `release` (SETUP F),
+   which starts `deploy-production.yml`. Then:
    - `curl` `/healthz` on both hosts (the admin host needs an Access session or service token: since session 04 every admin request is authenticated);
    - Access login works for both admins;
    - the `workers.dev` and preview URLs are disabled.
@@ -57,7 +57,7 @@ runs on it, and the counts reconcile. After this the MVP is live.
 - Any feature work. Issues found here become new sessions in a follow-up plan.
 
 ## Done when
-- [ ] Production is deployed via the approval gate, with no manual `wrangler deploy`.
+- [ ] Production is deployed by a merge into `release`, with no manual `wrangler deploy`.
 - [ ] The pilot event ran, and the counts reconcile, with every difference explained.
 - [ ] The cost and the event-day requests are in line with DESIGN §16, or the difference is
       explained, and the user has decided the Workers plan (stay Free or move to Paid).

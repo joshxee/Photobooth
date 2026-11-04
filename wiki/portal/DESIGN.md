@@ -115,28 +115,27 @@ benefit. Staging's synthetic traffic barely touches the free allowances.
 - Invite the second admin as a member rather than sharing a login.
 - Create one scoped API token for CI: Workers Scripts, D1, R2 and Workers Routes for this account
   and zone only. It lives only in GitHub environment secrets (`staging`, `production`), and the
-  `production` environment requires your approval.
+  `production` environment accepts only the `release` branch.
 - **Agents never hold a write token.** Cloudflare API permissions for Workers and D1 are
   account-wide, so a "staging-only" token would not actually be limited to staging.
   - Agents deploy staging by triggering the `deploy-staging` workflow.
   - Locally they use a **read-only** token (Workers observability, D1 read, R2 read) for logs
     and inspection.
-  - **Open, decide before session 18 (found in the session 07 review):** the separation between
-    staging and production deploys is by convention, not enforced.
-    - Both GitHub environments hold the same account-wide `ci-deploy` token.
-    - `staging` has no branch rule, so a dispatched ref runs its own `wrangler.jsonc` and scripts
-      with a token that can also write production's Worker and D1 and read its R2.
-      `scripts/preflight.ts` pins the Worker names and keeps staging off production's resources,
-      but it runs from that same ref.
-    - The production reviewer is the owner's GitHub identity, which agents use through `gh`, and
-      `main` is unprotected.
-    - Options:
-      - a separate Cloudflare account for production with its own token (the only real
-        isolation, since Workers and D1 permissions can't be scoped below the account);
-      - otherwise, a production-only token, branch protection on `main`, and agents on a GitHub
-        identity that can't approve the `production` environment.
-    - Until then, agents follow the AGENTS.md rules: dispatch only refs they pushed, never push
-      to `main`, never approve a deployment.
+  - **Production deploys (decided by the owner on 2026-11-05):** production deploys when `main` is
+    merged into a `release` branch, and only the owner opens and merges those PRs. The merge is
+    the approval, so the environment has no separate reviewer. A separate Cloudflare account or a
+    bot GitHub identity would isolate more, but costs too much setup for one owner. These gaps
+    are accepted:
+    - Agents use the owner's GitHub login, so GitHub can't tell them apart. "Only the owner" is an
+      agent rule (AGENTS.md). The `release` ruleset stops direct pushes and force pushes, not a
+      merge made with that login.
+    - Both GitHub environments hold the same account-wide `ci-deploy` token, and `staging` has no
+      branch rule, so a dispatched ref runs its own `wrangler.jsonc` and scripts with a token that
+      can also write production's Worker and D1 and read its R2. `scripts/preflight.ts` pins the
+      Worker names and keeps staging off production's resources, but it runs from that same ref.
+      Agents therefore dispatch only refs they pushed.
+    - Revisit this if someone else gets access to the repo or the account, or if agents start
+      running unattended.
 - The current personal account is used only for the throwaway spike (session 01). Its
   resources are deleted afterwards.
 - Set billing notifications as in section 15.
@@ -169,7 +168,7 @@ SETUP.md C.
 | Worker | `portal` | `portal-staging` (interim: plus `portal-staging-admin`) |
 | D1 / R2 | `portal` / `portal-media` | `portal-staging` / `portal-media-staging` |
 | Secrets | `UPLOAD_KEY`, `SESSION_KEY` (unique per env) | separate values |
-| Deploy | CI (`deploy-production.yml`, from `main`), on your approval | CI (`deploy-staging.yml`), automatically on `main` or on demand for a branch |
+| Deploy | CI (`deploy-production.yml`), when you merge `main` into `release` | CI (`deploy-staging.yml`), automatically on `main` or on demand for a branch |
 
 - Staging uses synthetic photos only, and booths enrol against staging with a build-time
   setting.

@@ -141,15 +141,9 @@ zone policy they don't apply.
   - `staging`: secrets `CLOUDFLARE_API_TOKEN` (`ci-deploy`), `CLOUDFLARE_ACCOUNT_ID`,
     `CF_ACCESS_CLIENT_ID`, `CF_ACCESS_CLIENT_SECRET`. No reviewers and no branch rule: agents
     deploy branches here.
-  - `production`: `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`; **required reviewer =
-    joshxee**, "Allow administrators to bypass" **off** (agents use the owner's `gh` login),
-    branch `main` only.
-  - **Not an enforced boundary yet** (the session 07 review):
-    - Both environments hold the same `ci-deploy` token, which can write production too.
-    - Agents act as joshxee, so they could approve the reviewer gate themselves.
-    - `main` has no branch protection.
-    - Decide before session 18 (DESIGN §4.1, "Open"): a separate production account or token,
-      protect `main`, and a non-owner identity for agents.
+  - `production`: `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`; branch `release` only (set up
+    in F), no required reviewer: merging into `release` is the approval. The gaps this leaves
+    are accepted in DESIGN §4.1, "Production deploys".
 - [x] `agent-readonly`, 1 year, in this PC's environment (`CLOUDFLARE_API_TOKEN`,
       `CLOUDFLARE_ACCOUNT_ID`). Account: Workers Scripts Read, Workers Tail Read, D1 Read,
       Workers R2 Storage Read, Account Settings Read. Zone `knockbox.nz`: Workers Routes Read.
@@ -169,6 +163,16 @@ zone policy they don't apply.
 
 ## F. Production (before session 18)
 
+- [ ] `release` branch, once the PR that adds it to `deploy-production.yml` is merged:
+  - Create it from `main`: GitHub → **Branches → New branch**, name `release`, source `main`.
+  - GitHub → Settings → Rules → Rulesets → **New branch ruleset**: name `release`, enforcement
+    Active, an empty bypass list, target branch `release`. Turn on **Restrict deletions**,
+    **Block force pushes** and **Require a pull request before merging** (0 approvals: you can't
+    approve your own PR).
+  - GitHub → Settings → Environments → `production`: under deployment branches, replace `main`
+    with `release`, and remove the required reviewer.
+  - To deploy: open a PR from `main` to `release` and merge it with **Create a merge commit**. A
+    squash would make `release` diverge from `main`.
 - [ ] Create the production D1 and R2 resources with the commands session 07 prints. You run
       them, not the agent.
 - [ ] Set the production secrets (`UPLOAD_KEY`, `SESSION_KEY`, unique values, never reused

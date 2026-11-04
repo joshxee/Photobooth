@@ -120,14 +120,14 @@ Only CI deploys; agents and this PC never hold a Cloudflare write token (AGENTS.
   `main` for this). Steps: preflight → typecheck, test, build → `d1 migrations apply --remote` →
   deploy both staging Workers with `--var GIT_SHA:<sha>` → `scripts/smoke.ts` against both hosts.
   One run at a time (`concurrency`, never cancelled half-way).
-- **Production**: `.github/workflows/deploy-production.yml`, `workflow_dispatch` from `main` only,
-  GitHub environment `production` (required reviewer: the owner). Preflight, gates, migrations,
-  deploy. No smoke (it would write to production's D1 and R2). The plan's single
-  `deploy-portal.yml` became two files so the production job can't be reached by a branch input.
-  The *token* can: both environments hold the same account-wide `ci-deploy` token, and a
-  dispatched staging ref runs its own config and scripts with it. Agents act as the owner on
-  GitHub, so the reviewer gate isn't a boundary against them either. This is open until session
-  18 (DESIGN §4.1, "Open"); meanwhile agents dispatch only their own branches (AGENTS.md).
+- **Production**: `.github/workflows/deploy-production.yml`, on a push to `release` (or a dispatch
+  from it), GitHub environment `production` (`release` only). Merging `main` into `release` is the
+  owner's approval. Preflight, gates, migrations, deploy. No smoke (it would write to production's
+  D1 and R2). The plan's single `deploy-portal.yml` became two files so the production job can't be
+  reached by a branch input. The *token* can: both environments hold the same account-wide
+  `ci-deploy` token, and a dispatched staging ref runs its own config and scripts with it. Agents
+  act as the owner on GitHub, so "only the owner merges" is an agent rule too. Both are accepted
+  risks (DESIGN §4.1, "Production deploys"), and agents dispatch only their own branches (AGENTS.md).
 - **`scripts/preflight.ts --env staging|production`** runs before anything touches Cloudflare and
   refuses a config that would expose something. It checks the *effective* settings, inherited
   from the top level where the environment sets none. It refuses:
