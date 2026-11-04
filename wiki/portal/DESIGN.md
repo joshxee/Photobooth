@@ -121,22 +121,17 @@ benefit. Staging's synthetic traffic barely touches the free allowances.
   - Agents deploy staging by triggering the `deploy-staging` workflow.
   - Locally they use a **read-only** token (Workers observability, D1 read, R2 read) for logs
     and inspection.
-  - **Open, decide before session 18 (found in the session 07 review):** the separation between
-    staging and production deploys is by convention, not enforced.
-    - Both GitHub environments hold the same account-wide `ci-deploy` token.
-    - `staging` has no branch rule, so a dispatched ref runs its own `wrangler.jsonc` and scripts
-      with a token that can also write production's Worker and D1 and read its R2.
-      `scripts/preflight.ts` pins the Worker names and keeps staging off production's resources,
-      but it runs from that same ref.
-    - The production reviewer is the owner's GitHub identity, which agents use through `gh`, and
-      `main` is unprotected.
-    - Options:
-      - a separate Cloudflare account for production with its own token (the only real
-        isolation, since Workers and D1 permissions can't be scoped below the account);
-      - otherwise, a production-only token, branch protection on `main`, and agents on a GitHub
-        identity that can't approve the `production` environment.
-    - Until then, agents follow the AGENTS.md rules: dispatch only refs they pushed, never push
-      to `main`, never approve a deployment.
+  - **Production deploys (decided by the owner on 2026-11-05):** keep the simple setup. Production
+    deploys from `main`: the owner dispatches `deploy-production.yml` and approves the `production`
+    environment. The owner is the repo's only collaborator and merges every PR. Agents never merge
+    or deploy production (AGENTS.md). These gaps, from the session 07 review, are accepted for now,
+    and the owner may tighten this later:
+    - Agents use the owner's GitHub login, so these are agent rules and GitHub doesn't enforce them.
+    - Both GitHub environments hold the same account-wide `ci-deploy` token, and `staging` has no
+      branch rule, so a dispatched ref runs its own `wrangler.jsonc` and scripts with a token that
+      can also write production's Worker and D1 and read its R2. `scripts/preflight.ts` pins the
+      Worker names and keeps staging off production's resources, but it runs from that same ref.
+      Agents therefore dispatch only refs they pushed.
 - The current personal account is used only for the throwaway spike (session 01). Its
   resources are deleted afterwards.
 - Set billing notifications as in section 15.
