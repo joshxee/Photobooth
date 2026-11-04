@@ -144,8 +144,8 @@
     "production": {
       "name": "portal",
       "routes": [
-        { "pattern": "photos.example.invalid", "custom_domain": true },
-        { "pattern": "admin.example.invalid", "custom_domain": true }
+        { "pattern": "photos.knockbox.nz", "custom_domain": true },
+        { "pattern": "admin.knockbox.nz", "custom_domain": true }
       ],
       "d1_databases": [
         { "binding": "DB", "database_name": "portal", "database_id": "3cec22a2-153a-448a-999b-4a1ae6e0dc18" }
@@ -158,12 +158,12 @@
       ],
       "secrets": { "required": ["UPLOAD_KEY", "SESSION_KEY"] },
       "vars": {
-        "GALLERY_HOST": "photos.example.invalid",
-        "ADMIN_HOST": "admin.example.invalid",
-        "ADMIN_EMAILS": "",
+        "GALLERY_HOST": "photos.knockbox.nz",
+        "ADMIN_HOST": "admin.knockbox.nz",
+        "ADMIN_EMAILS": "josh@knockbox.nz,jbxcleland@gmail.com",
         "ADMIN_SERVICE_CLIENTS": "",
-        "ACCESS_TEAM_DOMAIN": "",
-        "ACCESS_AUD": "",
+        "ACCESS_TEAM_DOMAIN": "knockbox.cloudflareaccess.com",
+        "ACCESS_AUD": "cc52484ab2339ac7381d177ef6142a50082de363c3268c2bc90dcf67822b7f4b",
         "CONTACT_EMAIL": "privacy@knockbox.nz",
         // Always empty here: DEV_AUTH is for `wrangler dev` only (and works only on *.localhost).
         "DEV_AUTH": "",
