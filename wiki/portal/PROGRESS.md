@@ -19,6 +19,17 @@ this file first, so state facts and not intentions.
 
 ---
 
+## 18a — Production deploy decision — DONE — 2026-11-05
+- PR: #42 (branch `portal/18a-prod-deploy-decision`). Docs only. Closes the open question in DESIGN §4.1.
+- Built: nothing. The owner decided to keep the simple setup: production deploys from `main` by dispatch plus the `production` environment's approval. A release branch was tried in #41 and closed unmerged. A separate Cloudflare account and a bot GitHub identity were also declined.
+- Verified: the `production` environment still allows `main` only (API). No workflow or settings changed.
+- Device check: n/a
+- Deviations from DESIGN.md: §4.1 "Open" replaced by the decision, with the gaps accepted.
+- Wiki updated: `wiki/Portal.md`
+- Notes for next session: this no longer blocks session 18, and it shouldn't be reopened unless the owner asks. Session 18 step 2 named the old `deploy-portal.yml`; it now says `deploy-production.yml`.
+
+---
+
 ## SETUP — C and D done after the domain move; DNSSEC still to do — PARTIAL — 2026-11-05
 - PR: #39 (branch `claude/setup-after-move`). Docs only. Follows the SETUP entry of 2026-10-23.
 - Done by the owner, guided: the Registrar move (accepted 2026-11-04), `privacy@` as a Hostinger alias, Access apps `admin-staging` and `admin`, the policies `Admins` (two emails) and `Service Auth` (`agent-staging`, staging only), the WAF rule `photos flood limit`, the website Worker's `workers.dev` and Preview URLs off.

@@ -126,8 +126,8 @@ Only CI deploys; agents and this PC never hold a Cloudflare write token (AGENTS.
   `deploy-portal.yml` became two files so the production job can't be reached by a branch input.
   The *token* can: both environments hold the same account-wide `ci-deploy` token, and a
   dispatched staging ref runs its own config and scripts with it. Agents act as the owner on
-  GitHub, so the reviewer gate isn't a boundary against them either. This is open until session
-  18 (DESIGN §4.1, "Open"); meanwhile agents dispatch only their own branches (AGENTS.md).
+  GitHub, so the reviewer gate isn't a boundary against them either. Both are accepted for now
+  (DESIGN §4.1, "Production deploys"), and agents dispatch only their own branches (AGENTS.md).
 - **`scripts/preflight.ts --env staging|production`** runs before anything touches Cloudflare and
   refuses a config that would expose something. It checks the *effective* settings, inherited
   from the top level where the environment sets none. It refuses:
