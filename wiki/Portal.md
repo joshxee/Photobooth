@@ -168,7 +168,7 @@ policy. Notes for whoever checks it next:
 - Custom Domains create their own DNS records and certificates on deploy. Right after the first deploy
   a hostname can be slow to answer, which is why the smoke waits for `/healthz` to report the commit.
 - Preflight now holds staging to the same rules as production (exactly the two custom-domain routes,
-  `workers_dev` false, Access configured); staging alone may keep `ADMIN_SERVICE_CLIENTS`.
+  `workers_dev` false, Access configured); staging alone may keep `ADMIN_SERVICE_CLIENTS` and may not claim production's hostnames or Access AUD.
 - The zone WAF rule `photos flood limit` covers `photos-staging` too (SETUP C). **Unverified** until
   session 17 floods it.
 - The cron runs on this one Worker, so the retention job still runs once.

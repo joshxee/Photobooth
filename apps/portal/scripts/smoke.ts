@@ -157,13 +157,20 @@ async function expectAccessRefuses(label: string, headers: Record<string, string
 async function waitForCommit(target: Target, headers: Record<string, string>, commit: string): Promise<void> {
   const deadline = Date.now() + 120_000;
   for (;;) {
-    const res = await send(target, "/healthz", { headers });
-    const body = res.ok ? ((await res.json()) as { commit?: string | null }) : (await res.arrayBuffer(), null);
-    if (body?.commit === commit) {
-      console.log(`ok  ${res.status} GET ${target.host}/healthz commit ${commit}`);
-      return;
+    let seen = "no answer";
+    try {
+      const res = await send(target, "/healthz", { headers });
+      const body = res.ok ? ((await res.json()) as { commit?: string | null }) : (await res.arrayBuffer(), null);
+      if (body?.commit === commit) {
+        console.log(`ok  ${res.status} GET ${target.host}/healthz commit ${commit}`);
+        return;
+      }
+      seen = `${res.status} ${JSON.stringify(body)}`;
+    } catch (error) {
+      // A new custom domain refuses connections (DNS, then TLS) until its record and certificate exist.
+      seen = error instanceof Error ? error.message : String(error);
     }
-    if (Date.now() > deadline) throw new Error(`${target.host}/healthz: expected commit ${commit}, got ${res.status} ${JSON.stringify(body)}`);
+    if (Date.now() > deadline) throw new Error(`${target.host}/healthz: expected commit ${commit}, got ${seen}`);
     await Bun.sleep(5_000);
   }
 }

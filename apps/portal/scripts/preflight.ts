@@ -103,6 +103,13 @@ function stagingProblems(config: Config, problems: string[]): void {
   if (production && (dbId(env) === dbId(production) || bucket(env) === bucket(production))) {
     problems.push("env.staging: must not use production's D1 or R2");
   }
+  // ...nor production's hostnames or Access application.
+  if (production && [env.vars.GALLERY_HOST, env.vars.ADMIN_HOST].some((h) => h === production.vars.GALLERY_HOST || h === production.vars.ADMIN_HOST)) {
+    problems.push("env.staging: must not claim production's hostnames");
+  }
+  if (production?.vars.ACCESS_AUD && env.vars.ACCESS_AUD === production.vars.ACCESS_AUD) {
+    problems.push("env.staging: ACCESS_AUD must be its own Access application's, not production's");
+  }
 }
 
 function productionProblems(config: Config, problems: string[]): void {

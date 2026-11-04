@@ -6,12 +6,13 @@ const committed = Bun.JSONC.parse(await Bun.file(new URL("../wrangler.jsonc", im
 const DB_ID = "11111111-2222-3333-4444-555555555555";
 const PROD_DB_ID = "66666666-7777-8888-9999-aaaaaaaaaaaa";
 const AUD = "a".repeat(64);
+const STAGING_AUD = "b".repeat(64);
 
 /** The committed config with real-looking IDs filled in, so each test breaks exactly one thing. */
 function ready(): Config {
   const c = structuredClone(committed);
   c.env.staging!.d1_databases[0]!.database_id = DB_ID;
-  c.env.staging!.vars.ACCESS_AUD = AUD;
+  c.env.staging!.vars.ACCESS_AUD = STAGING_AUD;
   c.env.production!.d1_databases[0]!.database_id = PROD_DB_ID;
   const prod = c.env.production!;
   prod.routes = [
@@ -74,6 +75,24 @@ describe("preflight", () => {
     d.env.staging!.vars.GALLERY_HOST = "portal-staging.josh-33c.workers.dev";
     d.env.staging!.routes![0]!.pattern = "portal-staging.josh-33c.workers.dev";
     expect(preflight(d, "staging")).toEqual(["env.staging: hosts must be the real domain"]);
+  });
+
+  it("refuses staging claiming production's hostnames or Access application, or a singular route", () => {
+    const c = ready();
+    const staging = c.env.staging!;
+    Object.assign(staging.vars, { GALLERY_HOST: "photos.knockbox.nz", ADMIN_HOST: "admin.knockbox.nz" });
+    staging.routes = [
+      { pattern: "photos.knockbox.nz", custom_domain: true },
+      { pattern: "admin.knockbox.nz", custom_domain: true },
+    ];
+    staging.vars.ACCESS_AUD = AUD;
+    expect(preflight(c, "staging")).toEqual([
+      "env.staging: must not claim production's hostnames",
+      "env.staging: ACCESS_AUD must be its own Access application's, not production's",
+    ]);
+    const d = ready();
+    d.env.staging!.route = "photos-staging.knockbox.nz/*";
+    expect(preflight(d, "staging")).toEqual(["env.staging: use routes, not route"]);
   });
 
   it("requires staging's Access config, and lets it keep the service token", () => {
