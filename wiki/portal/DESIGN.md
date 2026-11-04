@@ -126,9 +126,14 @@ benefit. Staging's synthetic traffic barely touches the free allowances.
     the approval, so the environment has no separate reviewer. A separate Cloudflare account or a
     bot GitHub identity would isolate more, but costs too much setup for one owner. These gaps
     are accepted:
-    - Agents use the owner's GitHub login, so GitHub can't tell them apart. "Only the owner" is an
-      agent rule (AGENTS.md). The `release` ruleset stops direct pushes and force pushes, not a
-      merge made with that login.
+    - Agents use the owner's GitHub login, an admin and the repo's only collaborator, so GitHub
+      can't tell them apart. "Only the owner" is an agent rule (AGENTS.md). The `release` ruleset
+      stops direct pushes and force pushes, but that login can still:
+      - merge any PR into `release`, not only one from `main`;
+      - deploy with no merge, with `gh workflow run --ref release` or `gh run rerun`;
+      - edit or delete the ruleset and the environment's branch rule;
+      - push straight to `main` (its ruleset blocks only deletion and force pushes, and admins
+        can bypass it), and the next release would ship that code.
     - Both GitHub environments hold the same account-wide `ci-deploy` token, and `staging` has no
       branch rule, so a dispatched ref runs its own `wrangler.jsonc` and scripts with a token that
       can also write production's Worker and D1 and read its R2. `scripts/preflight.ts` pins the

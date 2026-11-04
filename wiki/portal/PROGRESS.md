@@ -20,9 +20,9 @@ this file first, so state facts and not intentions.
 ---
 
 ## 18a — Release branch for production deploys — DONE — 2026-11-05
-- PR: see the PR for branch `portal/18a-release-branch`. Closes the open question in DESIGN §4.1.
+- PR: #41 (branch `portal/18a-release-branch`). Closes the open question in DESIGN §4.1.
 - Built: `deploy-production.yml` runs on a push to `release` (or a dispatch from it) and refuses any other ref. The docs now say merging `main` into `release` is the owner's approval: AGENTS.md, DESIGN §4.1, `wiki/Portal.md`, SETUP E and F, session 18.
-- Verified: the workflow YAML parses. **Unverified:** the workflow has not run. `release`, its ruleset and the environment change are SETUP F steps for the owner, and nothing has been deployed.
+- Verified: the workflow YAML parses; `preflight.ts --env production` exits 1 on the placeholder config; independent review (no blockers, its fixes are in this PR). **Unverified:** the workflow has not run, including that creating `release` fails at the environment rule as SETUP F expects. `release`, its ruleset and the environment change are SETUP F steps for the owner, and nothing has been deployed.
 - Device check: n/a
 - Deviations from DESIGN.md: §4.1 decided by the owner, who chose this over a separate Cloudflare account or a bot GitHub identity. `production` no longer has a required reviewer.
 - Wiki updated: `wiki/Portal.md`

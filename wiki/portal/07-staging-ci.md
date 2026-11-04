@@ -75,6 +75,8 @@ curl https://admin-staging.<domain>/api/events            # without Access → A
 ## Done when
 Done on the interim `workers.dev` staging (DESIGN §4.1 deviation). The workflow is
 `deploy-staging.yml`, not `deploy-portal.yml`, with production in `deploy-production.yml`.
+Production no longer works as Scope describes (reviewer plus manual dispatch): it deploys when
+`main` is merged into `release` (DESIGN §4.1, "Production deploys").
 
 - [x] Staging deploys from CI only, and the smoke run is green, including the APP1 rejection
       on real R2 (run 40661824982).

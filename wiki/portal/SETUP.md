@@ -163,14 +163,19 @@ zone policy they don't apply.
 
 ## F. Production (before session 18)
 
-- [ ] `release` branch, once the PR that adds it to `deploy-production.yml` is merged:
+- [ ] `release` branch, once the PR that adds it to `deploy-production.yml` is merged. Do these
+      in this order, before `env.production` is filled in. If `production` allowed `release`
+      first, creating the branch could deploy with no merge.
   - Create it from `main`: GitHub → **Branches → New branch**, name `release`, source `main`.
+    This starts a "Deploy production" run that should fail at the environment's branch rule,
+    with no secrets and no steps run. That red run and its notification are expected.
   - GitHub → Settings → Rules → Rulesets → **New branch ruleset**: name `release`, enforcement
     Active, an empty bypass list, target branch `release`. Turn on **Restrict deletions**,
     **Block force pushes** and **Require a pull request before merging** (0 approvals: you can't
     approve your own PR).
   - GitHub → Settings → Environments → `production`: under deployment branches, replace `main`
-    with `release`, and remove the required reviewer.
+    with `release`, remove the required reviewer, and **Save protection rules**. If the reviewer
+    stays, a deploy just waits for your approval.
   - To deploy: open a PR from `main` to `release` and merge it with **Create a merge commit**. A
     squash would make `release` diverge from `main`.
 - [ ] Create the production D1 and R2 resources with the commands session 07 prints. You run

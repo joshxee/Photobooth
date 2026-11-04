@@ -75,7 +75,8 @@ cd apps/booth && bun install --frozen-lockfile && bun run typecheck && bun test 
   Dispatch only a branch you pushed to this repo (never a fork's ref or `refs/pull/*`): the run executes that
   ref's code with a token that can also reach production (DESIGN §4.1, "Production deploys"). Never push to
   `main` or `release`, never open or merge a PR into `release` (the owner does: merging is what deploys
-  production), and never approve or dispatch a `production` deployment.
+  production), and never approve, dispatch or re-run a `production` deployment, or change the rules on
+  `main`, `release` or the `production` environment.
   Read logs with the read-only token: `wrangler tail --env staging --format json` (or `--env staging-admin`).
   Call the staging admin API with the service token from the user environment:
   `-H "CF-Access-Client-Id: $CF_ACCESS_CLIENT_ID" -H "CF-Access-Client-Secret: $CF_ACCESS_CLIENT_SECRET"`,
