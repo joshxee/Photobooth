@@ -20,7 +20,7 @@ this file first, so state facts and not intentions.
 ---
 
 ## 18a — Production deploy decision — DONE — 2026-11-05
-- PR: see the PR for branch `portal/18a-prod-deploy-decision`. Docs only. Closes the open question in DESIGN §4.1.
+- PR: #42 (branch `portal/18a-prod-deploy-decision`). Docs only. Closes the open question in DESIGN §4.1.
 - Built: nothing. The owner decided to keep the simple setup: production deploys from `main` by dispatch plus the `production` environment's approval. A release branch was tried in #41 and closed unmerged. A separate Cloudflare account and a bot GitHub identity were also declined.
 - Verified: the `production` environment still allows `main` only (API). No workflow or settings changed.
 - Device check: n/a
