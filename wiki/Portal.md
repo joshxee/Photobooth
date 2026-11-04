@@ -174,8 +174,8 @@ and the Worker still checks the JWT. Lost until the switch: the zone WAF rate-li
 
 **Switching to the custom domains** (once the zone is Active):
 
-1. SETUP D: create the Access app for `admin-staging.knockbox.nz` (two admin emails, 8 h, a
-   Service Auth policy for `agent-staging`) and read back its AUD.
+1. Done (SETUP D, 2026-11-05): the Access app for `admin-staging.knockbox.nz` (two admin emails,
+   12 h, a Service Auth policy for `agent-staging`). Its AUD is in PROGRESS.md (SETUP entry).
 2. `env.staging`: routes `photos-staging.knockbox.nz` and `admin-staging.knockbox.nz`, both
    `custom_domain: true`; `workers_dev: false`; `GALLERY_HOST`/`ADMIN_HOST` those hosts; the
    admin vars from `env.staging-admin`, with the new `ACCESS_AUD`.
@@ -187,7 +187,7 @@ and the Worker still checks the JWT. Lost until the switch: the zone WAF rate-li
    and its Worker-level Access app (dashboard), and turn off `portal-staging`'s `workers.dev`
    route if the dashboard still shows it.
 5. Re-enrol each staging booth against `photos-staging.knockbox.nz` (its build-time staging
-   URL changes), and add the WAF rule (SETUP C) for `photos-staging`.
+   URL changes), and check the WAF rule (SETUP C, already deployed) covers `photos-staging`.
 6. Remove this section and the DESIGN §4.1 deviation.
 
 ### What was verified on staging (session 07, 2026-10-28)

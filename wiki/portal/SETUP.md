@@ -61,23 +61,33 @@ login email lives on the domain):
       custom domain on the Pending zone, so it serves straight after the move. Gotcha: deleting
       the old Pages project in the personal account also deleted its root DNS record; adding the
       custom domain on the personal Worker restored the site until the move.
-- [ ] **Move the registration** (from 2026-11-01, more than 10 days after registration):
-      personal account → **Domain Registration → Manage Domains → knockbox.nz → Configuration**
-      → move → **Start**, with the business account ID. Then business account → **Manage
-      Domains → View Actions → Accept** (within 5 days). The domain is then transfer-locked for
-      30 days.
-- [ ] After the move: the zone is Active on `fay`/`zeus`, mail flows both ways, the website
+- [x] **Move the registration** (done 2026-11-04; allowed from 2026-11-01, more than 10 days
+      after registration): personal account → **Domain Registration → Manage Domains →
+      knockbox.nz → Configuration** → move → **Start**, with the business account ID. Then
+      business account → **Manage Domains → View Actions → Accept** (within 5 days). The domain
+      is transfer-locked for 30 days. Whois changed at 19:42 UTC, the `.nz` registry published
+      `fay`/`zeus` within minutes, and the zone went Active at 19:50 UTC. Public resolvers can
+      keep `cash`/`vida` for up to 24 hours (the delegation's TTL), so the personal zone stays
+      untouched until they have moved.
+- [x] After the move: the zone is Active on `fay`/`zeus`, mail flows both ways, the website
       serves from the business Worker, and the business Worker's `workers.dev` and Preview URLs
-      are off.
-- [ ] Enable DNSSEC: business account **Manage Domains → knockbox.nz → Configuration → Enable
+      are off (2026-11-05).
+- [ ] Enable DNSSEC, **last and only after public resolvers have shown `fay`/`zeus` for at least
+      24 hours**: a DS record seen by a resolver still using the unsigned old zone would make
+      validation fail. Business account **Manage Domains → knockbox.nz → Configuration → Enable
       DNSSEC** (Registrar adds the DS itself within 1–2 days).
-- [ ] `privacy@knockbox.nz` forwards to a monitored inbox. This is the gallery's removal
-      contact. Mail is Hostinger's, and Cloudflare Email Routing would need its own MX records,
-      so check which one to use when setting it up (a Hostinger alias may be simpler).
-- [ ] Add one WAF rate-limiting rule (included in the Free zone plan) for `photos.knockbox.nz`
-      and `photos-staging.knockbox.nz`. It reduces the risk of a flood using up the Workers Free
-      daily limit (a distributed flood can still get through; DESIGN §13, denial of wallet;
-      §16). Session 17 checks it.
+- [ ] After that: tidy up the personal account (its zone and its `knockbox-website` Worker).
+- [x] `privacy@knockbox.nz` is a Hostinger alias of `josh@knockbox.nz` (gallery removal contact;
+      test mail arrived 2026-11-05). Not Cloudflare Email Routing: it needs Cloudflare MX
+      records, and this domain's mail is Hostinger's.
+- [x] One WAF rate-limiting rule, `photos flood limit` (**Security → Security rules → Create rule
+      → Rate limiting rules**; the Free plan allows one rule, per IP, 10-second period and
+      block): `(http.host in {"photos.knockbox.nz" "photos-staging.knockbox.nz"})`, 100 requests
+      per 10 seconds, block for 10 seconds. Guests and the booth can share a venue's IP, so the
+      limit can't be tight. It only slows a flood: one IP can still make about 5 requests a
+      second (the Workers Free daily limit in about 5.5 hours), and a distributed flood gets
+      through (DESIGN §13, denial of wallet; §16). **Unverified** until the hostnames exist; tune
+      it at the pilot. Session 17 checks it.
 - Fail-closed at the daily limit is a per-route toggle (Cloudflare docs, Workers limits:
   fail open bypasses the Worker, fail closed returns error 1027). The portal uses Custom
   Domains, which have no origin to fall back to. Session 07 (interim, `workers.dev`): there are no
@@ -98,16 +108,23 @@ login email lives on the domain):
       admin emails with an 8-hour session, plus a *Service Auth* policy for `agent-staging`. Its
       AUD tag is `ACCESS_AUD` in `env.staging-admin` (not a secret). It covers the Worker's
       `workers.dev` hostname, which a hostname app couldn't without a zone.
-- [ ] After the move (an Access app needs an active zone): an Access app for
-      `admin-staging.knockbox.nz`, with a policy allowing the two admin emails and an 8-hour
-      session. Record the **AUD tag**. Then follow the switch checklist in wiki/Portal.md and
-      delete the interim Worker-level app with its Worker.
-- [ ] An Access app for `admin.knockbox.nz`, with the same policy and its own AUD tag.
+- [x] Access app `admin-staging` for `admin-staging.knockbox.nz` (2026-11-05; an Access app
+      needs an active zone): policies `Admins` and `Service Auth`, 12-hour session (the owner's
+      choice, instead of 8: a long event day). AUD in PROGRESS.md. Then follow the switch
+      checklist in wiki/Portal.md and delete the interim Worker-level app with its Worker.
+- [x] Access app `admin` for `admin.knockbox.nz`: policy `Admins` only, 12-hour session, its own
+      AUD. Production never accepts the service token.
+- [x] Reusable policies (**Zero Trust → Access controls → Policies**). `Admins`: Allow, Include
+      Emails `josh@knockbox.nz`, `jbxcleland@gmail.com`. Gotchas: two Include rules mean "either",
+      so the auto-created "Cloudflare account members" rule would admit any future member (it was
+      removed); and a Service Token rule needs the action **Service Auth**, not Allow.
 - [x] **Service token** `agent-staging` (**Zero Trust → Access controls → Service credentials →
       Service Tokens**), 1 year. The client ID and secret are in the password manager, this
       PC's user environment (`CF_ACCESS_CLIENT_ID`, `CF_ACCESS_CLIENT_SECRET`) and the GitHub
       `staging` environment. Never commit them.
-- [ ] After the move: a *Service Auth* policy for `agent-staging` on the **staging** app only.
+- [x] *Service Auth* policy for `agent-staging` (`Service Auth`) on the **staging** app only. The
+      interim app has its own (`Agent Staging Service Auth`), deleted with it. **Unverified** on
+      `admin-staging` until the staging switch gives the hostname a DNS record.
 
 ## E. Tokens and GitHub (before session 07)
 
