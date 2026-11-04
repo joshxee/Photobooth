@@ -168,8 +168,8 @@ zone policy they don't apply.
 
 - [x] Production D1 `portal` and R2 `portal-media`, both location `oc` (done 2026-11-05). At the
       owner's request an agent created them through the Cloudflare API MCP, instead of the owner
-      running `scripts/provision.ts`. Don't run its production commands again: they would create
-      duplicates and replace the secrets.
+      running `scripts/provision.ts`. Don't run its production commands again: the names already
+      exist, and the secret commands would replace the secrets.
 - [x] Production secrets `UPLOAD_KEY` and `SESSION_KEY` (done 2026-11-05): random 32-byte values
       generated inside the API call, so they were never shown or saved. They are separate from
       staging's. This needed the Worker `portal` to exist, so it is an empty stub that returns 404,

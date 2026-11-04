@@ -755,9 +755,9 @@ with any other value is inline. Only `thumb` and `hd` exist; anything else is th
   cookies, separate from `UPLOAD_KEY`. Without it every guest request fails closed (500). There is
   one key at a time, so rotating it logs every guest out (they reopen the link).
 - `CONTACT_EMAIL` is in every list response (the footer's removal contact). There is no postal address.
-  Local placeholders are in `wrangler.jsonc`; staging has the real ones (session 07); production is
-  still empty, so its list would answer a logged 500 (`internal_error`), and `scripts/preflight.ts`
-  refuses to deploy it like that.
+  A local placeholder is in `wrangler.jsonc`; staging and production have the real one. If it were
+  empty, the list would answer a logged 500 (`internal_error`), and `scripts/preflight.ts` refuses
+  to deploy it like that.
 - The swap accepts only `Content-Type: application/json`. A cross-site page can't send that without
   a CORS preflight, which the Worker never answers, so it can't plant its own gallery's cookie in a
   visitor's browser (login CSRF; harmless here, but free to stop).
@@ -1330,7 +1330,7 @@ EOI only), so the header walk (session 06) accepts them and browsers display the
 - The close-uploads backlog warning covers every enrolled booth, not only those on the event (a device
   isn't tied to an event), and trusts each booth's last report (at most once a minute, see "Devices and
   enrolment").
-- `ADMIN_EMAILS`, `ACCESS_*` and `CONTACT_*` are still empty in production (session 18 fills them;
+- `ADMIN_EMAILS` and `ACCESS_*` are still empty in production (session 18 fills them;
   `scripts/preflight.ts` refuses the deploy until then).
 - Real Access JWTs are accepted on staging: the service token's (session 07: `common_name`, `aud`, issuer,
   signature) and a person's (the email path, the owner's browser check, 07b).
