@@ -19,6 +19,24 @@ this file first, so state facts and not intentions.
 
 ---
 
+## 07c — Staging switched to the custom domains — PARTIAL (code and docs ready; not deployed) — 2026-11-05
+- PR: branch `portal/07c-staging-custom-domains`. **Do not merge until public resolvers show `fay`/`zeus` for `knockbox.nz`** (see Remaining).
+- Built:
+  - `env.staging` is one Worker on `photos-staging.knockbox.nz` and `admin-staging.knockbox.nz` (Custom Domains), `workers_dev` false, the admin vars from the old `staging-admin`, `ACCESS_AUD` = the `admin-staging` app's.
+  - `env.staging-admin` is gone, with its `provision.ts` entry, the build's dry run and the workflow's second deploy.
+  - `preflight.ts`: staging now follows production's rules (exactly the two custom-domain routes, `workers_dev` false, Access configured), keeps off production's D1 and R2, and may keep the service client.
+  - Smoke and workflow hosts, AGENTS.md, DESIGN §4.1 and Portal.md ("Interim staging" removed), SETUP C and D updated.
+- Booth: no code change. The portal address is typed in by the operator, or set with `PHOTOBOOTH_PORTAL_URL` at build time (release builds start empty). Debug builds on the tablet re-enrol by typing `https://photos-staging.knockbox.nz`.
+- Verified: `bun run typecheck`, `bun run test` (Vitest + 307 bun tests), `bun run build` (dry runs), `preflight --env staging` ok. **Unverified (nothing run against Cloudflare yet):** the deploy, the Custom Domains' DNS and certificates, the smoke on the new hosts, Access refusing without a token and with a wrong secret and accepting the service token, the WAF rule, the fail-closed toggle, and the tablet run.
+- Independent review (fresh-context subagent, REVIEW.md): no blockers. Fixed: `waitForCommit` threw on a failed `fetch` (DNS or TLS not ready on a new custom domain) instead of retrying until its deadline; preflight now also refuses staging claiming production's hostnames or `ACCESS_AUD`, with tests for those and for `route`. It re-ran typecheck, the script tests and preflight; the Vitest and build results above are mine.
+- Remaining:
+  1. Wait until `1.1.1.1`, `8.8.8.8` (and `9.9.9.9`) answer NS `fay`/`zeus` for `knockbox.nz` (they answered `cash`/`vida` at 2026-11-04 20:15 UTC; caches may last until about 2026-11-05 20:00 UTC). Only then merge or dispatch. Merging earlier triggers `deploy-staging.yml`, which turns off `workers.dev` for staging and then fails its smoke through the stale resolvers (the old zone has no records for the new hosts).
+  2. Deploy through the workflow; check the smoke, Access (no token, wrong secret, service token) and the WAF rule.
+  3. Re-enrol the tablet against `photos-staging` and get one real session to READY.
+  4. Owner, only after step 2 is verified: delete the `portal-staging-admin` Worker and its Worker-level Access app (with its policy `Agent Staging Service Auth`), turn off `portal-staging`'s `workers.dev` route if it still shows, and look at the fail-closed toggle (SETUP C). Then confirm `portal-staging-admin.josh-33c.workers.dev` no longer serves.
+
+---
+
 ## SETUP — F production resources — DONE — 2026-11-05
 - PR: #43 (branch `portal/setup-f`).
 - Built, on real Cloudflare: D1 `portal` (`3cec22a2-153a-448a-999b-4a1ae6e0dc18`, region OC, no tables yet: the deploy runs the migrations), R2 `portal-media` (OC), Worker `portal` as an empty 404 stub with the secrets `UPLOAD_KEY` and `SESSION_KEY`. `env.production` now has the database ID and contact email. The owner removed the postal address from the config, API contract, preflight, gallery and docs, because the business has no physical office, and asked for a smaller footer.

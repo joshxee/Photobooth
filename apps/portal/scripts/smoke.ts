@@ -12,8 +12,8 @@
 // sent as the Host header (the Worker routes on Host).
 //
 // Staging (the deploy workflow, or an agent locally), each host at its own origin:
-//   bun run scripts/smoke.ts --photos https://portal-staging.josh-33c.workers.dev \
-//     --admin https://portal-staging-admin.josh-33c.workers.dev [--commit <sha>] [--bucket portal-media-staging]
+//   bun run scripts/smoke.ts --photos https://photos-staging.knockbox.nz \
+//     --admin https://admin-staging.knockbox.nz [--commit <sha>] [--bucket portal-media-staging]
 // Admin calls carry the Access service token from CF_ACCESS_CLIENT_ID / CF_ACCESS_CLIENT_SECRET.
 // First it checks that Access, not the Worker, turns away a request without the token or with a
 // wrong one. `--commit` waits until both hosts' /healthz report that commit (a fresh deploy can take
@@ -157,13 +157,20 @@ async function expectAccessRefuses(label: string, headers: Record<string, string
 async function waitForCommit(target: Target, headers: Record<string, string>, commit: string): Promise<void> {
   const deadline = Date.now() + 120_000;
   for (;;) {
-    const res = await send(target, "/healthz", { headers });
-    const body = res.ok ? ((await res.json()) as { commit?: string | null }) : (await res.arrayBuffer(), null);
-    if (body?.commit === commit) {
-      console.log(`ok  ${res.status} GET ${target.host}/healthz commit ${commit}`);
-      return;
+    let seen = "no answer";
+    try {
+      const res = await send(target, "/healthz", { headers });
+      const body = res.ok ? ((await res.json()) as { commit?: string | null }) : (await res.arrayBuffer(), null);
+      if (body?.commit === commit) {
+        console.log(`ok  ${res.status} GET ${target.host}/healthz commit ${commit}`);
+        return;
+      }
+      seen = `${res.status} ${JSON.stringify(body)}`;
+    } catch (error) {
+      // A new custom domain refuses connections (DNS, then TLS) until its record and certificate exist.
+      seen = error instanceof Error ? error.message : String(error);
     }
-    if (Date.now() > deadline) throw new Error(`${target.host}/healthz: expected commit ${commit}, got ${res.status} ${JSON.stringify(body)}`);
+    if (Date.now() > deadline) throw new Error(`${target.host}/healthz: expected commit ${commit}, got ${seen}`);
     await Bun.sleep(5_000);
   }
 }
@@ -364,8 +371,8 @@ async function main(): Promise<void> {
   const thumb = new Uint8Array(await Bun.file(new URL("booth-thumb.jpg", dir)).arrayBuffer());
   const hd = new Uint8Array(await Bun.file(new URL("booth-hd.jpg", dir)).arrayBuffer());
 
-  // The deploy first: until a newly enabled workers.dev hostname is live, Cloudflare answers it
-  // with a bare 404, which isn't Access refusing.
+  // The deploy first: until a new custom domain's DNS record and certificate are live, the hostname
+  // doesn't answer (or Cloudflare answers it itself), which isn't Access refusing.
   if (values.commit) {
     await waitForCommit(photos, {}, values.commit);
     await waitForCommit(admin, accessHeaders(), values.commit);

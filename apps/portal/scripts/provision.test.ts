@@ -8,15 +8,14 @@ const config = Bun.JSONC.parse(await Bun.file(new URL("../wrangler.jsonc", impor
 const commands = (env: string) => provisionCommands(config, env).filter((l) => !l.startsWith("#"));
 
 describe("provisionCommands", () => {
-  it("creates staging's one D1 and one R2 and sets both secrets on both staging Workers", () => {
+  it("creates staging's one D1 and one R2 and sets both secrets on the staging Worker", () => {
     const lines = commands("staging");
     expect(lines).toContain("npx wrangler d1 create portal-staging --location oc --no-update-config");
     expect(lines).toContain("npx wrangler r2 bucket create portal-media-staging --location oc --no-update-config");
     for (const secret of ["UPLOAD_KEY", "SESSION_KEY"]) {
-      for (const env of ["staging", "staging-admin"]) {
-        expect(lines).toContain(`$k | npx wrangler secret put ${secret} --env ${env}`);
-      }
+      expect(lines).toContain(`$k | npx wrangler secret put ${secret} --env staging`);
     }
+    expect(lines.join("\n")).not.toContain("staging-admin");
     // A fresh value per secret, never written out.
     expect(lines.filter((l) => l.startsWith("$k = ")).length).toBe(2);
     expect(lines.join("\n")).not.toMatch(/echo|Write-Output|Out-File|Set-Content/);

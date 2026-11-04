@@ -73,7 +73,7 @@ curl https://admin-staging.<domain>/api/events            # without Access → A
 ```
 
 ## Done when
-Done on the interim `workers.dev` staging (DESIGN §4.1 deviation). The workflow is
+Done first on `workers.dev` and moved to the custom domains by 07c (PROGRESS.md). The workflow is
 `deploy-staging.yml`, not `deploy-portal.yml`, with production in `deploy-production.yml`.
 
 - [x] Staging deploys from CI only, and the smoke run is green, including the APP1 rejection

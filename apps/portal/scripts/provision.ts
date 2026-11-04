@@ -20,8 +20,7 @@ interface WorkerEnv {
 
 /** The Wrangler environments that make up each deployment environment. */
 export const ENVIRONMENTS: Record<string, string[]> = {
-  // Interim: two Workers on workers.dev sharing one D1 and R2 (wiki/Portal.md).
-  staging: ["staging", "staging-admin"],
+  staging: ["staging"],
   production: ["production"],
 };
 

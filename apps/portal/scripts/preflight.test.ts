@@ -6,13 +6,14 @@ const committed = Bun.JSONC.parse(await Bun.file(new URL("../wrangler.jsonc", im
 const DB_ID = "11111111-2222-3333-4444-555555555555";
 const PROD_DB_ID = "66666666-7777-8888-9999-aaaaaaaaaaaa";
 const AUD = "a".repeat(64);
+const STAGING_AUD = "b".repeat(64);
 
 /** The committed config with real-looking IDs filled in, so each test breaks exactly one thing. */
 function ready(): Config {
   const c = structuredClone(committed);
-  for (const name of ["staging", "staging-admin"]) c.env[name]!.d1_databases[0]!.database_id = DB_ID;
+  c.env.staging!.d1_databases[0]!.database_id = DB_ID;
+  c.env.staging!.vars.ACCESS_AUD = STAGING_AUD;
   c.env.production!.d1_databases[0]!.database_id = PROD_DB_ID;
-  c.env["staging-admin"]!.vars.ACCESS_AUD = AUD;
   const prod = c.env.production!;
   prod.routes = [
     { pattern: "photos.knockbox.nz", custom_domain: true },
@@ -41,42 +42,65 @@ describe("preflight", () => {
     expect(problems).toContain("hosts must be the real domain");
   });
 
+  it("passes the committed staging block once its database_id is in", () => {
+    const c = structuredClone(committed);
+    c.env.staging!.d1_databases[0]!.database_id = DB_ID;
+    expect(preflight(c, "staging")).toEqual([]);
+  });
+
   it("refuses placeholder IDs, DEV_AUTH and missing contact values", () => {
     const c = ready();
     c.env.staging!.d1_databases[0]!.database_id = "00000000-0000-0000-0000-000000000000";
     c.env.staging!.vars.DEV_AUTH = "1";
-    c.env["staging-admin"]!.vars.CONTACT_EMAIL = "";
+    c.env.staging!.vars.CONTACT_EMAIL = "";
     expect(preflight(c, "staging")).toEqual([
       "env.staging: the DB binding needs the real database_id",
       "env.staging: DEV_AUTH must be empty",
-      "env.staging-admin: CONTACT_EMAIL must be set",
-      "env.staging-admin: must share portal-staging's D1 and R2",
+      "env.staging: CONTACT_EMAIL must be set",
     ]);
   });
 
-  it("keeps the admin out of the gallery Worker, which has no Access in front", () => {
+  it("refuses staging on workers.dev, with extra routes, or back on its interim hosts", () => {
     const c = ready();
-    c.env.staging!.vars.ADMIN_HOST = "portal-staging-admin.josh-33c.workers.dev";
-    c.env.staging!.vars.ACCESS_AUD = AUD;
+    const staging = c.env.staging!;
+    staging.workers_dev = true;
+    staging.routes!.push({ pattern: "photos-staging.knockbox.nz/*" });
     expect(preflight(c, "staging")).toEqual([
-      "env.staging: ADMIN_HOST must be a .invalid hostname",
-      "env.staging: Access vars must be empty",
+      "env.staging: workers_dev must be false (custom domains only)",
+      "env.staging: routes must be exactly the two custom domains GALLERY_HOST and ADMIN_HOST",
     ]);
+    const d = ready();
+    d.env.staging!.vars.GALLERY_HOST = "portal-staging.josh-33c.workers.dev";
+    d.env.staging!.routes![0]!.pattern = "portal-staging.josh-33c.workers.dev";
+    expect(preflight(d, "staging")).toEqual(["env.staging: hosts must be the real domain"]);
   });
 
-  it("requires the admin Worker's Access config, its own hostname, the gallery's host, and no cron", () => {
+  it("refuses staging claiming production's hostnames or Access application, or a singular route", () => {
     const c = ready();
-    const admin = c.env["staging-admin"]!;
-    admin.vars.ACCESS_AUD = "";
-    admin.vars.ADMIN_HOST = "portal-staging.josh-33c.workers.dev";
-    admin.vars.GALLERY_HOST = "photos.admin.invalid";
-    admin.triggers = undefined;
+    const staging = c.env.staging!;
+    Object.assign(staging.vars, { GALLERY_HOST: "photos.knockbox.nz", ADMIN_HOST: "admin.knockbox.nz" });
+    staging.routes = [
+      { pattern: "photos.knockbox.nz", custom_domain: true },
+      { pattern: "admin.knockbox.nz", custom_domain: true },
+    ];
+    staging.vars.ACCESS_AUD = AUD;
     expect(preflight(c, "staging")).toEqual([
-      "env.staging-admin: ADMIN_HOST must be this Worker's workers.dev hostname",
-      "env.staging-admin: GALLERY_HOST must be portal-staging's, for the QR links",
-      "env.staging-admin: ACCESS_AUD must be the Access application's 64-hex AUD tag",
-      // Without its own triggers it inherits the top-level cron.
-      "env.staging-admin: crons must be empty (the cron runs on portal-staging)",
+      "env.staging: must not claim production's hostnames",
+      "env.staging: ACCESS_AUD must be its own Access application's, not production's",
+    ]);
+    const d = ready();
+    d.env.staging!.route = "photos-staging.knockbox.nz/*";
+    expect(preflight(d, "staging")).toEqual(["env.staging: use routes, not route"]);
+  });
+
+  it("requires staging's Access config, and lets it keep the service token", () => {
+    const c = ready();
+    expect(c.env.staging!.vars.ADMIN_SERVICE_CLIENTS).not.toBe("");
+    c.env.staging!.vars.ACCESS_AUD = "";
+    c.env.staging!.vars.ADMIN_EMAILS = "";
+    expect(preflight(c, "staging")).toEqual([
+      "env.staging: ACCESS_AUD must be the Access application's 64-hex AUD tag",
+      "env.staging: ADMIN_EMAILS must be set",
     ]);
   });
 
@@ -112,10 +136,10 @@ describe("preflight", () => {
 
   it("keeps staging off production's D1 and R2", () => {
     const c = ready();
-    for (const name of ["staging", "staging-admin"]) c.env[name]!.d1_databases[0]!.database_id = PROD_DB_ID;
+    c.env.staging!.d1_databases[0]!.database_id = PROD_DB_ID;
     expect(preflight(c, "staging")).toEqual(["env.staging: must not use production's D1 or R2"]);
     const d = ready();
-    for (const name of ["staging", "staging-admin"]) d.env[name]!.r2_buckets[0]!.bucket_name = "portal-media";
+    d.env.staging!.r2_buckets[0]!.bucket_name = "portal-media";
     expect(preflight(d, "staging")).toEqual(["env.staging: must not use production's D1 or R2"]);
   });
 
@@ -130,16 +154,7 @@ describe("preflight", () => {
     ]);
   });
 
-  it("refuses routes inherited into staging and a production admin host equal to the gallery's", () => {
-    const c = ready();
-    c.routes = [{ pattern: "photos.knockbox.nz", custom_domain: true }];
-    expect(preflight(c, "staging")).toEqual([
-      "env.staging: no routes until the custom-domain switch",
-      "env.staging-admin: no routes until the custom-domain switch",
-    ]);
-    const d = ready();
-    d.route = "photos.knockbox.nz/*";
-    expect(preflight(d, "staging")).toHaveLength(2);
+  it("refuses a production admin host equal to the gallery's", () => {
     const e = ready();
     e.env.production!.vars.ADMIN_HOST = "photos.knockbox.nz";
     e.env.production!.routes = [
