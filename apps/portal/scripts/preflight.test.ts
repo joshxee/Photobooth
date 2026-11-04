@@ -35,8 +35,19 @@ describe("preflight", () => {
     expect(preflight(ready(), "production")).toEqual([]);
   });
 
-  it("refuses the committed production block until session 18 fills it in", () => {
-    const problems = preflight(committed, "production").join("\n");
+  it("accepts the committed production block", () => {
+    expect(preflight(committed, "production")).toEqual([]);
+  });
+
+  it("refuses production with placeholder hosts or no Access config", () => {
+    const c = ready();
+    const prod = c.env.production!;
+    prod.routes = [
+      { pattern: "photos.example.invalid", custom_domain: true },
+      { pattern: "admin.example.invalid", custom_domain: true },
+    ];
+    Object.assign(prod.vars, { GALLERY_HOST: "photos.example.invalid", ADMIN_HOST: "admin.example.invalid", ACCESS_AUD: "" });
+    const problems = preflight(c, "production").join("\n");
     expect(problems).toContain("ACCESS_AUD");
     expect(problems).toContain("hosts must be the real domain");
   });

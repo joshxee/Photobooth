@@ -1,9 +1,7 @@
 name: Deploy production
 
 # Production deploys only ever run from here, started by hand from main AND approved by the required
-# reviewer on the `production` environment (SETUP.md E). Agents never start it (AGENTS.md). It is
-# not used before session 18: until that session has filled env.production in wrangler.jsonc, the
-# preflight step stops it before anything is touched.
+# reviewer on the `production` environment (SETUP.md E). Agents never start it (AGENTS.md).
 # A production smoke run is session 18's decision.
 
 on:

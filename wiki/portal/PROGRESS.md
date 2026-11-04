@@ -19,6 +19,21 @@ this file first, so state facts and not intentions.
 
 ---
 
+## 18 — Production config for tonight's pilot — PARTIAL — 2026-11-05
+- PR: see the PR for branch `portal/18-production-config`.
+- Built: `env.production` filled in: hosts `photos.knockbox.nz` and `admin.knockbox.nz`, the production `ACCESS_AUD`, team domain, both admin emails, and an empty `ADMIN_SERVICE_CLIENTS`. `DEV_AUTH` stays empty, and preflight refuses anything else.
+- Verified: see the PR for the checks. Read back through the API: the Access app `admin` has this AUD and only the `Admins` policy, the stub has both secrets, its `workers.dev` and Preview URLs are off, and the zone has no records on the two hostnames that could block a Custom Domain. **Unverified:** the deploy itself, including `ci-deploy` attaching a Custom Domain (never exercised, as #40 hasn't deployed), the stub's secrets surviving it, and the WAF rule on `photos.knockbox.nz`.
+- Device check: critical: awaiting the production dry run and the event.
+- Deviations from the plan, because the owner has a pilot event tonight (2026-11-05):
+  - Session 18 runs before session 17, so the release gates have not been run against production's code as a set. The nearest evidence is session 10b's device gate on staging.
+  - No release-signed APK or `portal_url` default: the tablet keeps the debug build (`com.jc.photobooth.tauri`), the build every device check ran on, and the operator types the production address at enrolment.
+  - The staging custom-domain switch (#40) and its cleanup wait until after the pilot.
+- Wiki updated: `wiki/Portal.md`
+- Remaining: the owner merges and deploys; dry run; pilot; reconcile; retrospective; then session 17's gates.
+- Notes for next session: resolvers holding the old `cash`/`vida` delegation get no answer for the new hostnames until their cache expires, at the latest about 2026-11-05 20:00 UTC.
+
+---
+
 ## SETUP — F production resources — DONE — 2026-11-05
 - PR: #43 (branch `portal/setup-f`).
 - Built, on real Cloudflare: D1 `portal` (`3cec22a2-153a-448a-999b-4a1ae6e0dc18`, region OC, no tables yet: the deploy runs the migrations), R2 `portal-media` (OC), Worker `portal` as an empty 404 stub with the secrets `UPLOAD_KEY` and `SESSION_KEY`. `env.production` now has the database ID and contact email. The owner removed the postal address from the config, API contract, preflight, gallery and docs, because the business has no physical office, and asked for a smaller footer.
