@@ -754,7 +754,7 @@ with any other value is inline. Only `thumb` and `hd` exist; anything else is th
 - `SESSION_KEY` (at least 32 characters, `secrets.required` in every environment) signs the
   cookies, separate from `UPLOAD_KEY`. Without it every guest request fails closed (500). There is
   one key at a time, so rotating it logs every guest out (they reopen the link).
-- `CONTACT_ADDRESS` and `CONTACT_EMAIL` are in every list response (the footer's removal contact).
+- `CONTACT_EMAIL` is in every list response (the footer's removal contact). There is no postal address.
   Local placeholders are in `wrangler.jsonc`; staging has the real ones (session 07); production is
   still empty, so its list would answer a logged 500 (`internal_error`), and `scripts/preflight.ts`
   refuses to deploy it like that.

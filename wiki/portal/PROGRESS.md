@@ -19,6 +19,18 @@ this file first, so state facts and not intentions.
 
 ---
 
+## SETUP — F production resources — PARTIAL — 2026-11-05
+- PR: see the PR for branch `portal/setup-f`.
+- Built, on real Cloudflare: D1 `portal` (`3cec22a2-153a-448a-999b-4a1ae6e0dc18`, region OC, no tables yet: the deploy runs the migrations), R2 `portal-media` (OC), Worker `portal` as an empty 404 stub with the secrets `UPLOAD_KEY` and `SESSION_KEY`. `env.production` now has the database ID and contact email. The owner removed the postal address everywhere (config, API contract, preflight, gallery) because the business has no physical office, and asked for a smaller footer.
+- Verified: read back through the API: both resources exist, the secret names and types are listed, the stub's `workers.dev` and Preview URLs are off, and it has no custom domains. `preflight.ts --env production` still refuses, because session 18 fills in the rest. Typecheck, `bun run test` (644 Vitest, 306 `bun test`) and build pass on Node 22.11 (Vitest in workerd crashes or hangs here under another Node). **Unverified:** the stub's secrets surviving the first real deploy, which is Wrangler's documented behaviour.
+- Device check: n/a
+- Deviations from DESIGN.md and AGENTS.md: at the owner's direct request ("you should be able to do these tasks with cloudflare"), an agent made these production writes through the API MCP under the owner's OAuth login, as a one-off. The rules that agents never deploy production and normally use the MCP read-only are unchanged.
+- Wiki updated: none
+- Remaining: nothing in SETUP F. The owner accepted the footer notice for now; it has had no legal review. The gallery footer is the only privacy notice: the owner dropped the booth notice from DESIGN §15. The old address stays in git history.
+- Notes for next session: don't run `provision.ts --env production`: it would create duplicates and replace the secrets.
+
+---
+
 ## 18a — Production deploy decision — DONE — 2026-11-05
 - PR: #42 (branch `portal/18a-prod-deploy-decision`). Docs only. Closes the open question in DESIGN §4.1.
 - Built: nothing. The owner decided to keep the simple setup: production deploys from `main` by dispatch plus the `production` environment's approval. A release branch was tried in #41 and closed unmerged. A separate Cloudflare account and a bot GitHub identity were also declined.

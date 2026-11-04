@@ -21,7 +21,7 @@ function page(photos: GalleryPhoto[], nextCursor: string | null = null): Gallery
     eventOpen: true,
     photos,
     nextCursor,
-    contact: { address: "1 Example St", email: "privacy@example.invalid" },
+    contact: { email: "privacy@example.invalid" },
   };
 }
 const ids = (photos: GalleryPhoto[]) => photos.map((p) => p.id.slice(-2));
